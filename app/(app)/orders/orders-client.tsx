@@ -89,6 +89,9 @@ export function OrdersClient({
     approval: 0, dispatch: 0, transit: 0, delivered: 0, rejected: 0, all: 0,
   });
 
+  // Bumped when an action happens in the drawer; triggers list + counts refresh
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [open, setOpen] = useState<Order | null>(null);
 
   useEffect(() => {
@@ -126,7 +129,7 @@ export function OrdersClient({
       setCounts(c);
     })();
     return () => { cancelled = true; };
-  }, [supabase, dateF, page]); // re-fetch counts after actions (page changes when refresh happens)
+  }, [supabase, dateF, reloadKey]);
 
   // Fetch rows for the active tab
   useEffect(() => {
@@ -160,7 +163,7 @@ export function OrdersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, tab, searchDebounced, salesmanF, dateF, page]);
+  }, [supabase, tab, searchDebounced, salesmanF, dateF, page, reloadKey]);
 
   const activeTabDef = TABS.find(t => t.key === tab)!;
 
@@ -274,7 +277,12 @@ export function OrdersClient({
         </div>
       </div>
 
-      <OrderDrawer order={open} onClose={() => setOpen(null)} me={me} />
+      <OrderDrawer
+        order={open}
+        onClose={() => setOpen(null)}
+        onChanged={() => setReloadKey(k => k + 1)}
+        me={me}
+      />
     </div>
   );
 }

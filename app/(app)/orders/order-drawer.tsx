@@ -51,30 +51,37 @@ type EditState = {
 export function OrderDrawer({
   order,
   onClose,
+  onChanged,
   me,
 }: {
   order: Order | null;
   onClose: () => void;
+  onChanged?: () => void;
   me: AppUser;
 }) {
   // Thin wrapper: handles the null case so the inner component can rely on a
   // non-null `order` typing and avoid TS narrowing issues inside async callbacks.
   // `key` ensures fresh state when switching between orders.
   if (!order) return null;
-  return <OrderDrawerInner key={order.id} order={order} onClose={onClose} me={me} />;
+  return <OrderDrawerInner key={order.id} order={order} onClose={onClose} onChanged={onChanged} me={me} />;
 }
 
 function OrderDrawerInner({
-  order,
+  order: orderProp,
   onClose,
+  onChanged,
   me,
 }: {
   order: Order;
   onClose: () => void;
+  onChanged?: () => void;
   me: AppUser;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  // Local copy of the order so we can refresh it after actions without waiting
+  // for the parent list to re-fetch.
+  const [order, setOrder] = useState<Order>(orderProp);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [audit, setAudit] = useState<OrderAuditEvent[]>([]);
   const [revisions, setRevisions] = useState<OrderRevision[]>([]);
@@ -175,17 +182,21 @@ function OrderDrawerInner({
   }
 
   async function reload() {
-    const [{ data: it }, { data: au }, { data: rv }, { data: ds }] = await Promise.all([
+    const [{ data: oRow }, { data: it }, { data: au }, { data: rv }, { data: ds }] = await Promise.all([
+      supabase.from("orders").select("*, customer:customers(id,name,customer_type,city,mobile), salesman:salesmen(id,name)").eq("id", order.id).single(),
       supabase.from("order_items").select("*").eq("order_id", order.id).order("created_at"),
       supabase.from("order_audit_events").select("*").eq("order_id", order.id).order("created_at", { ascending: false }),
       supabase.from("order_revisions").select("*").eq("order_id", order.id).order("revision_number", { ascending: false }),
       supabase.from("dispatches").select("*, items:dispatch_items(*, order_item:order_items(product_name,unit)), pod:pods(*)").eq("order_id", order.id).order("created_at", { ascending: false }),
     ]);
+    if (oRow) setOrder(oRow as unknown as Order);
     setItems(it ?? []);
     setAudit(au ?? []);
     setRevisions(rv ?? []);
     setDispatches(((ds ?? []) as unknown as (Dispatch & { pod: unknown })[])
       .map((d) => ({ ...d, pod: Array.isArray(d.pod) ? d.pod[0] ?? null : d.pod ?? null })) as unknown as Dispatch[]);
+    // Notify parent so the orders list + tab counts refresh
+    onChanged?.();
   }
 
   // Determine remaining qty per line (= qty - already in pending/shipped/delivered dispatches)
