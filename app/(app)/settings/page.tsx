@@ -1,11 +1,35 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
+import { SyncPanel } from "./sync-panel";
+import type { RupyzSyncLog } from "@/lib/types";
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const { data: me } = await supabase.from("app_users").select("role").eq("id", user.id).single();
+  if (!me || me.role !== "admin") redirect("/dashboard");
+
+  const [{ data: session }, { data: logs }] = await Promise.all([
+    supabase.from("rupyz_session").select("org_id, username, expires_at, last_refreshed_at").maybeSingle(),
+    supabase.from("rupyz_sync_log")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(15),
+  ]);
+
   return (
     <>
       <PageHeader title="Settings" subtitle="Integration & system configuration" />
-      <div className="p-6 max-w-2xl space-y-4">
-        <Card title="Rupyz fetcher" detail="Coming in Phase 2 — login number, polling interval, OTP webhook URL." />
+      <div className="p-6 max-w-4xl space-y-6">
+        <SyncPanel
+          session={session as { org_id: number; username: string; expires_at: string; last_refreshed_at: string } | null}
+          logs={(logs ?? []) as RupyzSyncLog[]}
+        />
+
         <Card title="Tally bridge"  detail="Coming in Phase 4 — local agent registration, manual sync trigger." />
         <Card title="WATi WhatsApp" detail="Coming in Phase 5 — API key, template IDs, sender number." />
       </div>
