@@ -183,6 +183,21 @@ export function OrdersClient({
     setLoading(true);
     (async () => {
       const tabDef = TABS.find(t => t.key === tab)!;
+      const term = searchDebounced.trim();
+      // Strip chars that would break Supabase's .or() filter syntax
+      const safeTerm = term.replace(/[,()]/g, "");
+
+      // If searching, first find matching customer IDs so we can OR them with order-number matches
+      let customerIds: string[] = [];
+      if (safeTerm) {
+        const { data: cs } = await supabase
+          .from("customers")
+          .select("id")
+          .ilike("name", `%${safeTerm}%`)
+          .limit(300); // cap to keep URL length sane
+        customerIds = (cs ?? []).map((c: { id: string }) => c.id);
+      }
+
       let q = supabase
         .from("orders")
         .select("*, customer:customers(id,name,customer_type,city), salesman:salesmen(id,name)", { count: "exact" });
@@ -190,7 +205,13 @@ export function OrdersClient({
       if (tabDef.statuses !== "all") {
         q = q.in("app_status", tabDef.statuses);
       }
-      if (searchDebounced.trim()) q = q.ilike("rupyz_order_id", `%${searchDebounced.trim()}%`);
+      if (safeTerm) {
+        if (customerIds.length > 0) {
+          q = q.or(`rupyz_order_id.ilike.%${safeTerm}%,customer_id.in.(${customerIds.join(",")})`);
+        } else {
+          q = q.ilike("rupyz_order_id", `%${safeTerm}%`);
+        }
+      }
       if (salesmanF !== "all") q = q.eq("salesman_id", salesmanF);
       if (dateF !== "all") {
         const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
@@ -232,7 +253,7 @@ export function OrdersClient({
       <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4 flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order number…" className="pl-8" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order # or customer name…" className="pl-8" />
         </div>
 
         <Select value={salesmanF} onValueChange={setSalesmanF}>
