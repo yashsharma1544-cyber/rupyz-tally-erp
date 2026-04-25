@@ -170,8 +170,12 @@ export function OrdersClient({ salesmen }: { salesmen: Pick<Salesman, "id" | "na
                   </td>
                 </tr>
               ) : (
-                rows.map((o) => (
-                  <tr key={o.id} className="hover:bg-paper-subtle/40 transition-colors">
+          rows.map((o) => (
+                  <tr
+                    key={o.id}
+                    onClick={() => setOpen(o)}
+                    className="hover:bg-paper-subtle/40 transition-colors cursor-pointer"
+                  >
                     <td className="px-3 py-2 font-mono text-xs">{o.rupyz_order_id}</td>
                     <td className="px-3 py-2 tabular text-ink-muted">
                       {new Date(o.rupyz_created_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
