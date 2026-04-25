@@ -1,0 +1,61 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 250 247 242;
+  --foreground: 14 20 20;
+}
+
+* {
+  border-color: theme("colors.paper.line");
+}
+
+html, body {
+  background: theme("colors.paper.DEFAULT");
+  color: theme("colors.ink.DEFAULT");
+  font-feature-settings: "ss01", "cv11";
+}
+
+body {
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: theme("colors.accent.DEFAULT");
+  color: white;
+}
+
+/* Subtle paper grain that's only visible on light surfaces */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(14,20,20,0.025) 1px, transparent 1px);
+  background-size: 3px 3px;
+  z-index: 0;
+}
+
+/* Scrollbar — minimal */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: theme("colors.paper.line");
+  border-radius: 999px;
+  border: 2px solid theme("colors.paper.DEFAULT");
+}
+::-webkit-scrollbar-thumb:hover { background: theme("colors.ink.subtle"); }
+
+/* Tabular numbers everywhere we need data alignment */
+.tabular { font-variant-numeric: tabular-nums; font-family: theme("fontFamily.mono"); }
+
+/* Focus ring — refined */
+*:focus-visible {
+  outline: 2px solid theme("colors.accent.DEFAULT");
+  outline-offset: 2px;
+  border-radius: 3px;
+}
