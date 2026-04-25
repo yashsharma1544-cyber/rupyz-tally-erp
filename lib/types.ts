@@ -151,21 +151,9 @@ export interface Order {
   approved_by: string | null;
   rejected_at: string | null;
   rejected_by: string | null;
-  reject_reason: string | null;
   is_edited: boolean;
   edited_at: string | null;
   edited_by: string | null;
-  cgst_amount: number;
-  sgst_amount: number;
-  round_off_amount: number;
-  remaining_payment_days: number | null;
-  payment_option_check: string | null;
-  delivery_address_line: string | null;
-  delivery_pincode: string | null;
-  delivery_state: string | null;
-  rupyz_delivery_status: string;
-  rupyz_created_by_name: string | null;
-  delivery_mobile: string | null;
   created_at: string;
   updated_at: string;
   // Joined
