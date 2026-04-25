@@ -60,12 +60,15 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
     if (!photo) { toast.error("Capture a photo first"); return; }
     if (!coords) { toast.error("Wait for location to lock, or refresh"); return; }
 
+    const photoFile = photo;
+    const c = coords;
+
     startTransition(async () => {
       // 1. Upload photo to storage
       const objectName = `dispatch-${dispatch.id}/${Date.now()}.jpg`;
       const { error: upErr } = await supabase.storage
         .from("pod-photos")
-        .upload(objectName, photo, { contentType: photo.type, upsert: false });
+        .upload(objectName, photoFile, { contentType: photoFile.type, upsert: false });
       if (upErr) { toast.error(`Upload failed: ${upErr.message}`); return; }
 
       // 2. Get public URL
@@ -74,9 +77,9 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
       // 3. Mark dispatch delivered (server action)
       const res = await markDelivered(dispatch.id, {
         photoUrl: publicUrl,
-        latitude: coords.lat,
-        longitude: coords.lng,
-        accuracyM: coords.accuracy,
+        latitude: c.lat,
+        longitude: c.lng,
+        accuracyM: c.accuracy,
         receiverName: receiverName.trim() || undefined,
         notes: notes.trim() || undefined,
       });

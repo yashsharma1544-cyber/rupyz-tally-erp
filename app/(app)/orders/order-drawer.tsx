@@ -57,6 +57,22 @@ export function OrderDrawer({
   onClose: () => void;
   me: AppUser;
 }) {
+  // Thin wrapper: handles the null case so the inner component can rely on a
+  // non-null `order` typing and avoid TS narrowing issues inside async callbacks.
+  // `key` ensures fresh state when switching between orders.
+  if (!order) return null;
+  return <OrderDrawerInner key={order.id} order={order} onClose={onClose} me={me} />;
+}
+
+function OrderDrawerInner({
+  order,
+  onClose,
+  me,
+}: {
+  order: Order;
+  onClose: () => void;
+  me: AppUser;
+}) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -77,7 +93,6 @@ export function OrderDrawer({
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
-    if (!order) return;
     setLoading(true); setEditMode(false); setRejectMode(false); setDispatchMode(false); setTab("current");
     (async () => {
       const [{ data: it }, { data: au }, { data: rv }, { data: ds }, { data: pr }] = await Promise.all([
@@ -96,8 +111,6 @@ export function OrderDrawer({
       setLoading(false);
     })();
   }, [order, supabase]);
-
-  if (!order) return null;
 
   const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
   const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
@@ -134,9 +147,10 @@ export function OrderDrawer({
       toast.error("No changes to save"); return;
     }
 
+    const comment = editState.comment;
     startTransition(async () => {
       const res = await editOrder(order.id, {
-        lineUpdates, lineRemovals, lineAdditions, comment: editState.comment,
+        lineUpdates, lineRemovals, lineAdditions, comment,
       });
       if (res.error) toast.error(res.error);
       else { toast.success("Order updated"); setEditMode(false); router.refresh(); reload(); }
@@ -188,7 +202,7 @@ export function OrderDrawer({
   }
 
   return (
-    <Sheet open={!!order} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Sheet open={true} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent className="max-w-4xl">
         <SheetHeader>
           <div>
