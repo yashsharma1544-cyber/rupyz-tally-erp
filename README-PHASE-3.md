@@ -15,15 +15,17 @@ This phase adds the full operational workflow on top of the synced Rupyz orders:
 
 ## Step 1 — Run the schema migration
 
-In **Supabase → SQL Editor**, paste and run **`sql/06_phase3_order_workflow.sql`**.
+In **Supabase → SQL Editor**, paste and run:
 
-This creates 5 new tables (`order_audit_events`, `order_revisions`, `dispatches`, `dispatch_items`, `pods`), one helper function (`next_dispatch_number`), one role helper (`user_has_role`), and a public storage bucket for POD photos (`pod-photos`).
+1. **`sql/06_phase3_order_workflow.sql`** — creates 5 new tables, helpers, storage bucket
+2. **`sql/07_orders_kpi_function.sql`** — creates the KPI aggregation function for the orders dashboard
 
 Verify:
 ```sql
 select count(*) from dispatches;       -- expect 0
 select count(*) from order_audit_events; -- expect 0
 select * from storage.buckets where id = 'pod-photos';  -- expect 1 row
+select * from orders_kpis_by_status();   -- expect 1 row per status group
 ```
 
 ## Step 2 — Push the new code
