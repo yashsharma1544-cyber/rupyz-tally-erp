@@ -615,10 +615,10 @@ function DispatchCard({ dispatch, reload, me, pending: parentPending }: { dispat
   const podPath = `/pod/${dispatch.id}`;
 
   const statusBadge = {
-    pending:   { variant: "warn" as const,    label: "Pending" },
-    shipped:   { variant: "accent" as const,  label: "Shipped" },
-    delivered: { variant: "ok" as const,      label: "Delivered" },
-    cancelled: { variant: "danger" as const,  label: "Cancelled" },
+    pending:   { variant: "warn"   as const, label: "Pending" },
+    shipped:   { variant: "accent" as const, label: "Shipped" },
+    delivered: { variant: "ok"     as const, label: "Delivered" },
+    cancelled: { variant: "danger" as const, label: "Cancelled" },
   }[dispatch.status];
 
   return (

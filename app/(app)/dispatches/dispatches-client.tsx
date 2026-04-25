@@ -16,10 +16,10 @@ import { shipDispatch } from "./actions";
 
 function statusBadge(s: DispatchStatus): { variant: "neutral" | "ok" | "warn" | "danger" | "accent"; label: string } {
   return {
-    pending:   { variant: "warn",   label: "Pending" },
-    shipped:   { variant: "accent", label: "In transit" },
-    delivered: { variant: "ok",     label: "Delivered" },
-    cancelled: { variant: "danger", label: "Cancelled" },
+    pending:   { variant: "warn"   as const, label: "Pending" },
+    shipped:   { variant: "accent" as const, label: "In transit" },
+    delivered: { variant: "ok"     as const, label: "Delivered" },
+    cancelled: { variant: "danger" as const, label: "Cancelled" },
   }[s];
 }
 
