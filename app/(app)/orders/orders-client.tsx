@@ -16,16 +16,40 @@ import { OrderDrawer } from "./order-drawer";
 
 const PAGE_SIZE = 50;
 
-const statusFilter: { value: string; label: string }[] = [
-  { value: "all",                  label: "All statuses" },
-  { value: "received",             label: "Received (awaiting approval)" },
-  { value: "approved",             label: "Approved" },
-  { value: "partially_dispatched", label: "Partially dispatched" },
-  { value: "dispatched",           label: "Dispatched" },
-  { value: "delivered",            label: "Delivered" },
-  { value: "rejected",             label: "Rejected" },
-  { value: "closed",               label: "Closed" },
+// Status tabs — each maps a list of underlying app_status values
+type TabKey = "approval" | "dispatch" | "transit" | "delivered" | "rejected" | "all";
+
+interface TabDef {
+  key: TabKey;
+  label: string;
+  statuses: OrderAppStatus[] | "all";
+  emptyHint: string;
+}
+
+const TABS: TabDef[] = [
+  { key: "approval",  label: "Pending Approval",   statuses: ["received"],
+    emptyHint: "No orders waiting for approval. Nice work." },
+  { key: "dispatch",  label: "Ready to Dispatch",  statuses: ["approved", "partially_dispatched"],
+    emptyHint: "Nothing to dispatch right now." },
+  { key: "transit",   label: "In Transit",         statuses: ["dispatched"],
+    emptyHint: "No deliveries on the road right now." },
+  { key: "delivered", label: "Delivered",          statuses: ["delivered"],
+    emptyHint: "No completed orders match your filters." },
+  { key: "rejected",  label: "Rejected",           statuses: ["rejected", "cancelled"],
+    emptyHint: "No rejected or cancelled orders." },
+  { key: "all",       label: "All",                statuses: "all",
+    emptyHint: "No orders match your filters." },
 ];
+
+function defaultTabForRole(role: string): TabKey {
+  switch (role) {
+    case "approver": return "approval";
+    case "dispatch": return "dispatch";
+    case "delivery": return "transit";
+    case "accounts": return "delivered";
+    default:         return "all"; // admin, salesman, others
+  }
+}
 
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
@@ -56,9 +80,14 @@ export function OrdersClient({
 
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
-  const [statusF, setStatusF] = useState<string>("all");
+  const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
   const [salesmanF, setSalesmanF] = useState<string>("all");
   const [dateF, setDateF] = useState<string>("today");
+
+  // Live counts per status group
+  const [counts, setCounts] = useState<Record<TabKey, number>>({
+    approval: 0, dispatch: 0, transit: 0, delivered: 0, rejected: 0, all: 0,
+  });
 
   const [open, setOpen] = useState<Order | null>(null);
 
@@ -67,17 +96,52 @@ export function OrdersClient({
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(0); }, [searchDebounced, statusF, salesmanF, dateF]);
+  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, dateF]);
 
+  // Fetch tab counts (one shot, ignores filters except dateF for relevance)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let q = supabase.from("orders").select("app_status");
+      if (dateF !== "all") {
+        const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
+        const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+        q = q.gte("rupyz_created_at", since);
+      }
+      const { data, error } = await q;
+      if (cancelled || error) return;
+
+      const c: Record<TabKey, number> = {
+        approval: 0, dispatch: 0, transit: 0, delivered: 0, rejected: 0, all: 0,
+      };
+      for (const row of data ?? []) {
+        const s = row.app_status as OrderAppStatus;
+        c.all++;
+        if (s === "received") c.approval++;
+        else if (s === "approved" || s === "partially_dispatched") c.dispatch++;
+        else if (s === "dispatched") c.transit++;
+        else if (s === "delivered") c.delivered++;
+        else if (s === "rejected" || s === "cancelled") c.rejected++;
+      }
+      setCounts(c);
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, dateF, page]); // re-fetch counts after actions (page changes when refresh happens)
+
+  // Fetch rows for the active tab
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     (async () => {
+      const tabDef = TABS.find(t => t.key === tab)!;
       let q = supabase
         .from("orders")
         .select("*, customer:customers(id,name,customer_type,city), salesman:salesmen(id,name)", { count: "exact" });
+
+      if (tabDef.statuses !== "all") {
+        q = q.in("app_status", tabDef.statuses);
+      }
       if (searchDebounced.trim()) q = q.ilike("rupyz_order_id", `%${searchDebounced.trim()}%`);
-      if (statusF !== "all") q = q.eq("app_status", statusF);
       if (salesmanF !== "all") q = q.eq("salesman_id", salesmanF);
       if (dateF !== "all") {
         const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
@@ -96,18 +160,27 @@ export function OrdersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, searchDebounced, statusF, salesmanF, dateF, page]);
+  }, [supabase, tab, searchDebounced, salesmanF, dateF, page]);
+
+  const activeTabDef = TABS.find(t => t.key === tab)!;
 
   return (
     <div className="p-6">
-      {/* Quick filter chips */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        <Chip active={statusF === "all"} onClick={() => setStatusF("all")}>All</Chip>
-        <Chip active={statusF === "received"} onClick={() => setStatusF("received")}>Awaiting approval</Chip>
-        <Chip active={statusF === "approved"} onClick={() => setStatusF("approved")}>Ready to dispatch</Chip>
-        <Chip active={statusF === "partially_dispatched"} onClick={() => setStatusF("partially_dispatched")}>Partial</Chip>
-        <Chip active={statusF === "dispatched"} onClick={() => setStatusF("dispatched")}>In transit</Chip>
-        <Chip active={statusF === "delivered"} onClick={() => setStatusF("delivered")}>Delivered</Chip>
+      {/* Tabs */}
+      <div className="border-b border-paper-line mb-4 -mx-6 px-6">
+        <div className="flex items-center gap-0 overflow-x-auto">
+          {TABS.map((t) => (
+            <TabBtn
+              key={t.key}
+              active={tab === t.key}
+              count={counts[t.key]}
+              showCount={t.key !== "all"}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </TabBtn>
+          ))}
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -116,11 +189,6 @@ export function OrdersClient({
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order number…" className="pl-8" />
         </div>
-
-        <Select value={statusF} onValueChange={setStatusF}>
-          <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
-          <SelectContent>{statusFilter.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
-        </Select>
 
         <Select value={salesmanF} onValueChange={setSalesmanF}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Salesman" /></SelectTrigger>
@@ -162,7 +230,7 @@ export function OrdersClient({
                   <tr key={i}><td colSpan={7} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
                 ))
               ) : rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-12 text-center text-ink-muted">No orders match your filters.</td></tr>
+                <tr><td colSpan={7} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
               ) : (
                 rows.map((o) => (
                   <tr key={o.id} onClick={() => setOpen(o)} className="hover:bg-paper-subtle/40 transition-colors cursor-pointer">
@@ -211,15 +279,32 @@ export function OrdersClient({
   );
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabBtn({
+  active, count, showCount, onClick, children,
+}: {
+  active: boolean;
+  count: number;
+  showCount: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-        active ? "bg-accent text-white border-accent" : "bg-paper-card text-ink-muted border-paper-line hover:border-accent hover:text-ink"
+      className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap inline-flex items-center gap-1.5 transition-colors ${
+        active
+          ? "border-accent text-accent"
+          : "border-transparent text-ink-muted hover:text-ink hover:border-paper-line"
       }`}
     >
       {children}
+      {showCount && count > 0 && (
+        <span className={`tabular text-2xs px-1.5 py-0.5 rounded-full font-semibold ${
+          active ? "bg-accent text-white" : "bg-paper-subtle text-ink-muted"
+        }`}>
+          {count}
+        </span>
+      )}
     </button>
   );
 }
