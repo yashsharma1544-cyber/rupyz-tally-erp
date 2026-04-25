@@ -240,7 +240,7 @@ export interface Dispatch {
   cancelled_by: string | null;
   cancel_reason: string | null;
   // Joined
-  order?: Pick<Order, "id" | "rupyz_order_id" | "customer_id" | "delivery_city"> & {
+  order?: Pick<Order, "id" | "rupyz_order_id" | "customer_id" | "delivery_city" | "delivery_address_line" | "delivery_pincode"> & {
     customer?: Pick<Customer, "id" | "name" | "city" | "mobile"> | null;
   } | null;
   pod?: PointOfDelivery | null;
