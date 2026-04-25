@@ -101,11 +101,11 @@ function BeatForm({ mode, initial, onSaved, onCancel }: { mode: "create" | "edit
       const payload = { name: form.name.trim(), city: form.city.trim() || null, active: form.active };
       if (mode === "create") {
         const { error } = await supabase.from("beats").insert(payload);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Beat added");
       } else {
         const { error } = await supabase.from("beats").update(payload).eq("id", initial!.id);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Beat updated");
       }
       onSaved();

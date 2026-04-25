@@ -101,11 +101,11 @@ function SalesmanForm({ mode, initial, onSaved, onCancel }: { mode: "create" | "
       };
       if (mode === "create") {
         const { error } = await supabase.from("salesmen").insert(payload);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Salesman added");
       } else {
         const { error } = await supabase.from("salesmen").update(payload).eq("id", initial!.id);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Salesman updated");
       }
       onSaved();

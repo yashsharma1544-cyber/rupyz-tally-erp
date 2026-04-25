@@ -270,11 +270,11 @@ function CustomerForm({
 
       if (mode === "create") {
         const { error } = await supabase.from("customers").insert(payload);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Customer added");
       } else {
         const { error } = await supabase.from("customers").update(payload).eq("id", initial!.id);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Customer updated");
       }
       onSaved();

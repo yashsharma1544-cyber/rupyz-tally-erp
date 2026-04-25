@@ -177,11 +177,11 @@ function ProductForm({
       };
       if (mode === "create") {
         const { error } = await supabase.from("products").insert(payload);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Product added");
       } else {
         const { error } = await supabase.from("products").update(payload).eq("id", initial!.id);
-        if (error) return toast.error(error.message);
+        if (error) { toast.error(error.message); return; }
         toast.success("Product updated");
       }
       onSaved();
