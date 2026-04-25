@@ -25,8 +25,8 @@ values (
     17188,
     '1643761',
     '91-9028901902',
-    'qy9EtDRuhD42dzeLiJ5oDtSmeLZM7O',
-    '7vO5PoxMr5NDrreNnLMIudwaSBRJPh',
+    'PASTE-ACCESS-TOKEN-HERE',
+    'PASTE-REFRESH-TOKEN-HERE',
     now() + interval '30 days'
 )
 on conflict (id) do update set

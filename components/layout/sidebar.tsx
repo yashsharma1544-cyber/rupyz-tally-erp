@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   ShoppingBag,
+  Truck,
   Users2,
   Package,
   UserCircle2,
@@ -18,14 +19,15 @@ import { createClient } from "@/lib/supabase/client";
 import type { AppUser } from "@/lib/types";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: "all" },
-  { href: "/orders",    label: "Orders",    icon: ShoppingBag,     roles: "all" },
-  { href: "/customers", label: "Customers", icon: Users2,          roles: "all" },
-  { href: "/products",  label: "Products",  icon: Package,         roles: "all" },
-  { href: "/salesmen",  label: "Salesmen",  icon: UserCircle2,     roles: "all" },
-  { href: "/beats",     label: "Beats",     icon: MapPin,          roles: "all" },
-  { href: "/users",     label: "Users",     icon: Shield,          roles: "admin" },
-  { href: "/settings",  label: "Settings",  icon: Settings,        roles: "admin" },
+  { href: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
+  { href: "/orders",     label: "Orders",     icon: ShoppingBag,     roles: "all" },
+  { href: "/dispatches", label: "Dispatches", icon: Truck,           roles: "all" },
+  { href: "/customers",  label: "Customers",  icon: Users2,          roles: "all" },
+  { href: "/products",   label: "Products",   icon: Package,         roles: "all" },
+  { href: "/salesmen",   label: "Salesmen",   icon: UserCircle2,     roles: "all" },
+  { href: "/beats",      label: "Beats",      icon: MapPin,          roles: "all" },
+  { href: "/users",      label: "Users",      icon: Shield,          roles: "admin" },
+  { href: "/settings",   label: "Settings",   icon: Settings,        roles: "admin" },
 ] as const;
 
 export function Sidebar({ user }: { user: AppUser }) {

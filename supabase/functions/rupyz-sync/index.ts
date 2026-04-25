@@ -295,11 +295,7 @@ async function upsertItems(
 }
 
 // ---- main sync loop -------------------------------------------------------
-async function runSync(
-  trigger: string,
-  opts: { backfill?: boolean; maxPages?: number } = {},
-): Promise<{ ok: boolean; counters: SyncCounters; error?: string }> {
-  const effectiveMaxPages = opts.maxPages ?? MAX_PAGES;
+async function runSync(trigger: string): Promise<{ ok: boolean; counters: SyncCounters; error?: string }> {
   const counters: SyncCounters = {
     pages_fetched: 0,
     orders_inserted: 0,
@@ -337,7 +333,7 @@ async function runSync(
     let page = 1;
     let pageHadWork = true;
 
-    while ((pageHadWork || opts.backfill) && page <= effectiveMaxPages) {
+    while (pageHadWork && page <= MAX_PAGES) {
       const list = await withAuth((tok) => fetchOrderList(orgId, page, tok));
       counters.pages_fetched++;
       pageHadWork = false;
@@ -398,12 +394,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  const url      = new URL(req.url);
-  const backfill = url.searchParams.get("backfill") === "true";
-  const maxPagesParam = url.searchParams.get("max_pages");
-  const trigger  = req.headers.get("x-trigger") ?? (backfill ? "backfill" : "manual");
-
-  const result = await runSync(trigger, { backfill, maxPages: maxPagesParam ? parseInt(maxPagesParam, 10) : undefined });
+  const trigger = req.headers.get("x-trigger") ?? "manual";
+  const result = await runSync(trigger);
   return new Response(JSON.stringify(result, null, 2), {
     status: result.ok ? 200 : 500,
     headers: { "content-type": "application/json" },

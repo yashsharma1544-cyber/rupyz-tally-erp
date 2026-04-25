@@ -151,10 +151,25 @@ export interface Order {
   approved_by: string | null;
   rejected_at: string | null;
   rejected_by: string | null;
+  reject_reason: string | null;
+  is_edited: boolean;
+  edited_at: string | null;
+  edited_by: string | null;
+  cgst_amount: number;
+  sgst_amount: number;
+  round_off_amount: number;
+  remaining_payment_days: number | null;
+  payment_option_check: string | null;
+  delivery_address_line: string | null;
+  delivery_pincode: string | null;
+  delivery_state: string | null;
+  rupyz_delivery_status: string;
+  rupyz_created_by_name: string | null;
+  delivery_mobile: string | null;
   created_at: string;
   updated_at: string;
   // Joined
-  customer?: Pick<Customer, "id" | "name" | "customer_type" | "city"> | null;
+  customer?: Pick<Customer, "id" | "name" | "customer_type" | "city" | "mobile"> | null;
   salesman?: Pick<Salesman, "id" | "name"> | null;
 }
 
@@ -200,4 +215,88 @@ export interface RupyzSyncLog {
   products_stubbed: number;
   token_refreshed: boolean;
   error_message: string | null;
+}
+
+export type DispatchStatus = "pending" | "shipped" | "delivered" | "cancelled";
+
+export interface Dispatch {
+  id: string;
+  order_id: string;
+  dispatch_number: string;
+  status: DispatchStatus;
+  vehicle_number: string | null;
+  driver_name: string | null;
+  driver_phone: string | null;
+  notes: string | null;
+  total_qty: number | null;
+  total_amount: number | null;
+  created_by: string | null;
+  created_at: string;
+  shipped_at: string | null;
+  shipped_by: string | null;
+  delivered_at: string | null;
+  delivered_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancel_reason: string | null;
+  // Joined
+  order?: Pick<Order, "id" | "rupyz_order_id" | "customer_id" | "delivery_city"> & {
+    customer?: Pick<Customer, "id" | "name" | "city" | "mobile"> | null;
+  } | null;
+  pod?: PointOfDelivery | null;
+  items?: DispatchItem[];
+}
+
+export interface DispatchItem {
+  id: string;
+  dispatch_id: string;
+  order_item_id: string;
+  qty: number;
+  price: number;
+  total_amount: number;
+  // Joined
+  order_item?: OrderItem | null;
+}
+
+export interface PointOfDelivery {
+  id: string;
+  dispatch_id: string;
+  photo_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy_m: number | null;
+  receiver_name: string | null;
+  notes: string | null;
+  captured_at: string;
+  captured_by: string | null;
+}
+
+export type OrderAuditEventType =
+  | "approved" | "rejected" | "edited"
+  | "dispatch_created" | "dispatch_shipped" | "dispatch_delivered" | "dispatch_cancelled"
+  | "order_cancelled" | "order_closed";
+
+export interface OrderAuditEvent {
+  id: string;
+  order_id: string;
+  event_type: OrderAuditEventType;
+  actor_id: string | null;
+  actor_name: string | null;
+  comment: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface OrderRevision {
+  id: string;
+  order_id: string;
+  revision_number: number;
+  snapshot: {
+    order: Partial<Order>;
+    items: Partial<OrderItem>[];
+  };
+  edited_by: string | null;
+  edited_by_name: string | null;
+  edited_at: string;
+  change_summary: string | null;
 }
