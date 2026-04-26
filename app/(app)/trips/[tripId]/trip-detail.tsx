@@ -5,21 +5,26 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Truck, MapPin, Printer, FileCheck2, AlertCircle, CheckCircle2,
-  Smartphone, Ban, ArrowLeft, IndianRupee, Package, Receipt,
+  Smartphone, Ban, ArrowLeft, IndianRupee, Package, Receipt, Plus, Trash2, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 import type {
-  AppUser, VanTrip, VanTripStatus, TripLoadItem, TripBill, VanTripKpis,
+  AppUser, VanTrip, VanTripStatus, TripLoadItem, TripBill, VanTripKpis, Product,
 } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  markTripLoaded, markTripReturned, reconcileTrip, cancelTrip, type ReconcileInput,
+  markTripLoaded, markTripReturned, reconcileTrip, cancelTrip, saveTripPlan, type ReconcileInput,
 } from "../actions";
+
+type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
 
 function statusBadge(s: VanTripStatus): { variant: "neutral" | "ok" | "warn" | "danger" | "accent"; label: string } {
   return {
@@ -33,11 +38,12 @@ function statusBadge(s: VanTripStatus): { variant: "neutral" | "ok" | "warn" | "
 }
 
 export function TripDetail({
-  tripId, initialTrip, me,
+  tripId, initialTrip, me, products,
 }: {
   tripId: string;
   initialTrip: VanTrip;
   me: AppUser;
+  products: ProductLite[];
 }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -49,6 +55,13 @@ export function TripDetail({
   const [pending, startTransition] = useTransition();
 
   // Editable forms (loading + reconcile)
+  // bufferQtys: productId → buffer qty (the user's working copy during planning/loading)
+  const [bufferQtys, setBufferQtys] = useState<Map<string, number>>(new Map());
+  // Extra rows added by user during the session (buffer-only, not yet saved)
+  const [extraBufferProducts, setExtraBufferProducts] = useState<string[]>([]);
+  const [pickProductOpen, setPickProductOpen] = useState(false);
+  const [pickProductId, setPickProductId] = useState<string>("");
+
   const [loadedQtys, setLoadedQtys] = useState<Map<string, number>>(new Map());
   const [returnedQtys, setReturnedQtys] = useState<Map<string, number>>(new Map());
   const [actualCash, setActualCash] = useState<string>("");
@@ -77,11 +90,18 @@ export function TripDetail({
   }, [tripId]);
 
   useEffect(() => {
-    // Pre-fill loaded qty form from planned qty
+    // Pre-fill buffer + loaded qty form from saved values
     if (trip.status === "planning" || trip.status === "loading") {
-      const m = new Map<string, number>();
-      for (const li of loadItems) m.set(li.product_id, Number(li.qty_loaded ?? li.qty_planned));
-      setLoadedQtys(m);
+      const bm = new Map<string, number>();
+      const lm = new Map<string, number>();
+      for (const li of loadItems) {
+        bm.set(li.product_id, Number(li.source_buffer_qty ?? 0));
+        lm.set(li.product_id, Number(li.qty_loaded ?? li.qty_planned));
+      }
+      setBufferQtys(bm);
+      setLoadedQtys(lm);
+      // Clear any unsaved extra rows that are now actually in loadItems
+      setExtraBufferProducts((prev) => prev.filter(pid => !loadItems.some(li => li.product_id === pid)));
     }
     // Pre-fill returned qty form (= loaded - sold)
     if (trip.status === "returned" || trip.status === "in_progress") {
@@ -116,14 +136,75 @@ export function TripDetail({
 
   // ========== HANDLERS ==========
 
-  function handleMarkLoaded() {
-    const payload = Array.from(loadedQtys.entries()).map(([productId, qtyLoaded]) => ({ productId, qtyLoaded }));
-    if (payload.some(p => p.qtyLoaded < 0)) { toast.error("Loaded qty cannot be negative"); return; }
+  // Build the complete buffer state to send to server
+  // Includes existing items (with current bufferQtys value) + new buffer-only items added by user
+  function collectBufferRows(): { productId: string; bufferQty: number }[] {
+    const rows: { productId: string; bufferQty: number }[] = [];
+    const seen = new Set<string>();
+    for (const li of loadItems) {
+      rows.push({ productId: li.product_id, bufferQty: bufferQtys.get(li.product_id) ?? 0 });
+      seen.add(li.product_id);
+    }
+    for (const pid of extraBufferProducts) {
+      if (seen.has(pid)) continue;
+      rows.push({ productId: pid, bufferQty: bufferQtys.get(pid) ?? 0 });
+    }
+    return rows;
+  }
+
+  function handleSavePlan() {
+    const bufferRows = collectBufferRows();
     startTransition(async () => {
-      const res = await markTripLoaded(tripId, payload);
+      const res = await saveTripPlan(tripId, { bufferRows });
+      if (res.error) toast.error(res.error);
+      else { toast.success("Plan saved"); await reload(); }
+    });
+  }
+
+  function handleMarkLoaded() {
+    const bufferRows = collectBufferRows();
+    // Loaded qtys must be sent for everything in the planned set (existing + new buffer)
+    const allProductIds = new Set<string>([
+      ...loadItems.map(li => li.product_id),
+      ...extraBufferProducts,
+    ]);
+    const loadedPayload: { productId: string; qtyLoaded: number }[] = [];
+    for (const pid of allProductIds) {
+      const q = loadedQtys.get(pid);
+      if (q === undefined) continue;
+      if (q < 0) { toast.error("Loaded qty cannot be negative"); return; }
+      loadedPayload.push({ productId: pid, qtyLoaded: q });
+    }
+    startTransition(async () => {
+      const res = await markTripLoaded(tripId, loadedPayload, bufferRows);
       if (res.error) toast.error(res.error);
       else { toast.success("Trip marked loaded — van is on route"); await reload(); }
     });
+  }
+
+  function addExtraBufferProduct() {
+    if (!pickProductId) return;
+    if (loadItems.some(li => li.product_id === pickProductId)) {
+      toast.error("Already in the trip — edit its buffer qty in the table");
+      setPickProductId(""); setPickProductOpen(false);
+      return;
+    }
+    if (extraBufferProducts.includes(pickProductId)) {
+      toast.error("Already added");
+      return;
+    }
+    setExtraBufferProducts([...extraBufferProducts, pickProductId]);
+    // Default buffer to 1, loaded to 1
+    const nb = new Map(bufferQtys); nb.set(pickProductId, 1); setBufferQtys(nb);
+    const nl = new Map(loadedQtys); nl.set(pickProductId, 1); setLoadedQtys(nl);
+    setPickProductId("");
+    setPickProductOpen(false);
+  }
+
+  function removeExtraBufferProduct(productId: string) {
+    setExtraBufferProducts(extraBufferProducts.filter(p => p !== productId));
+    const nb = new Map(bufferQtys); nb.delete(productId); setBufferQtys(nb);
+    const nl = new Map(loadedQtys); nl.delete(productId); setLoadedQtys(nl);
   }
 
   function handleMarkReturned() {
@@ -223,44 +304,171 @@ export function TripDetail({
               <tr>
                 <th className="px-2 py-1.5 text-left">Product</th>
                 <th className="px-2 py-1.5 text-right">Pre-order qty</th>
-                <th className="px-2 py-1.5 text-right">Buffer qty</th>
+                <th className="px-2 py-1.5 text-right w-28">Buffer qty</th>
                 <th className="px-2 py-1.5 text-right">Planned</th>
-                <th className="px-2 py-1.5 text-right w-32">Actually loaded</th>
+                <th className="px-2 py-1.5 text-right w-28">Actually loaded</th>
+                <th className="px-2 py-1.5 w-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
-              {loadItems.length === 0 ? (
-                <tr><td colSpan={5} className="px-2 py-6 text-center text-ink-muted">No items planned for this trip.</td></tr>
-              ) : loadItems.map(li => (
-                <tr key={li.id}>
-                  <td className="px-2 py-1.5">
-                    <div className="font-medium">{li.product?.name ?? "—"}</div>
-                    <div className="text-2xs text-ink-subtle">{li.product?.unit}</div>
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular text-ink-muted">{Number(li.source_pre_order_qty).toFixed(0)}</td>
-                  <td className="px-2 py-1.5 text-right tabular text-ink-muted">{Number(li.source_buffer_qty).toFixed(0)}</td>
-                  <td className="px-2 py-1.5 text-right tabular font-medium">{Number(li.qty_planned).toFixed(0)}</td>
-                  <td className="px-2 py-1.5 text-right">
-                    {canManage ? (
+              {/* Existing rows from trip_load_items (pre-orders + saved buffer) */}
+              {loadItems.map(li => {
+                const bufferQty = bufferQtys.get(li.product_id) ?? Number(li.source_buffer_qty);
+                const preOrderQty = Number(li.source_pre_order_qty);
+                const planned = preOrderQty + bufferQty;
+                const isBufferOnly = preOrderQty === 0;
+                return (
+                  <tr key={li.id}>
+                    <td className="px-2 py-1.5">
+                      <div className="font-medium">{li.product?.name ?? "—"}</div>
+                      <div className="text-2xs text-ink-subtle">{li.product?.unit}</div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular text-ink-muted">{preOrderQty.toFixed(0)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {canManage ? (
+                        <Input
+                          type="number" step="0.001" min="0"
+                          value={bufferQty}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value) || 0;
+                            const n = new Map(bufferQtys); n.set(li.product_id, v); setBufferQtys(n);
+                            // If loaded qty is at default (=planned), bump it to follow buffer changes
+                            const oldBuffer = bufferQtys.get(li.product_id) ?? Number(li.source_buffer_qty);
+                            const oldPlanned = preOrderQty + oldBuffer;
+                            const currentLoaded = loadedQtys.get(li.product_id) ?? Number(li.qty_loaded ?? oldPlanned);
+                            if (currentLoaded === oldPlanned) {
+                              const nl = new Map(loadedQtys); nl.set(li.product_id, preOrderQty + v); setLoadedQtys(nl);
+                            }
+                          }}
+                          className="text-right tabular w-24 ml-auto"
+                        />
+                      ) : <span className="tabular">{bufferQty.toFixed(0)}</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular font-medium">{planned.toFixed(0)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {canManage ? (
+                        <Input
+                          type="number" step="0.001" min="0"
+                          value={loadedQtys.get(li.product_id) ?? planned}
+                          onChange={(e) => {
+                            const n = new Map(loadedQtys);
+                            n.set(li.product_id, parseFloat(e.target.value) || 0);
+                            setLoadedQtys(n);
+                          }}
+                          className="text-right tabular w-24 ml-auto"
+                        />
+                      ) : <span className="text-ink-muted tabular">—</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {isBufferOnly && canManage && (
+                        <button
+                          onClick={() => {
+                            const n = new Map(bufferQtys); n.set(li.product_id, 0); setBufferQtys(n);
+                            // Server will delete the row on next save (buffer=0 + pre-order=0)
+                          }}
+                          title="Remove buffer (will delete on save)"
+                          className="text-ink-muted hover:text-danger"
+                        >
+                          <Trash2 size={13}/>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {/* Extra buffer rows added by user this session (not yet saved) */}
+              {extraBufferProducts.map(pid => {
+                const prod = products.find(p => p.id === pid);
+                const bufferQty = bufferQtys.get(pid) ?? 0;
+                return (
+                  <tr key={`extra-${pid}`} className="bg-warn-soft/20">
+                    <td className="px-2 py-1.5">
+                      <div className="font-medium">{prod?.name ?? "—"}</div>
+                      <div className="text-2xs text-warn">unsaved · buffer-only</div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular text-ink-muted">0</td>
+                    <td className="px-2 py-1.5 text-right">
                       <Input
                         type="number" step="0.001" min="0"
-                        value={loadedQtys.get(li.product_id) ?? Number(li.qty_planned)}
+                        value={bufferQty}
                         onChange={(e) => {
-                          const n = new Map(loadedQtys);
-                          n.set(li.product_id, parseFloat(e.target.value) || 0);
-                          setLoadedQtys(n);
+                          const v = parseFloat(e.target.value) || 0;
+                          const n = new Map(bufferQtys); n.set(pid, v); setBufferQtys(n);
+                          const nl = new Map(loadedQtys); nl.set(pid, v); setLoadedQtys(nl);
                         }}
-                        className="text-right tabular w-28 ml-auto"
+                        className="text-right tabular w-24 ml-auto"
                       />
-                    ) : <span className="text-ink-muted tabular">—</span>}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular font-medium">{bufferQty.toFixed(0)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <Input
+                        type="number" step="0.001" min="0"
+                        value={loadedQtys.get(pid) ?? bufferQty}
+                        onChange={(e) => {
+                          const n = new Map(loadedQtys); n.set(pid, parseFloat(e.target.value) || 0); setLoadedQtys(n);
+                        }}
+                        className="text-right tabular w-24 ml-auto"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <button onClick={() => removeExtraBufferProduct(pid)} className="text-ink-muted hover:text-danger">
+                        <Trash2 size={13}/>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {/* Add buffer product row */}
+              {canManage && (
+                pickProductOpen ? (
+                  <tr className="bg-paper-subtle/30">
+                    <td className="px-2 py-1.5" colSpan={5}>
+                      <div className="flex items-center gap-2">
+                        <Select value={pickProductId} onValueChange={setPickProductId}>
+                          <SelectTrigger className="flex-1"><SelectValue placeholder="Pick a product to add as buffer…" /></SelectTrigger>
+                          <SelectContent>
+                            {products
+                              .filter(p =>
+                                !loadItems.some(li => li.product_id === p.id) &&
+                                !extraBufferProducts.includes(p.id)
+                              )
+                              .map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)
+                            }
+                          </SelectContent>
+                        </Select>
+                        <Button size="sm" onClick={addExtraBufferProduct} disabled={!pickProductId}>Add</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setPickProductOpen(false); setPickProductId(""); }}>Cancel</Button>
+                      </div>
+                    </td>
+                    <td/>
+                  </tr>
+                ) : (
+                  <tr>
+                    <td className="px-2 py-2" colSpan={6}>
+                      <Button size="sm" variant="outline" onClick={() => setPickProductOpen(true)}>
+                        <Plus size={11}/> Add buffer product
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              )}
+
+              {loadItems.length === 0 && extraBufferProducts.length === 0 && !pickProductOpen && (
+                <tr><td colSpan={6} className="px-2 py-6 text-center text-ink-muted italic">
+                  No items planned yet. Add buffer stock to load.
+                </td></tr>
+              )}
             </tbody>
           </table>
+
           {canManage && (
             <div className="mt-3 flex gap-2 justify-end">
-              <Button onClick={handleMarkLoaded} disabled={pending || loadItems.length === 0}>
+              <Button variant="outline" onClick={handleSavePlan} disabled={pending}>
+                <Save size={11}/> {pending ? "Saving…" : "Save Plan"}
+              </Button>
+              <Button onClick={handleMarkLoaded} disabled={pending || (loadItems.length === 0 && extraBufferProducts.length === 0)}>
                 <Truck size={11}/> {pending ? "Saving…" : "Mark loaded & start trip"}
               </Button>
             </div>

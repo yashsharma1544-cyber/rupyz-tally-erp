@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,19 +12,16 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
-import type { AppUser, Beat, Product, Order } from "@/lib/types";
+import type { AppUser, Beat, Order } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { createTrip, type CreateTripInput } from "../actions";
 
-type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
-
 export function TripPlanner({
-  me, beats, products, vanLeads,
+  me, beats, vanLeads,
 }: {
   me: AppUser;
   beats: Pick<Beat, "id" | "name" | "is_van_beat">[];
-  products: ProductLite[];
   vanLeads: Pick<AppUser, "id" | "full_name">[];
 }) {
   const router = useRouter();
@@ -45,9 +42,6 @@ export function TripPlanner({
   const [preOrders, setPreOrders] = useState<Order[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [loadingOrders, setLoadingOrders] = useState(false);
-
-  // Buffer lines
-  const [buffer, setBuffer] = useState<{ tempId: string; productId: string; qty: number }[]>([]);
 
   const [pending, startTransition] = useTransition();
 
@@ -102,16 +96,6 @@ export function TripPlanner({
     setSelectedOrderIds(next);
   }
 
-  function addBufferLine() {
-    setBuffer([...buffer, { tempId: crypto.randomUUID(), productId: "", qty: 0 }]);
-  }
-  function patchBuffer(tempId: string, patch: Partial<{ productId: string; qty: number }>) {
-    setBuffer(buffer.map(b => b.tempId === tempId ? { ...b, ...patch } : b));
-  }
-  function removeBuffer(tempId: string) {
-    setBuffer(buffer.filter(b => b.tempId !== tempId));
-  }
-
   const selectedTotalAmount = preOrders
     .filter(o => selectedOrderIds.has(o.id))
     .reduce((s, o) => s + Number(o.total_amount), 0);
@@ -121,10 +105,9 @@ export function TripPlanner({
     if (!leadId) { toast.error("Pick a lead"); return; }
 
     const helpersList = helpersText.split(",").map(s => s.trim()).filter(Boolean);
-    const validBuffer = buffer.filter(b => b.productId && b.qty > 0);
 
-    if (selectedOrderIds.size === 0 && validBuffer.length === 0) {
-      toast.error("Add at least one pre-order or buffer line"); return;
+    if (selectedOrderIds.size === 0) {
+      if (!confirm("No pre-orders selected. Create an empty trip (you can add buffer stock on the loading sheet)?")) return;
     }
 
     const payload: CreateTripInput = {
@@ -135,7 +118,7 @@ export function TripPlanner({
       helpers: helpersList,
       notes: notes.trim() || undefined,
       preOrderIds: Array.from(selectedOrderIds),
-      bufferLines: validBuffer.map(b => ({ productId: b.productId, qty: b.qty })),
+      bufferLines: [], // buffer is added later on the loading sheet
     };
 
     startTransition(async () => {
@@ -220,7 +203,7 @@ export function TripPlanner({
           {loadingOrders ? (
             <div className="text-sm text-ink-muted">Loading orders…</div>
           ) : preOrders.length === 0 ? (
-            <div className="text-sm text-ink-muted italic">No approved orders for this beat in the last 7 days. You can still create a trip with buffer stock only.</div>
+            <div className="text-sm text-ink-muted italic">No approved orders for this beat in the last 7 days. You can still create an empty trip and add buffer stock on the loading sheet.</div>
           ) : (
             <div className="border border-paper-line rounded">
               <table className="w-full text-sm">
@@ -271,56 +254,9 @@ export function TripPlanner({
               </table>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Buffer */}
-      {beatId && (
-        <div className="bg-paper-card border border-paper-line rounded-md p-4 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
-              Buffer stock (gut-feel extras)
-            </h2>
-            <Button size="sm" variant="outline" onClick={addBufferLine}>
-              <Plus size={11}/> Add line
-            </Button>
-          </div>
-          {buffer.length === 0 ? (
-            <div className="text-sm text-ink-muted italic">No buffer added. Click "Add line" if you want to load extras for cash customers.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="text-2xs uppercase tracking-wide text-ink-muted border-b border-paper-line">
-                <tr><th className="px-2 py-1 text-left">Product</th><th className="px-2 py-1 text-right w-32">Qty</th><th/></tr>
-              </thead>
-              <tbody className="divide-y divide-paper-line">
-                {buffer.map(b => (
-                  <tr key={b.tempId}>
-                    <td className="px-2 py-1.5">
-                      <Select value={b.productId} onValueChange={(v) => patchBuffer(b.tempId, { productId: v })}>
-                        <SelectTrigger><SelectValue placeholder="Pick product…" /></SelectTrigger>
-                        <SelectContent>
-                          {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input
-                        type="number" step="0.001" min="0"
-                        value={b.qty}
-                        onChange={(e) => patchBuffer(b.tempId, { qty: parseFloat(e.target.value) || 0 })}
-                        className="text-right tabular"
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 w-10">
-                      <button onClick={() => removeBuffer(b.tempId)} className="text-ink-muted hover:text-danger">
-                        <Trash2 size={13}/>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <p className="text-2xs text-ink-muted mt-2 italic">
+            Buffer stock is added later on the loading sheet, where you can see all SKUs rolled up.
+          </p>
         </div>
       )}
 

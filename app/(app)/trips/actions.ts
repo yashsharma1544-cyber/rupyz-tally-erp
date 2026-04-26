@@ -160,11 +160,100 @@ export async function createTrip(input: CreateTripInput) {
 }
 
 // =============================================================================
+// SAVE TRIP PLAN (add/edit/remove buffer items during planning)
+// `bufferRows` represents the COMPLETE desired buffer state.
+// Products not in the list have their buffer cleared.
+// Products with source_pre_order_qty=0 AND buffer cleared get deleted.
+// =============================================================================
+export interface SaveTripPlanInput {
+  bufferRows: { productId: string; bufferQty: number }[];
+}
+
+export async function saveTripPlan(tripId: string, input: SaveTripPlanInput) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("id, status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (!["planning", "loading"].includes(trip.status))
+      return { error: `Trip is "${trip.status}", buffer can only be edited during planning` };
+
+    for (const r of input.bufferRows) {
+      if (r.bufferQty < 0) return { error: "Buffer qty cannot be negative" };
+    }
+
+    // Map: productId → desired bufferQty
+    const desiredBuffer = new Map<string, number>();
+    for (const r of input.bufferRows) desiredBuffer.set(r.productId, r.bufferQty);
+
+    // Fetch existing rows
+    const { data: existing } = await admin.from("trip_load_items")
+      .select("id, product_id, source_pre_order_qty, source_buffer_qty")
+      .eq("trip_id", tripId);
+
+    const existingByProduct = new Map<string, {
+      id: string; product_id: string; source_pre_order_qty: number; source_buffer_qty: number;
+    }>();
+    for (const r of (existing ?? []) as Array<{
+      id: string; product_id: string; source_pre_order_qty: number; source_buffer_qty: number;
+    }>) {
+      existingByProduct.set(r.product_id, r);
+    }
+
+    // 1. UPDATE / DELETE existing rows
+    for (const [productId, row] of existingByProduct.entries()) {
+      const newBuffer = desiredBuffer.get(productId) ?? 0;
+      const preOrder = Number(row.source_pre_order_qty);
+
+      if (newBuffer === 0 && preOrder === 0) {
+        // Buffer cleared and no pre-order — delete the row
+        await admin.from("trip_load_items").delete().eq("id", row.id);
+      } else {
+        await admin.from("trip_load_items").update({
+          source_buffer_qty: newBuffer,
+          qty_planned: preOrder + newBuffer,
+        }).eq("id", row.id);
+      }
+      desiredBuffer.delete(productId);
+    }
+
+    // 2. INSERT new buffer-only rows (productIds left in desiredBuffer)
+    const inserts: Array<{
+      trip_id: string; product_id: string; qty_planned: number;
+      source_pre_order_qty: number; source_buffer_qty: number;
+    }> = [];
+    for (const [productId, qty] of desiredBuffer.entries()) {
+      if (qty <= 0) continue; // skip empty new rows
+      inserts.push({
+        trip_id: tripId,
+        product_id: productId,
+        qty_planned: qty,
+        source_pre_order_qty: 0,
+        source_buffer_qty: qty,
+      });
+    }
+    if (inserts.length) {
+      const { error: insErr } = await admin.from("trip_load_items").insert(inserts);
+      if (insErr) return { error: `Insert failed: ${insErr.message}` };
+    }
+
+    void actor;
+    revalidatePath(`/trips/${tripId}`);
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
 // MARK LOADED (warehouse confirms physical load)
+// Optionally accepts buffer changes too — so user can add buffer + load in one step.
 // =============================================================================
 export async function markTripLoaded(
   tripId: string,
   loadedQty: { productId: string; qtyLoaded: number }[],
+  bufferRows?: { productId: string; bufferQty: number }[],
 ) {
   try {
     const actor = await requireRoles(["admin", "van_lead"]);
@@ -175,8 +264,15 @@ export async function markTripLoaded(
     if (!["planning", "loading"].includes(trip.status))
       return { error: `Trip is "${trip.status}", cannot mark loaded` };
 
+    // 1. Save buffer changes first if provided
+    if (bufferRows) {
+      const planRes = await saveTripPlan(tripId, { bufferRows });
+      if (planRes.error) return planRes;
+    }
+
+    // 2. Apply loaded qtys
     for (const lq of loadedQty) {
-      if (lq.qtyLoaded < 0) return { error: "Negative qty not allowed" };
+      if (lq.qtyLoaded < 0) return { error: "Negative loaded qty not allowed" };
       await admin.from("trip_load_items").update({
         qty_loaded: lq.qtyLoaded,
       }).eq("trip_id", tripId).eq("product_id", lq.productId);
