@@ -1,0 +1,309 @@
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { revalidatePath } from "next/cache";
+
+type ActorInfo = { userId: string; fullName: string; role: string };
+
+async function requireRoles(roles: string[]): Promise<ActorInfo> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const { data: appUser } = await supabase
+    .from("app_users")
+    .select("id, full_name, role, active")
+    .eq("id", user.id)
+    .single();
+  if (!appUser?.active || !roles.includes(appUser.role)) {
+    throw new Error(`Forbidden — requires one of: ${roles.join(", ")}`);
+  }
+  return { userId: appUser.id, fullName: appUser.full_name, role: appUser.role };
+}
+
+// =============================================================================
+// CREATE TRIP (with optional pre-order link + buffer)
+// =============================================================================
+export interface CreateTripInput {
+  tripDate: string;            // YYYY-MM-DD
+  beatId: string;
+  vehicleType: "company" | "own";
+  vehicleNumber?: string;
+  vehicleProvidedBy?: string;
+  leadId: string;
+  helpers: string[];
+  notes?: string;
+  preOrderIds: string[];       // selected order IDs to bundle
+  bufferLines: { productId: string; qty: number }[];
+}
+
+export async function createTrip(input: CreateTripInput) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    // Validate beat is van-eligible
+    const { data: beat } = await admin
+      .from("beats").select("id, is_van_beat, name").eq("id", input.beatId).single();
+    if (!beat) return { error: "Beat not found" };
+    if (!beat.is_van_beat) return { error: `Beat "${beat.name}" is not marked as a VAN beat` };
+
+    // Validate lead exists
+    const { data: lead } = await admin
+      .from("app_users").select("id, full_name").eq("id", input.leadId).single();
+    if (!lead) return { error: "Lead user not found" };
+
+    // Generate trip number
+    const { data: tripNo } = await admin.rpc("next_trip_number", { d: input.tripDate });
+    const tripNumber = tripNo as unknown as string;
+
+    // Insert trip
+    const { data: trip, error: tErr } = await admin.from("van_trips").insert({
+      trip_number: tripNumber,
+      trip_date: input.tripDate,
+      beat_id: input.beatId,
+      vehicle_type: input.vehicleType,
+      vehicle_number: input.vehicleNumber?.trim() || null,
+      vehicle_provided_by: input.vehicleProvidedBy?.trim() || null,
+      lead_id: input.leadId,
+      helpers: input.helpers,
+      status: "planning",
+      notes: input.notes?.trim() || null,
+      created_by: actor.userId,
+    }).select("id, trip_number").single();
+    if (tErr || !trip) return { error: tErr?.message ?? "Failed to create trip" };
+
+    // Roll up pre-order qtys + buffer into trip_load_items
+    const planned = new Map<string, { preOrder: number; buffer: number }>();
+
+    if (input.preOrderIds.length) {
+      const { data: oItems } = await admin
+        .from("order_items")
+        .select("product_id, qty, order_id")
+        .in("order_id", input.preOrderIds);
+      for (const it of oItems ?? []) {
+        const cur = planned.get(it.product_id) ?? { preOrder: 0, buffer: 0 };
+        cur.preOrder += Number(it.qty);
+        planned.set(it.product_id, cur);
+      }
+    }
+    for (const b of input.bufferLines) {
+      if (!b.productId || b.qty <= 0) continue;
+      const cur = planned.get(b.productId) ?? { preOrder: 0, buffer: 0 };
+      cur.buffer += Number(b.qty);
+      planned.set(b.productId, cur);
+    }
+
+    if (planned.size > 0) {
+      const { error: liErr } = await admin.from("trip_load_items").insert(
+        Array.from(planned.entries()).map(([productId, v]) => ({
+          trip_id: trip.id,
+          product_id: productId,
+          qty_planned: v.preOrder + v.buffer,
+          source_pre_order_qty: v.preOrder,
+          source_buffer_qty: v.buffer,
+        })),
+      );
+      if (liErr) return { error: `Saving load: ${liErr.message}` };
+    }
+
+    // Pre-create pre_order trip_bills (status: not delivered yet — they'll be marked
+    // when the van actually delivers, on the mobile screen).
+    if (input.preOrderIds.length) {
+      const { data: orders } = await admin
+        .from("orders")
+        .select("id, customer_id, total_amount, amount, payment_option_check, items:order_items(*)")
+        .in("id", input.preOrderIds);
+      for (const o of (orders ?? []) as Array<{
+        id: string;
+        customer_id: string;
+        total_amount: number;
+        amount: number;
+        payment_option_check: string | null;
+        items: Array<{ product_id: string; qty: number; price: number; total_price: number }>;
+      }>) {
+        const { data: bn } = await admin.rpc("next_trip_bill_number", { p_trip_id: trip.id });
+        const billNumber = bn as unknown as string;
+        const paymentMode: "cash" | "credit" = o.payment_option_check === "PAY_ON_DELIVERY" ? "cash" : "credit";
+
+        const { data: bill } = await admin.from("trip_bills").insert({
+          trip_id: trip.id,
+          bill_number: billNumber,
+          bill_type: "pre_order",
+          customer_id: o.customer_id,
+          source_order_id: o.id,
+          payment_mode: paymentMode,
+          subtotal: Number(o.amount),
+          total_amount: Number(o.total_amount),
+          created_by: actor.userId,
+        }).select("id").single();
+
+        if (bill && o.items?.length) {
+          await admin.from("trip_bill_items").insert(
+            o.items.map((it) => ({
+              bill_id: bill.id,
+              product_id: it.product_id,
+              qty: Number(it.qty),
+              rate: Number(it.price),
+              amount: Number(it.total_price ?? Number(it.qty) * Number(it.price)),
+            })),
+          );
+        }
+      }
+    }
+
+    revalidatePath("/trips");
+    return { ok: true, tripId: trip.id, tripNumber: trip.trip_number };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// MARK LOADED (warehouse confirms physical load)
+// =============================================================================
+export async function markTripLoaded(
+  tripId: string,
+  loadedQty: { productId: string; qtyLoaded: number }[],
+) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("id, status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (!["planning", "loading"].includes(trip.status))
+      return { error: `Trip is "${trip.status}", cannot mark loaded` };
+
+    for (const lq of loadedQty) {
+      if (lq.qtyLoaded < 0) return { error: "Negative qty not allowed" };
+      await admin.from("trip_load_items").update({
+        qty_loaded: lq.qtyLoaded,
+      }).eq("trip_id", tripId).eq("product_id", lq.productId);
+    }
+
+    const now = new Date().toISOString();
+    await admin.from("van_trips").update({
+      status: "in_progress",
+      loaded_at: now,
+      loaded_by: actor.userId,
+      started_at: now,
+    }).eq("id", tripId);
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath("/trips");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// MARK RETURNED (vehicle back at office, awaiting reconciliation)
+// =============================================================================
+export async function markTripReturned(tripId: string) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status !== "in_progress") return { error: `Trip is "${trip.status}"` };
+
+    await admin.from("van_trips").update({
+      status: "returned",
+      returned_at: new Date().toISOString(),
+    }).eq("id", tripId);
+    void actor;
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath("/trips");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// RECONCILE TRIP
+// =============================================================================
+export interface ReconcileInput {
+  returnedQty: { productId: string; qtyReturned: number }[];
+  cashCollectedActual: number;
+  notes?: string;
+}
+
+export async function reconcileTrip(tripId: string, input: ReconcileInput) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (!["returned", "in_progress"].includes(trip.status))
+      return { error: `Trip is "${trip.status}", cannot reconcile yet` };
+
+    for (const r of input.returnedQty) {
+      if (r.qtyReturned < 0) return { error: "Returned qty cannot be negative" };
+      await admin.from("trip_load_items").update({
+        qty_returned: r.qtyReturned,
+      }).eq("trip_id", tripId).eq("product_id", r.productId);
+    }
+
+    await admin.from("van_trips").update({
+      status: "reconciled",
+      reconciled_at: new Date().toISOString(),
+      reconciled_by: actor.userId,
+      cash_collected_actual: input.cashCollectedActual,
+      reconcile_notes: input.notes?.trim() || null,
+    }).eq("id", tripId);
+
+    // Mark linked source orders as 'delivered'
+    const { data: bills } = await admin
+      .from("trip_bills").select("source_order_id")
+      .eq("trip_id", tripId).eq("is_cancelled", false).not("source_order_id", "is", null);
+    const orderIds = (bills ?? []).map((b: { source_order_id: string | null }) => b.source_order_id).filter(Boolean) as string[];
+    if (orderIds.length) {
+      await admin.from("orders").update({ app_status: "delivered" }).in("id", orderIds);
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath("/trips");
+    revalidatePath("/orders");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// CANCEL TRIP
+// =============================================================================
+export async function cancelTrip(tripId: string, reason: string) {
+  try {
+    if (!reason || reason.trim().length < 3) return { error: "Reason required" };
+    const actor = await requireRoles(["admin"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (["reconciled", "cancelled"].includes(trip.status))
+      return { error: `Already ${trip.status}` };
+
+    await admin.from("van_trips").update({
+      status: "cancelled",
+      reconcile_notes: `[CANCELLED by ${actor.fullName}] ${reason.trim()}`,
+    }).eq("id", tripId);
+
+    // Cascade-cancel any non-cancelled bills so their source orders unlock
+    await admin.from("trip_bills").update({
+      is_cancelled: true,
+    }).eq("trip_id", tripId).eq("is_cancelled", false);
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath("/trips");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}

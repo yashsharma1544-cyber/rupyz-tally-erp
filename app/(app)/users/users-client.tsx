@@ -13,7 +13,7 @@ import type { AppUser, Salesman, UserRole } from "@/lib/types";
 import { inviteUser, setUserActive, setUserRole } from "./actions";
 import { toast } from "sonner";
 
-const roles: UserRole[] = ["admin", "approver", "accounts", "dispatch", "delivery", "salesman"];
+const roles: UserRole[] = ["admin", "approver", "accounts", "dispatch", "delivery", "salesman", "van_lead", "van_helper"];
 
 export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: Pick<Salesman, "id" | "name">[] }) {
   const router = useRouter();

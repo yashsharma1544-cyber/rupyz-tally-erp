@@ -1,6 +1,6 @@
 // Manual types matching the Supabase schema. Generate with `supabase gen types` later if you want to auto-sync.
 
-export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman";
+export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman" | "van_lead" | "van_helper";
 
 export interface Salesman {
   id: string;
@@ -18,6 +18,7 @@ export interface Beat {
   name: string;
   city: string | null;
   active: boolean;
+  is_van_beat: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -287,4 +288,115 @@ export interface OrderRevision {
   edited_by_name: string | null;
   edited_at: string;
   change_summary: string | null;
+}
+
+// =====================================================================
+// Phase 4 — VAN Sales
+// =====================================================================
+
+export type VanTripStatus =
+  | "planning" | "loading" | "in_progress" | "returned" | "reconciled" | "cancelled";
+
+export type VehicleType = "company" | "own";
+export type BillType    = "pre_order" | "spot";
+export type PaymentMode = "cash" | "credit";
+
+export interface VanTrip {
+  id: string;
+  trip_number: string;
+  trip_date: string;        // YYYY-MM-DD
+  beat_id: string;
+  vehicle_type: VehicleType;
+  vehicle_number: string | null;
+  vehicle_provided_by: string | null;
+  lead_id: string;
+  helpers: string[];
+  status: VanTripStatus;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  loaded_at: string | null;
+  loaded_by: string | null;
+  started_at: string | null;
+  returned_at: string | null;
+  reconciled_at: string | null;
+  reconciled_by: string | null;
+  cash_collected_actual: number | null;
+  reconcile_notes: string | null;
+  // Joined
+  beat?: Pick<Beat, "id" | "name"> | null;
+  lead?: Pick<AppUser, "id" | "full_name"> | null;
+  load_items?: TripLoadItem[];
+  bills?: TripBill[];
+}
+
+export interface TripLoadItem {
+  id: string;
+  trip_id: string;
+  product_id: string;
+  qty_planned: number;
+  qty_loaded: number | null;
+  qty_returned: number | null;
+  source_pre_order_qty: number;
+  source_buffer_qty: number;
+  // Joined
+  product?: Pick<Product, "id" | "name" | "unit"> | null;
+}
+
+export interface TripBill {
+  id: string;
+  trip_id: string;
+  bill_number: string;
+  bill_type: BillType;
+  customer_id: string;
+  source_order_id: string | null;
+  paper_bill_no: string | null;
+  payment_mode: PaymentMode;
+  subtotal: number;
+  total_amount: number;
+  outstanding_collected: number;
+  cash_received: number;
+  notes: string | null;
+  is_cancelled: boolean;
+  confirmed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  // Joined
+  customer?: Pick<Customer, "id" | "name" | "mobile" | "city"> | null;
+  items?: TripBillItem[];
+}
+
+export interface TripBillItem {
+  id: string;
+  bill_id: string;
+  product_id: string;
+  qty: number;
+  rate: number;
+  amount: number;
+  // Joined
+  product?: Pick<Product, "id" | "name" | "unit" | "mrp"> | null;
+}
+
+export interface CustomerOutstanding {
+  id: string;
+  customer_id: string;
+  amount: number;
+  source: "tally_csv" | "manual";
+  imported_at: string;
+  imported_by: string | null;
+  notes: string | null;
+  updated_at: string;
+}
+
+export interface VanTripKpis {
+  bills_count: number;
+  pre_order_count: number;
+  spot_count: number;
+  cash_bills_total: number;
+  credit_bills_total: number;
+  outstanding_collected: number;
+  expected_cash: number;
+  total_kg_billed: number;
+  total_kg_loaded: number;
+  total_kg_remaining: number;
 }
