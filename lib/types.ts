@@ -363,6 +363,7 @@ export interface TripBill {
   created_at: string;
   // Joined
   customer?: Pick<Customer, "id" | "name" | "mobile" | "city"> | null;
+  source_order?: Pick<Order, "id" | "rupyz_order_id" | "app_status"> | null;
   items?: TripBillItem[];
 }
 

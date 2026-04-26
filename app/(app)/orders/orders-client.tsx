@@ -129,6 +129,23 @@ export function OrdersClient({
   // Bumped when an action happens in the drawer; triggers list + counts refresh
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Live polling — refresh every 30s when tab is visible. Catches status changes
+  // pushed from the mobile billing app (pre-order delivered, bill cancelled, etc.).
+  useEffect(() => {
+    function tick() {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      setReloadKey(k => k + 1);
+    }
+    const id = setInterval(tick, 30_000);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+
   const [open, setOpen] = useState<Order | null>(null);
 
   useEffect(() => {

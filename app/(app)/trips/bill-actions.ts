@@ -180,8 +180,34 @@ export async function confirmPreOrderBill(input: ConfirmPreOrderBillInput) {
       }
     }
 
+    // Flip the linked source order to 'delivered' and write an audit event
+    // (the order is delivered the moment the lead confirms the bill at the shop —
+    // we don't wait for reconcile)
+    if (bill.source_order_id) {
+      const { data: prevOrder } = await admin.from("orders")
+        .select("app_status").eq("id", bill.source_order_id).maybeSingle();
+      const prevStatus = prevOrder?.app_status ?? null;
+      if (prevStatus && prevStatus !== "delivered") {
+        await admin.from("orders").update({
+          app_status: "delivered",
+        }).eq("id", bill.source_order_id);
+
+        // Audit log — uses canonical event_type values used elsewhere in the app
+        await admin.from("order_audit_events").insert({
+          order_id: bill.source_order_id,
+          event_type: "delivered_via_van",
+          actor_id: actor.userId,
+          actor_name: actor.fullName,
+          comment: `Delivered on VAN trip — bill ${bill.bill_number}`,
+          details: { from_status: prevStatus, to_status: "delivered", trip_bill_id: input.billId, bill_number: bill.bill_number },
+        });
+      }
+    }
+
     void actor;
     revalidatePath(`/van/${bill.trip_id}`);
+    revalidatePath(`/trips/${bill.trip_id}`);
+    revalidatePath("/orders");
     return { ok: true };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
@@ -295,7 +321,9 @@ export async function cancelBill(billId: string, reason: string) {
     const actor = await requireRoles(VAN_ROLES);
     const admin = createAdminClient();
 
-    const { data: bill } = await admin.from("trip_bills").select("trip_id, is_cancelled").eq("id", billId).single();
+    const { data: bill } = await admin.from("trip_bills")
+      .select("trip_id, is_cancelled, bill_type, source_order_id, bill_number, confirmed_at")
+      .eq("id", billId).single();
     if (!bill) return { error: "Bill not found" };
     if (bill.is_cancelled) return { error: "Already cancelled" };
 
@@ -304,7 +332,32 @@ export async function cancelBill(billId: string, reason: string) {
       notes: `[CANCELLED by ${actor.fullName}] ${reason.trim()}`,
     }).eq("id", billId);
 
+    // If we had marked the source order delivered when this bill was confirmed,
+    // roll it back to 'approved' (only when the bill was confirmed AND no other
+    // active bill is linked to the same order).
+    if (bill.bill_type === "pre_order" && bill.source_order_id && bill.confirmed_at) {
+      const { data: otherActive } = await admin.from("trip_bills")
+        .select("id").eq("source_order_id", bill.source_order_id).eq("is_cancelled", false).neq("id", billId).limit(1);
+      if (!otherActive || otherActive.length === 0) {
+        const { data: cur } = await admin.from("orders")
+          .select("app_status").eq("id", bill.source_order_id).maybeSingle();
+        if (cur?.app_status === "delivered") {
+          await admin.from("orders").update({ app_status: "approved" }).eq("id", bill.source_order_id);
+          await admin.from("order_audit_events").insert({
+            order_id: bill.source_order_id,
+            event_type: "van_bill_cancelled",
+            actor_id: actor.userId,
+            actor_name: actor.fullName,
+            comment: `VAN bill ${bill.bill_number} cancelled — order rolled back to approved`,
+            details: { from_status: "delivered", to_status: "approved", trip_bill_id: billId, reason: reason.trim() },
+          });
+        }
+      }
+    }
+
     revalidatePath(`/van/${bill.trip_id}`);
+    revalidatePath(`/trips/${bill.trip_id}`);
+    revalidatePath("/orders");
     return { ok: true };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };

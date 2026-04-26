@@ -108,7 +108,7 @@ export function TripDetail({
     const [{ data: t }, { data: li }, { data: bl }, { data: kp }] = await Promise.all([
       supabase.from("van_trips").select("*, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)").eq("id", tripId).single(),
       supabase.from("trip_load_items").select("*, product:products(id,name,unit)").eq("trip_id", tripId).order("created_at"),
-      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*, product:products(id,name,unit,mrp))").eq("trip_id", tripId).order("created_at"),
+      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), source_order:orders!trip_bills_source_order_id_fkey(id,rupyz_order_id,app_status), items:trip_bill_items(*, product:products(id,name,unit,mrp))").eq("trip_id", tripId).order("created_at"),
       supabase.rpc("van_trip_kpis", { p_trip_id: tripId }),
     ]);
     if (t) setTrip(t as unknown as VanTrip);
@@ -922,25 +922,48 @@ export function TripDetail({
                   <th className="px-2 py-1.5 text-right">Total</th>
                   <th className="px-2 py-1.5 text-right">Old o/s collected</th>
                   <th className="px-2 py-1.5 text-left">Mode</th>
+                  <th className="px-2 py-1.5 text-left">Status</th>
                   <th className="px-2 py-1.5 w-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-paper-line">
-                {bills.map(b => (
-                  <tr
-                    key={b.id}
-                    onClick={() => setViewingBillId(b.id)}
-                    className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : ""}`}
-                  >
-                    <td className="px-2 py-1.5 font-mono text-2xs">{b.bill_number}{b.paper_bill_no && <span className="text-ink-subtle"> · {b.paper_bill_no}</span>}</td>
-                    <td className="px-2 py-1.5">{b.customer?.name ?? "—"}</td>
-                    <td className="px-2 py-1.5"><Badge variant={b.bill_type === "pre_order" ? "neutral" : "accent"}>{b.bill_type === "pre_order" ? "Pre-order" : "Spot"}</Badge></td>
-                    <td className="px-2 py-1.5 text-right tabular">{formatINR(b.total_amount)}</td>
-                    <td className="px-2 py-1.5 text-right tabular text-ink-muted">{formatINR(b.outstanding_collected)}</td>
-                    <td className="px-2 py-1.5"><Badge variant={b.payment_mode === "cash" ? "ok" : "warn"}>{b.payment_mode}</Badge></td>
-                    <td className="px-2 py-1.5 text-ink-subtle"><Eye size={13}/></td>
-                  </tr>
-                ))}
+                {bills.map(b => {
+                  // Status badge: prefer the linked order's app_status (most authoritative for pre-orders);
+                  // fall back to bill confirmation state for spot bills or unlinked bills.
+                  const orderStatus = b.source_order?.app_status ?? null;
+                  let statusEl;
+                  if (b.is_cancelled) {
+                    statusEl = <Badge variant="danger">cancelled</Badge>;
+                  } else if (orderStatus) {
+                    const variant: "ok" | "warn" | "accent" | "neutral" =
+                      orderStatus === "delivered" ? "ok"
+                      : orderStatus === "approved" ? "warn"
+                      : orderStatus === "partially_dispatched" || orderStatus === "dispatched" ? "accent"
+                      : "neutral";
+                    statusEl = <Badge variant={variant}>{orderStatus.replace(/_/g, " ")}</Badge>;
+                  } else if (b.confirmed_at) {
+                    statusEl = <Badge variant="ok">billed</Badge>;
+                  } else {
+                    statusEl = <Badge variant="warn">pending</Badge>;
+                  }
+
+                  return (
+                    <tr
+                      key={b.id}
+                      onClick={() => setViewingBillId(b.id)}
+                      className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : ""}`}
+                    >
+                      <td className="px-2 py-1.5 font-mono text-2xs">{b.bill_number}{b.paper_bill_no && <span className="text-ink-subtle"> · {b.paper_bill_no}</span>}</td>
+                      <td className="px-2 py-1.5">{b.customer?.name ?? "—"}</td>
+                      <td className="px-2 py-1.5"><Badge variant={b.bill_type === "pre_order" ? "neutral" : "accent"}>{b.bill_type === "pre_order" ? "Pre-order" : "Spot"}</Badge></td>
+                      <td className="px-2 py-1.5 text-right tabular">{formatINR(b.total_amount)}</td>
+                      <td className="px-2 py-1.5 text-right tabular text-ink-muted">{formatINR(b.outstanding_collected)}</td>
+                      <td className="px-2 py-1.5"><Badge variant={b.payment_mode === "cash" ? "ok" : "warn"}>{b.payment_mode}</Badge></td>
+                      <td className="px-2 py-1.5">{statusEl}</td>
+                      <td className="px-2 py-1.5 text-ink-subtle"><Eye size={13}/></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -1131,12 +1154,21 @@ export function TripDetail({
 
                 {/* Linked source order */}
                 {viewingBill.source_order_id && (
-                  <div className="text-xs text-ink-muted mb-4 flex items-center gap-1.5">
+                  <div className="text-xs text-ink-muted mb-4 flex items-center gap-1.5 flex-wrap">
                     <FileText size={12}/>
-                    <span>Linked to original order:</span>
-                    <Link href={`/orders?focus=${viewingBill.source_order_id}`} className="text-accent hover:underline">
-                      view in Orders
+                    <span>Linked to order</span>
+                    <Link href={`/orders?focus=${viewingBill.source_order_id}`} className="text-accent hover:underline font-mono">
+                      {viewingBill.source_order?.rupyz_order_id ?? "open"}
                     </Link>
+                    {viewingBill.source_order?.app_status && (
+                      <Badge variant={
+                        viewingBill.source_order.app_status === "delivered" ? "ok"
+                        : viewingBill.source_order.app_status === "approved" ? "warn"
+                        : "neutral"
+                      }>
+                        {viewingBill.source_order.app_status.replace(/_/g, " ")}
+                      </Badge>
+                    )}
                   </div>
                 )}
 
