@@ -176,8 +176,10 @@ export async function saveTripPlan(tripId: string, input: SaveTripPlanInput) {
 
     const { data: trip } = await admin.from("van_trips").select("id, status").eq("id", tripId).single();
     if (!trip) return { error: "Trip not found" };
-    if (!["planning", "loading"].includes(trip.status))
-      return { error: `Trip is "${trip.status}", buffer can only be edited during planning` };
+    const isAdminInProgressEdit = trip.status === "in_progress" && actor.role === "admin";
+    if (!["planning", "loading"].includes(trip.status) && !isAdminInProgressEdit) {
+      return { error: `Trip is "${trip.status}", buffer can only be edited during planning${actor.role === "admin" ? " or while on route" : ""}` };
+    }
 
     for (const r of input.bufferRows) {
       if (r.bufferQty < 0) return { error: "Buffer qty cannot be negative" };
@@ -201,14 +203,39 @@ export async function saveTripPlan(tripId: string, input: SaveTripPlanInput) {
       existingByProduct.set(r.product_id, r);
     }
 
+    // Compute sold-per-product (for in-progress edits, prevent removing rows that have been sold)
+    const soldByProduct = new Map<string, number>();
+    if (isAdminInProgressEdit) {
+      const { data: bills } = await admin.from("trip_bills")
+        .select("id, is_cancelled, items:trip_bill_items(product_id, qty)")
+        .eq("trip_id", tripId)
+        .eq("is_cancelled", false);
+      for (const b of (bills ?? []) as Array<{
+        id: string; is_cancelled: boolean; items: Array<{ product_id: string; qty: number }>;
+      }>) {
+        for (const it of b.items ?? []) {
+          soldByProduct.set(it.product_id, (soldByProduct.get(it.product_id) ?? 0) + Number(it.qty));
+        }
+      }
+    }
+
     // 1. UPDATE / DELETE existing rows
     for (const [productId, row] of existingByProduct.entries()) {
       const newBuffer = desiredBuffer.get(productId) ?? 0;
       const preOrder = Number(row.source_pre_order_qty);
+      const sold = soldByProduct.get(productId) ?? 0;
 
       if (newBuffer === 0 && preOrder === 0) {
-        // Buffer cleared and no pre-order — delete the row
-        await admin.from("trip_load_items").delete().eq("id", row.id);
+        // Buffer cleared and no pre-order — but if anything has been sold from this product
+        // (admin in-progress edit), keep the row at zero so stock calc stays consistent.
+        if (sold > 0) {
+          await admin.from("trip_load_items").update({
+            source_buffer_qty: 0,
+            qty_planned: 0,
+          }).eq("id", row.id);
+        } else {
+          await admin.from("trip_load_items").delete().eq("id", row.id);
+        }
       } else {
         await admin.from("trip_load_items").update({
           source_buffer_qty: newBuffer,
@@ -247,6 +274,62 @@ export async function saveTripPlan(tripId: string, input: SaveTripPlanInput) {
 }
 
 // =============================================================================
+// UPDATE TRIP METADATA (admin-only, any non-cancelled status)
+// Lets admin fix date, vehicle, lead, helpers, notes — even after the trip
+// has started or returned. Beat is intentionally NOT editable since it would
+// orphan the linked pre-orders.
+// =============================================================================
+export interface UpdateTripMetadataInput {
+  tripDate?: string;                                    // YYYY-MM-DD
+  vehicleType?: "company" | "own";
+  vehicleNumber?: string | null;
+  vehicleProvidedBy?: string | null;
+  leadId?: string;
+  helpers?: string[];
+  notes?: string | null;
+}
+
+export async function updateTripMetadata(tripId: string, input: UpdateTripMetadataInput) {
+  try {
+    const actor = await requireRoles(["admin"]);
+    const admin = createAdminClient();
+
+    const { data: trip } = await admin.from("van_trips").select("id, status").eq("id", tripId).single();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status === "cancelled") return { error: "Cannot edit a cancelled trip" };
+
+    // Validate lead if changing
+    if (input.leadId !== undefined) {
+      const { data: lead } = await admin
+        .from("app_users").select("id, active, role").eq("id", input.leadId).maybeSingle();
+      if (!lead) return { error: "Lead user not found" };
+      if (!lead.active) return { error: "Lead user is inactive" };
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (input.tripDate !== undefined) updates.trip_date = input.tripDate;
+    if (input.vehicleType !== undefined) updates.vehicle_type = input.vehicleType;
+    if (input.vehicleNumber !== undefined) updates.vehicle_number = input.vehicleNumber?.trim() || null;
+    if (input.vehicleProvidedBy !== undefined) updates.vehicle_provided_by = input.vehicleProvidedBy?.trim() || null;
+    if (input.leadId !== undefined) updates.lead_id = input.leadId;
+    if (input.helpers !== undefined) updates.helpers = input.helpers;
+    if (input.notes !== undefined) updates.notes = input.notes?.trim() || null;
+
+    if (Object.keys(updates).length === 0) return { ok: true };
+
+    const { error } = await admin.from("van_trips").update(updates).eq("id", tripId);
+    if (error) return { error: error.message };
+
+    void actor;
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath("/trips");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
 // MARK LOADED (warehouse confirms physical load)
 // Optionally accepts buffer changes too — so user can add buffer + load in one step.
 // =============================================================================
@@ -261,8 +344,10 @@ export async function markTripLoaded(
 
     const { data: trip } = await admin.from("van_trips").select("id, status").eq("id", tripId).single();
     if (!trip) return { error: "Trip not found" };
-    if (!["planning", "loading"].includes(trip.status))
-      return { error: `Trip is "${trip.status}", cannot mark loaded` };
+    const isAdminInProgressEdit = trip.status === "in_progress" && actor.role === "admin";
+    if (!["planning", "loading"].includes(trip.status) && !isAdminInProgressEdit) {
+      return { error: `Trip is "${trip.status}", cannot edit loaded qty` };
+    }
 
     // 1. Save buffer changes first if provided
     if (bufferRows) {
@@ -270,7 +355,31 @@ export async function markTripLoaded(
       if (planRes.error) return { error: planRes.error };
     }
 
-    // 2. Apply loaded qtys
+    // 2. For in-progress edits: validate that qty_loaded never goes below already-sold qty
+    if (isAdminInProgressEdit) {
+      const { data: bills } = await admin.from("trip_bills")
+        .select("id, is_cancelled, items:trip_bill_items(product_id, qty)")
+        .eq("trip_id", tripId)
+        .eq("is_cancelled", false);
+      const sold = new Map<string, number>();
+      for (const b of (bills ?? []) as Array<{
+        id: string; is_cancelled: boolean; items: Array<{ product_id: string; qty: number }>;
+      }>) {
+        for (const it of b.items ?? []) {
+          sold.set(it.product_id, (sold.get(it.product_id) ?? 0) + Number(it.qty));
+        }
+      }
+      for (const lq of loadedQty) {
+        const s = sold.get(lq.productId) ?? 0;
+        if (lq.qtyLoaded < s - 0.0001) {
+          // Look up product name for a friendlier message
+          const { data: p } = await admin.from("products").select("name").eq("id", lq.productId).single();
+          return { error: `Cannot set ${p?.name ?? "product"} loaded qty below ${s.toFixed(0)} — that much has already been sold` };
+        }
+      }
+    }
+
+    // 3. Apply loaded qtys
     for (const lq of loadedQty) {
       if (lq.qtyLoaded < 0) return { error: "Negative loaded qty not allowed" };
       await admin.from("trip_load_items").update({
@@ -278,13 +387,16 @@ export async function markTripLoaded(
       }).eq("trip_id", tripId).eq("product_id", lq.productId);
     }
 
-    const now = new Date().toISOString();
-    await admin.from("van_trips").update({
-      status: "in_progress",
-      loaded_at: now,
-      loaded_by: actor.userId,
-      started_at: now,
-    }).eq("id", tripId);
+    // 4. Flip status only if not already in_progress
+    if (!isAdminInProgressEdit) {
+      const now = new Date().toISOString();
+      await admin.from("van_trips").update({
+        status: "in_progress",
+        loaded_at: now,
+        loaded_by: actor.userId,
+        started_at: now,
+      }).eq("id", tripId);
+    }
 
     revalidatePath(`/trips/${tripId}`);
     revalidatePath("/trips");

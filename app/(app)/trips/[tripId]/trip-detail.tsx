@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Truck, MapPin, Printer, FileCheck2, AlertCircle, CheckCircle2,
   Smartphone, Ban, ArrowLeft, IndianRupee, Package, Receipt, Plus, Trash2, Save,
+  Pencil, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -21,7 +22,8 @@ import type {
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  markTripLoaded, markTripReturned, reconcileTrip, cancelTrip, saveTripPlan, type ReconcileInput,
+  markTripLoaded, markTripReturned, reconcileTrip, cancelTrip, saveTripPlan, updateTripMetadata,
+  type ReconcileInput,
 } from "../actions";
 
 type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
@@ -38,12 +40,13 @@ function statusBadge(s: VanTripStatus): { variant: "neutral" | "ok" | "warn" | "
 }
 
 export function TripDetail({
-  tripId, initialTrip, me, products,
+  tripId, initialTrip, me, products, vanLeads,
 }: {
   tripId: string;
   initialTrip: VanTrip;
   me: AppUser;
   products: ProductLite[];
+  vanLeads: Pick<AppUser, "id" | "full_name">[];
 }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -53,6 +56,18 @@ export function TripDetail({
   const [kpis, setKpis] = useState<VanTripKpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
+
+  // Trip metadata edit state
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [metaForm, setMetaForm] = useState({
+    tripDate: trip.trip_date,
+    vehicleType: trip.vehicle_type,
+    vehicleNumber: trip.vehicle_number ?? "",
+    vehicleProvidedBy: trip.vehicle_provided_by ?? "",
+    leadId: trip.lead_id,
+    helpersText: trip.helpers.join(", "),
+    notes: trip.notes ?? "",
+  });
 
   // Editable forms (loading + reconcile)
   // bufferQtys: productId → buffer qty (the user's working copy during planning/loading)
@@ -69,6 +84,15 @@ export function TripDetail({
 
   const canManage = ["admin", "van_lead"].includes(me.role);
   const canCancel = me.role === "admin";
+  const canEditMeta = me.role === "admin" && trip.status !== "cancelled";
+
+  // Plan-edit mode (admin only): unlocks the loading sheet during in_progress
+  const [editPlanMode, setEditPlanMode] = useState(false);
+  const canEditPlanInProgress = me.role === "admin" && trip.status === "in_progress";
+  const showLoadingSheet =
+    trip.status === "planning" || trip.status === "loading" ||
+    (canEditPlanInProgress && editPlanMode);
+  const isInProgressEdit = trip.status === "in_progress" && editPlanMode;
 
   async function reload() {
     const [{ data: t }, { data: li }, { data: bl }, { data: kp }] = await Promise.all([
@@ -90,8 +114,9 @@ export function TripDetail({
   }, [tripId]);
 
   useEffect(() => {
-    // Pre-fill buffer + loaded qty form from saved values
-    if (trip.status === "planning" || trip.status === "loading") {
+    // Pre-fill buffer + loaded qty form from saved values (works for planning/loading
+    // and for admin in_progress edits)
+    if (showLoadingSheet) {
       const bm = new Map<string, number>();
       const lm = new Map<string, number>();
       for (const li of loadItems) {
@@ -175,10 +200,15 @@ export function TripDetail({
       if (q < 0) { toast.error("Loaded qty cannot be negative"); return; }
       loadedPayload.push({ productId: pid, qtyLoaded: q });
     }
+    const wasInProgressEdit = isInProgressEdit;
     startTransition(async () => {
       const res = await markTripLoaded(tripId, loadedPayload, bufferRows);
       if (res.error) toast.error(res.error);
-      else { toast.success("Trip marked loaded — van is on route"); await reload(); }
+      else {
+        toast.success(wasInProgressEdit ? "Loaded qty updated" : "Trip marked loaded — van is on route");
+        if (wasInProgressEdit) setEditPlanMode(false);
+        await reload();
+      }
     });
   }
 
@@ -448,6 +478,36 @@ export function TripDetail({
     });
   }
 
+  function startEditingMeta() {
+    setMetaForm({
+      tripDate: trip.trip_date,
+      vehicleType: trip.vehicle_type,
+      vehicleNumber: trip.vehicle_number ?? "",
+      vehicleProvidedBy: trip.vehicle_provided_by ?? "",
+      leadId: trip.lead_id,
+      helpersText: trip.helpers.join(", "),
+      notes: trip.notes ?? "",
+    });
+    setEditingMeta(true);
+  }
+
+  function handleSaveMeta() {
+    const helpersList = metaForm.helpersText.split(",").map(s => s.trim()).filter(Boolean);
+    startTransition(async () => {
+      const res = await updateTripMetadata(tripId, {
+        tripDate: metaForm.tripDate,
+        vehicleType: metaForm.vehicleType,
+        vehicleNumber: metaForm.vehicleNumber.trim() || null,
+        vehicleProvidedBy: metaForm.vehicleType === "company" ? (metaForm.vehicleProvidedBy.trim() || null) : null,
+        leadId: metaForm.leadId,
+        helpers: helpersList,
+        notes: metaForm.notes.trim() || null,
+      });
+      if (res.error) toast.error(res.error);
+      else { toast.success("Trip updated"); setEditingMeta(false); await reload(); }
+    });
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <Link href="/trips" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
@@ -456,43 +516,124 @@ export function TripDetail({
 
       {/* Header card */}
       <div className="bg-paper-card border border-paper-line rounded-md p-4 mb-4">
-        <div className="flex items-start justify-between mb-3">
+        {editingMeta ? (
+          /* ============== EDIT MODE ============== */
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-3">
               <span className="font-mono text-base">{trip.trip_number}</span>
               <Badge variant={sb.variant}>{sb.label}</Badge>
+              <span className="text-2xs uppercase tracking-wide text-warn ml-auto font-medium">Editing</span>
             </div>
-            <div className="text-sm text-ink-muted">
-              {trip.beat?.name} · {new Date(trip.trip_date).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+              <div>
+                <Label className="block mb-1">Trip date</Label>
+                <Input type="date" value={metaForm.tripDate} onChange={(e) => setMetaForm({ ...metaForm, tripDate: e.target.value })} />
+              </div>
+              <div>
+                <Label className="block mb-1">Beat</Label>
+                <Input value={trip.beat?.name ?? ""} disabled className="opacity-60" />
+                <div className="text-2xs text-ink-subtle mt-0.5">Cannot change — would orphan pre-orders</div>
+              </div>
+              <div>
+                <Label className="block mb-1">Lead person</Label>
+                <Select value={metaForm.leadId} onValueChange={(v) => setMetaForm({ ...metaForm, leadId: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {vanLeads.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="block mb-1">Vehicle type</Label>
+                <Select value={metaForm.vehicleType} onValueChange={(v) => setMetaForm({ ...metaForm, vehicleType: v as "company" | "own" })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="own">Own vehicle</SelectItem>
+                    <SelectItem value="company">Company vehicle</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="block mb-1">Vehicle number</Label>
+                <Input value={metaForm.vehicleNumber} onChange={(e) => setMetaForm({ ...metaForm, vehicleNumber: e.target.value })} placeholder="MH 21 AB 1234" />
+              </div>
+              {metaForm.vehicleType === "company" && (
+                <div>
+                  <Label className="block mb-1">Provided by</Label>
+                  <Input value={metaForm.vehicleProvidedBy} onChange={(e) => setMetaForm({ ...metaForm, vehicleProvidedBy: e.target.value })} placeholder="Vikram Tea" />
+                </div>
+              )}
+              <div className="col-span-full">
+                <Label className="block mb-1">Helpers (comma-separated names)</Label>
+                <Input value={metaForm.helpersText} onChange={(e) => setMetaForm({ ...metaForm, helpersText: e.target.value })} placeholder="Ramesh, Suresh" />
+              </div>
+              <div className="col-span-full">
+                <Label className="block mb-1">Notes</Label>
+                <Textarea value={metaForm.notes} onChange={(e) => setMetaForm({ ...metaForm, notes: e.target.value })} rows={2} />
+              </div>
             </div>
-            <div className="text-xs text-ink-muted mt-1">
-              <span className="capitalize">{trip.vehicle_type}</span>
-              {trip.vehicle_number && <> · <span className="tabular">{trip.vehicle_number}</span></>}
-              {trip.vehicle_provided_by && <> · {trip.vehicle_provided_by}</>}
-            </div>
-            <div className="text-xs text-ink-muted">
-              Lead: {trip.lead?.full_name ?? "—"}
-              {trip.helpers.length > 0 && <> · Helpers: {trip.helpers.join(", ")}</>}
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={() => setEditingMeta(false)} disabled={pending}>
+                <X size={11}/> Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveMeta} disabled={pending}>
+                <Save size={11}/> {pending ? "Saving…" : "Save changes"}
+              </Button>
             </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            {trip.status === "in_progress" && (
-              <a href={`/van/${trip.id}`} target="_blank" rel="noopener noreferrer">
-                <Button size="sm"><Smartphone size={11}/> Open mobile billing</Button>
-              </a>
-            )}
-            {trip.status !== "cancelled" && (
-              <Button size="sm" variant="outline" onClick={printLoadingSheet}>
-                <Printer size={11}/> Print loading sheet
-              </Button>
-            )}
-            {canCancel && !["reconciled", "cancelled"].includes(trip.status) && (
-              <Button size="sm" variant="outline" onClick={handleCancel} disabled={pending}>
-                <Ban size={11}/> Cancel trip
-              </Button>
-            )}
+        ) : (
+          /* ============== DISPLAY MODE ============== */
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-mono text-base">{trip.trip_number}</span>
+                <Badge variant={sb.variant}>{sb.label}</Badge>
+              </div>
+              <div className="text-sm text-ink-muted">
+                {trip.beat?.name} · {new Date(trip.trip_date).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+              </div>
+              <div className="text-xs text-ink-muted mt-1">
+                <span className="capitalize">{trip.vehicle_type}</span>
+                {trip.vehicle_number && <> · <span className="tabular">{trip.vehicle_number}</span></>}
+                {trip.vehicle_provided_by && <> · {trip.vehicle_provided_by}</>}
+              </div>
+              <div className="text-xs text-ink-muted">
+                Lead: {trip.lead?.full_name ?? "—"}
+                {trip.helpers.length > 0 && <> · Helpers: {trip.helpers.join(", ")}</>}
+              </div>
+              {trip.notes && (
+                <div className="text-xs text-ink-muted mt-1 italic">Note: {trip.notes}</div>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {trip.status === "in_progress" && (
+                <a href={`/van/${trip.id}`} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm"><Smartphone size={11}/> Open mobile billing</Button>
+                </a>
+              )}
+              {trip.status !== "cancelled" && (
+                <Button size="sm" variant="outline" onClick={printLoadingSheet}>
+                  <Printer size={11}/> Print loading sheet
+                </Button>
+              )}
+              {canEditMeta && (
+                <Button size="sm" variant="outline" onClick={startEditingMeta}>
+                  <Pencil size={11}/> Edit trip
+                </Button>
+              )}
+              {canEditPlanInProgress && !editPlanMode && (
+                <Button size="sm" variant="outline" onClick={() => setEditPlanMode(true)}>
+                  <Pencil size={11}/> Edit plan & loaded qty
+                </Button>
+              )}
+              {canCancel && !["reconciled", "cancelled"].includes(trip.status) && (
+                <Button size="sm" variant="outline" onClick={handleCancel} disabled={pending}>
+                  <Ban size={11}/> Cancel trip
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* KPIs (visible from in_progress onwards) */}
@@ -505,12 +646,22 @@ export function TripDetail({
         </div>
       )}
 
-      {/* Loading sheet (planning/loading) */}
-      {(trip.status === "planning" || trip.status === "loading") && (
+      {/* Loading sheet (planning/loading status, or admin during in_progress) */}
+      {showLoadingSheet && (
         <div className="bg-paper-card border border-paper-line rounded-md p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">Loading sheet</h2>
-            <Button size="sm" variant="outline" onClick={printLoadingSheet}><Printer size={11}/> Print</Button>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+              Loading sheet
+              {isInProgressEdit && <span className="ml-2 text-2xs text-warn font-normal normal-case">(admin edit — trip is on route)</span>}
+            </h2>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={printLoadingSheet}><Printer size={11}/> Print</Button>
+              {isInProgressEdit && (
+                <Button size="sm" variant="ghost" onClick={() => setEditPlanMode(false)}>
+                  <X size={11}/> Close
+                </Button>
+              )}
+            </div>
           </div>
           <table className="w-full text-sm">
             <thead className="text-2xs uppercase tracking-wide text-ink-muted border-b border-paper-line">
@@ -681,9 +832,15 @@ export function TripDetail({
               <Button variant="outline" onClick={handleSavePlan} disabled={pending}>
                 <Save size={11}/> {pending ? "Saving…" : "Save Plan"}
               </Button>
-              <Button onClick={handleMarkLoaded} disabled={pending || (loadItems.length === 0 && extraBufferProducts.length === 0)}>
-                <Truck size={11}/> {pending ? "Saving…" : "Mark loaded & start trip"}
-              </Button>
+              {isInProgressEdit ? (
+                <Button onClick={handleMarkLoaded} disabled={pending || (loadItems.length === 0 && extraBufferProducts.length === 0)}>
+                  <Save size={11}/> {pending ? "Saving…" : "Save loaded qty"}
+                </Button>
+              ) : (
+                <Button onClick={handleMarkLoaded} disabled={pending || (loadItems.length === 0 && extraBufferProducts.length === 0)}>
+                  <Truck size={11}/> {pending ? "Saving…" : "Mark loaded & start trip"}
+                </Button>
+              )}
             </div>
           )}
         </div>
