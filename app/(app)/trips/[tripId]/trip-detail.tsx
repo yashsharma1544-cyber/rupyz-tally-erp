@@ -210,7 +210,13 @@ export function TripDetail({
   // Print a clean A4 loading sheet — opens in a new window so the sidebar/header
   // aren't included. Uses current state including any unsaved buffer edits.
   function printLoadingSheet() {
-    type PrintRow = { productName: string; productUnit: string; preOrderQty: number; bufferQty: number };
+    type PrintRow = {
+      productName: string;
+      productUnit: string;
+      preOrderQty: number;
+      bufferQty: number;
+      actuallyLoadedQty: number | null;
+    };
     const rows: PrintRow[] = [];
 
     for (const li of loadItems) {
@@ -222,6 +228,7 @@ export function TripDetail({
         productUnit: li.product?.unit ?? "",
         preOrderQty: preOrder,
         bufferQty: buffer,
+        actuallyLoadedQty: li.qty_loaded !== null && li.qty_loaded !== undefined ? Number(li.qty_loaded) : null,
       });
     }
     for (const pid of extraBufferProducts) {
@@ -233,13 +240,16 @@ export function TripDetail({
         productUnit: prod?.unit ?? "",
         preOrderQty: 0,
         bufferQty: buffer,
+        actuallyLoadedQty: null,
       });
     }
     rows.sort((a, b) => a.productName.localeCompare(b.productName));
 
-    const totalPre  = rows.reduce((s, r) => s + r.preOrderQty, 0);
-    const totalBuf  = rows.reduce((s, r) => s + r.bufferQty, 0);
-    const totalQty  = totalPre + totalBuf;
+    const totalPre   = rows.reduce((s, r) => s + r.preOrderQty, 0);
+    const totalBuf   = rows.reduce((s, r) => s + r.bufferQty, 0);
+    const totalQty   = totalPre + totalBuf;
+    const hasLoaded  = rows.some(r => r.actuallyLoadedQty !== null);
+    const totalLoaded = rows.reduce((s, r) => s + (r.actuallyLoadedQty ?? 0), 0);
 
     const tripDateStr = new Date(trip.trip_date).toLocaleDateString("en-IN", {
       weekday: "long", day: "2-digit", month: "long", year: "numeric",
@@ -247,15 +257,29 @@ export function TripDetail({
     const generatedStr = new Date().toLocaleString("en-IN", {
       day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
     });
+    const loadedAtStr = trip.loaded_at
+      ? new Date(trip.loaded_at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+      : null;
     const vehicleStr = [
       trip.vehicle_type === "company" ? "Company" : "Own",
       trip.vehicle_number,
       trip.vehicle_provided_by,
     ].filter(Boolean).join(" · ");
+    const statusLabelMap: Record<string, string> = {
+      planning: "Planning", loading: "Loading", in_progress: "On Route",
+      returned: "Returned · Awaiting Reconcile", reconciled: "Reconciled", cancelled: "Cancelled",
+    };
+    const statusStr = statusLabelMap[trip.status] ?? trip.status;
 
     const esc = (s: string) => s.replace(/[&<>"']/g, c => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     } as Record<string, string>)[c] ?? c);
+
+    const lastColHeader = hasLoaded ? "Actually loaded" : "Loaded";
+    const lastColCell = (r: PrintRow) =>
+      r.actuallyLoadedQty !== null
+        ? `<strong>${r.actuallyLoadedQty.toFixed(0)}</strong>`
+        : `<span style="font-size:14pt;color:#aaa;">☐</span>`;
 
     const html = `<!DOCTYPE html>
 <html>
@@ -270,7 +294,8 @@ export function TripDetail({
   .header .row { display: flex; justify-content: space-between; align-items: baseline; }
   .header .company { font-size: 16pt; font-weight: 700; letter-spacing: 0.02em; }
   .header .doctype { font-size: 14pt; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
-  .header .sub { color: #888; font-size: 9pt; margin-top: 4px; }
+  .header .sub { display: flex; justify-content: space-between; align-items: baseline; color: #888; font-size: 9pt; margin-top: 4px; }
+  .status-pill { display: inline-block; border: 1px solid #888; border-radius: 3px; padding: 1px 8px; font-size: 9pt; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
   .meta { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 6px 16px; margin-bottom: 20px; font-size: 10pt; }
   .meta dt { color: #777; }
   .meta dd { margin: 0; font-weight: 500; }
@@ -278,7 +303,7 @@ export function TripDetail({
   th, td { border: 1px solid #bbb; padding: 7px 8px; text-align: left; vertical-align: top; }
   th { background: #efeae0; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .check { text-align: center; width: 60px; font-size: 14pt; color: #aaa; }
+  .check { text-align: center; width: 80px; }
   tfoot td { background: #efeae0; font-weight: 700; }
   .footer { margin-top: 28px; page-break-inside: avoid; }
   .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 18px; font-size: 10pt; }
@@ -297,7 +322,10 @@ export function TripDetail({
       <div class="company">SUSHIL AGENCIES</div>
       <div class="doctype">Loading Sheet</div>
     </div>
-    <div class="sub">Generated ${esc(generatedStr)}</div>
+    <div class="sub">
+      <span>Generated ${esc(generatedStr)}${loadedAtStr ? ` · Loaded ${esc(loadedAtStr)}` : ""}</span>
+      <span class="status-pill">${esc(statusStr)}</span>
+    </div>
   </div>
 
   <dl class="meta">
@@ -319,7 +347,7 @@ export function TripDetail({
           <th class="num">Pre-order</th>
           <th class="num">Buffer</th>
           <th class="num">Total qty</th>
-          <th class="check">Loaded</th>
+          <th class="check num">${esc(lastColHeader)}</th>
         </tr>
       </thead>
       <tbody>
@@ -332,7 +360,7 @@ export function TripDetail({
             <td class="num">${r.preOrderQty.toFixed(0)}</td>
             <td class="num">${r.bufferQty.toFixed(0)}</td>
             <td class="num"><strong>${(r.preOrderQty + r.bufferQty).toFixed(0)}</strong></td>
-            <td class="check">☐</td>
+            <td class="check">${lastColCell(r)}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -342,7 +370,7 @@ export function TripDetail({
           <td class="num">${totalPre.toFixed(0)}</td>
           <td class="num">${totalBuf.toFixed(0)}</td>
           <td class="num">${totalQty.toFixed(0)}</td>
-          <td></td>
+          <td class="num">${hasLoaded ? totalLoaded.toFixed(0) : ""}</td>
         </tr>
       </tfoot>
     </table>
@@ -452,6 +480,11 @@ export function TripDetail({
               <a href={`/van/${trip.id}`} target="_blank" rel="noopener noreferrer">
                 <Button size="sm"><Smartphone size={11}/> Open mobile billing</Button>
               </a>
+            )}
+            {trip.status !== "cancelled" && (
+              <Button size="sm" variant="outline" onClick={printLoadingSheet}>
+                <Printer size={11}/> Print loading sheet
+              </Button>
             )}
             {canCancel && !["reconciled", "cancelled"].includes(trip.status) && (
               <Button size="sm" variant="outline" onClick={handleCancel} disabled={pending}>
