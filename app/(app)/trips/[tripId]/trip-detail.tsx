@@ -207,6 +207,186 @@ export function TripDetail({
     const nl = new Map(loadedQtys); nl.delete(productId); setLoadedQtys(nl);
   }
 
+  // Print a clean A4 loading sheet — opens in a new window so the sidebar/header
+  // aren't included. Uses current state including any unsaved buffer edits.
+  function printLoadingSheet() {
+    type PrintRow = { productName: string; productUnit: string; preOrderQty: number; bufferQty: number };
+    const rows: PrintRow[] = [];
+
+    for (const li of loadItems) {
+      const buffer = bufferQtys.get(li.product_id) ?? Number(li.source_buffer_qty);
+      const preOrder = Number(li.source_pre_order_qty);
+      if (buffer === 0 && preOrder === 0) continue;
+      rows.push({
+        productName: li.product?.name ?? "—",
+        productUnit: li.product?.unit ?? "",
+        preOrderQty: preOrder,
+        bufferQty: buffer,
+      });
+    }
+    for (const pid of extraBufferProducts) {
+      const prod = products.find(p => p.id === pid);
+      const buffer = bufferQtys.get(pid) ?? 0;
+      if (buffer === 0) continue;
+      rows.push({
+        productName: prod?.name ?? "—",
+        productUnit: prod?.unit ?? "",
+        preOrderQty: 0,
+        bufferQty: buffer,
+      });
+    }
+    rows.sort((a, b) => a.productName.localeCompare(b.productName));
+
+    const totalPre  = rows.reduce((s, r) => s + r.preOrderQty, 0);
+    const totalBuf  = rows.reduce((s, r) => s + r.bufferQty, 0);
+    const totalQty  = totalPre + totalBuf;
+
+    const tripDateStr = new Date(trip.trip_date).toLocaleDateString("en-IN", {
+      weekday: "long", day: "2-digit", month: "long", year: "numeric",
+    });
+    const generatedStr = new Date().toLocaleString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    const vehicleStr = [
+      trip.vehicle_type === "company" ? "Company" : "Own",
+      trip.vehicle_number,
+      trip.vehicle_provided_by,
+    ].filter(Boolean).join(" · ");
+
+    const esc = (s: string) => s.replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    } as Record<string, string>)[c] ?? c);
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Loading Sheet — ${esc(trip.trip_number)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; color: #0a0a0a; margin: 0; font-size: 11pt; line-height: 1.4; }
+  .header { border-bottom: 2px solid #0a0a0a; padding-bottom: 8px; margin-bottom: 16px; }
+  .header .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .header .company { font-size: 16pt; font-weight: 700; letter-spacing: 0.02em; }
+  .header .doctype { font-size: 14pt; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+  .header .sub { color: #888; font-size: 9pt; margin-top: 4px; }
+  .meta { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 6px 16px; margin-bottom: 20px; font-size: 10pt; }
+  .meta dt { color: #777; }
+  .meta dd { margin: 0; font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 10pt; }
+  th, td { border: 1px solid #bbb; padding: 7px 8px; text-align: left; vertical-align: top; }
+  th { background: #efeae0; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .check { text-align: center; width: 60px; font-size: 14pt; color: #aaa; }
+  tfoot td { background: #efeae0; font-weight: 700; }
+  .footer { margin-top: 28px; page-break-inside: avoid; }
+  .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 18px; font-size: 10pt; }
+  .signature .block .label { color: #777; font-size: 9pt; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .signature .block .line { border-top: 1px solid #555; padding-top: 4px; min-height: 14px; font-size: 9pt; color: #888; }
+  .notes { border: 1px solid #bbb; padding: 8px 10px; min-height: 60px; font-size: 10pt; }
+  .notes .label { font-size: 9pt; color: #777; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .empty { text-align: center; color: #999; font-style: italic; padding: 28px; border: 1px dashed #ccc; }
+  .product-unit { font-size: 9pt; color: #999; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="row">
+      <div class="company">SUSHIL AGENCIES</div>
+      <div class="doctype">Loading Sheet</div>
+    </div>
+    <div class="sub">Generated ${esc(generatedStr)}</div>
+  </div>
+
+  <dl class="meta">
+    <dt>Trip #</dt>   <dd><strong>${esc(trip.trip_number)}</strong></dd>
+    <dt>Date</dt>     <dd>${esc(tripDateStr)}</dd>
+    <dt>Beat</dt>     <dd>${esc(trip.beat?.name ?? "—")}</dd>
+    <dt>Vehicle</dt>  <dd>${esc(vehicleStr || "—")}</dd>
+    <dt>Lead</dt>     <dd>${esc(trip.lead?.full_name ?? "—")}</dd>
+    <dt>Helpers</dt>  <dd>${esc(trip.helpers.length ? trip.helpers.join(", ") : "—")}</dd>
+  </dl>
+
+  ${rows.length === 0 ? `
+    <div class="empty">No items planned for this trip.</div>
+  ` : `
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 50%;">Product</th>
+          <th class="num">Pre-order</th>
+          <th class="num">Buffer</th>
+          <th class="num">Total qty</th>
+          <th class="check">Loaded</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>
+              <div>${esc(r.productName)}</div>
+              ${r.productUnit ? `<div class="product-unit">${esc(r.productUnit)}</div>` : ""}
+            </td>
+            <td class="num">${r.preOrderQty.toFixed(0)}</td>
+            <td class="num">${r.bufferQty.toFixed(0)}</td>
+            <td class="num"><strong>${(r.preOrderQty + r.bufferQty).toFixed(0)}</strong></td>
+            <td class="check">☐</td>
+          </tr>
+        `).join("")}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>TOTAL</td>
+          <td class="num">${totalPre.toFixed(0)}</td>
+          <td class="num">${totalBuf.toFixed(0)}</td>
+          <td class="num">${totalQty.toFixed(0)}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  `}
+
+  <div class="footer">
+    <div class="signature">
+      <div class="block">
+        <div class="label">Loaded by (warehouse)</div>
+        <div class="line">Name &amp; Signature</div>
+      </div>
+      <div class="block">
+        <div class="label">Received by (lead / driver)</div>
+        <div class="line">Name &amp; Signature</div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="label">Notes</div>
+      &nbsp;
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener("load", function() {
+      setTimeout(function() {
+        window.focus();
+        window.print();
+      }, 150);
+      window.addEventListener("afterprint", function() { window.close(); });
+    });
+  </script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "width=900,height=1100");
+    if (!w) {
+      toast.error("Popup blocked — please allow popups for this site to print");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
   function handleMarkReturned() {
     startTransition(async () => {
       const res = await markTripReturned(tripId);
@@ -297,7 +477,7 @@ export function TripDetail({
         <div className="bg-paper-card border border-paper-line rounded-md p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">Loading sheet</h2>
-            <Button size="sm" variant="outline" onClick={() => window.print()}><Printer size={11}/> Print</Button>
+            <Button size="sm" variant="outline" onClick={printLoadingSheet}><Printer size={11}/> Print</Button>
           </div>
           <table className="w-full text-sm">
             <thead className="text-2xs uppercase tracking-wide text-ink-muted border-b border-paper-line">
