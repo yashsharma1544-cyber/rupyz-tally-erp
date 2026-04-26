@@ -267,7 +267,7 @@ export async function markTripLoaded(
     // 1. Save buffer changes first if provided
     if (bufferRows) {
       const planRes = await saveTripPlan(tripId, { bufferRows });
-      if (planRes.error) return planRes;
+      if (planRes.error) return { error: planRes.error };
     }
 
     // 2. Apply loaded qtys
