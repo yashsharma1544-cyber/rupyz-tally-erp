@@ -15,13 +15,14 @@ export default async function TripPage({ params }: { params: Promise<{ tripId: s
   const { data: me } = await supabase.from("app_users").select("*").eq("id", user.id).single();
   if (!me) redirect("/dashboard");
 
-  const [{ data: trip }, { data: products }] = await Promise.all([
+  const [{ data: trip }, { data: products }, { data: vanLeads }] = await Promise.all([
     supabase
       .from("van_trips")
       .select("*, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
       .eq("id", tripId)
       .maybeSingle(),
     supabase.from("products").select("id, name, unit, base_price, mrp, gst_percent").eq("active", true).order("name"),
+    supabase.from("app_users").select("id, full_name").in("role", ["admin", "van_lead"]).eq("active", true).order("full_name"),
   ]);
   if (!trip) notFound();
 
@@ -33,6 +34,7 @@ export default async function TripPage({ params }: { params: Promise<{ tripId: s
         initialTrip={trip as unknown as VanTrip}
         me={me as AppUser}
         products={(products ?? []) as Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">[]}
+        vanLeads={(vanLeads ?? []) as Pick<AppUser, "id" | "full_name">[]}
       />
     </>
   );
