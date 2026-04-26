@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import {
   confirmPreOrderBill, createSpotBill, createQuickCustomer,
 } from "@/app/(app)/trips/bill-actions";
+import { attachOrderToTrip } from "@/app/(app)/trips/actions";
 
 type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
 type CustomerLite = Pick<Customer, "id" | "name" | "mobile" | "city">;
@@ -42,7 +43,7 @@ export function VanMobileBilling({
   const [customers, setCustomers] = useState<CustomerLite[]>(initialCustomers);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"preorder" | "walkin">("preorder");
-  const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer" | "stock">("list");
+  const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer" | "stock" | "attachorder">("list");
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
 
@@ -192,6 +193,9 @@ export function VanMobileBilling({
   if (activeView === "stock") {
     return <StockView trip={trip} stockMap={stockMap} onBack={() => setActiveView("list")} />;
   }
+  if (activeView === "attachorder") {
+    return <AttachOrderView trip={trip} bills={bills} onBack={() => { setActiveView("list"); reload(); }} />;
+  }
 
   // ============== LIST VIEW ==============
   return (
@@ -258,6 +262,13 @@ export function VanMobileBilling({
         {tab === "walkin" && (
           <Button variant="outline" size="sm" className="w-full mb-3" onClick={() => setActiveView("newcustomer")}>
             <Plus size={11}/> Add new walk-in customer
+          </Button>
+        )}
+
+        {/* Pull new order button — only on pre-order tab */}
+        {tab === "preorder" && (
+          <Button variant="outline" size="sm" className="w-full mb-3" onClick={() => setActiveView("attachorder")}>
+            <Plus size={11}/> Pull new order from office
           </Button>
         )}
 
@@ -741,6 +752,176 @@ function StockView({ trip, stockMap, onBack }: {
         <p className="text-2xs text-center text-ink-subtle pt-3">
           Updated live as bills are saved.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// ATTACH ORDER VIEW (pull a new approved order onto the active trip)
+// ===========================================================================
+function AttachOrderView({
+  trip, bills, onBack,
+}: { trip: VanTrip; bills: TripBill[]; onBack: () => void }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [orders, setOrders] = useState<Array<{
+    id: string;
+    rupyz_order_id: string;
+    total_amount: number;
+    rupyz_created_at: string;
+    customer: { id: string; name: string; mobile: string | null } | null;
+    items_count: number;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, startTransition] = useTransition();
+  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      // Customers in this trip's beat
+      const { data: cs } = await supabase.from("customers").select("id").eq("beat_id", trip.beat_id).eq("active", true);
+      const customerIds = (cs ?? []).map((c: { id: string }) => c.id);
+      if (!customerIds.length) { if (!cancelled) { setOrders([]); setLoading(false); } return; }
+
+      // Approved/partially_dispatched orders (last 14 days to limit window)
+      const since = new Date(Date.now() - 14 * 86400 * 1000).toISOString();
+      const { data: ords } = await supabase
+        .from("orders")
+        .select("id, rupyz_order_id, total_amount, rupyz_created_at, customer:customers(id,name,mobile), items:order_items(id)")
+        .in("customer_id", customerIds)
+        .in("app_status", ["approved", "partially_dispatched"])
+        .gte("rupyz_created_at", since)
+        .order("rupyz_created_at", { ascending: false });
+
+      // Filter out orders already on a non-cancelled bill (this trip OR any other)
+      const orderIds = ((ords ?? []) as { id: string }[]).map(o => o.id);
+      let onTrip = new Set<string>();
+      if (orderIds.length) {
+        const { data: existing } = await supabase
+          .from("trip_bills")
+          .select("source_order_id")
+          .in("source_order_id", orderIds)
+          .eq("is_cancelled", false);
+        onTrip = new Set(((existing ?? []) as { source_order_id: string }[]).map(x => x.source_order_id));
+      }
+
+      type RawOrder = {
+        id: string; rupyz_order_id: string; total_amount: number; rupyz_created_at: string;
+        customer: { id: string; name: string; mobile: string | null } | { id: string; name: string; mobile: string | null }[] | null;
+        items: { id: string }[];
+      };
+      const filtered = ((ords ?? []) as RawOrder[])
+        .filter(o => !onTrip.has(o.id))
+        .map(o => ({
+          id: o.id,
+          rupyz_order_id: o.rupyz_order_id,
+          total_amount: Number(o.total_amount),
+          rupyz_created_at: o.rupyz_created_at,
+          customer: Array.isArray(o.customer) ? (o.customer[0] ?? null) : o.customer,
+          items_count: (o.items ?? []).length,
+        }));
+
+      if (!cancelled) { setOrders(filtered); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.beat_id, trip.id]);
+
+  // Re-filter on every render in case bills updated mid-screen
+  const visibleOrders = useMemo(() => {
+    const onTrip = new Set(bills.filter(b => !b.is_cancelled && b.source_order_id).map(b => b.source_order_id as string));
+    return orders.filter(o => !onTrip.has(o.id));
+  }, [orders, bills]);
+
+  function handleAttach(orderId: string) {
+    startTransition(async () => {
+      const res = await attachOrderToTrip({ orderId, tripId: trip.id });
+      if (res.error) { toast.error(res.error); return; }
+      const warns = res.stockWarnings ?? [];
+      if (warns.length === 0) {
+        toast.success(`Added as ${res.billNumber}`);
+      } else {
+        const sample = warns.slice(0, 2).map(w => `${w.productName} short by ${(w.qtyNeeded - w.qtyRemaining).toFixed(0)}`).join("; ");
+        const more = warns.length > 2 ? ` (+${warns.length - 2} more)` : "";
+        toast.warning(`Added, but stock low: ${sample}${more}`, { duration: 8000 });
+      }
+      setConfirmingOrderId(null);
+      onBack();
+    });
+  }
+
+  return (
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-md mx-auto px-3 py-4">
+        <button onClick={onBack} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
+          <ArrowLeft size={11}/> Back
+        </button>
+        <h1 className="text-lg font-bold">Pull new order</h1>
+        <p className="text-xs text-ink-muted mb-3">
+          Approved orders for {trip.beat?.name} that aren&apos;t on a trip yet.
+        </p>
+
+        {loading ? (
+          <div className="text-sm text-ink-muted py-8 text-center">Loading orders…</div>
+        ) : visibleOrders.length === 0 ? (
+          <div className="text-center text-sm text-ink-muted py-8">
+            No new orders for this beat.
+            <div className="text-2xs text-ink-subtle mt-2">
+              Office will need to approve orders in Rupyz first, and they&apos;ll show up here.
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {visibleOrders.map(o => (
+              <button
+                key={o.id}
+                onClick={() => setConfirmingOrderId(o.id)}
+                className="w-full text-left bg-paper-card border border-paper-line rounded p-3"
+              >
+                <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                  <span className="font-semibold text-sm flex-1 min-w-0 truncate">{o.customer?.name ?? "—"}</span>
+                  <span className="tabular text-sm font-bold whitespace-nowrap">{formatINR(o.total_amount)}</span>
+                </div>
+                <div className="flex items-baseline justify-between text-2xs text-ink-muted">
+                  <span className="font-mono">{o.rupyz_order_id}</span>
+                  <span>{o.items_count} item{o.items_count !== 1 ? "s" : ""} · {new Date(o.rupyz_created_at).toLocaleDateString("en-IN")}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Confirmation overlay */}
+        {confirmingOrderId && (() => {
+          const o = visibleOrders.find(x => x.id === confirmingOrderId);
+          if (!o) return null;
+          return (
+            <div className="fixed inset-0 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center z-50 p-3">
+              <div className="bg-paper-card border border-paper-line rounded-lg p-4 max-w-sm w-full">
+                <h2 className="font-semibold text-base mb-1">Add to this trip?</h2>
+                <p className="text-xs text-ink-muted mb-3">
+                  <span className="font-medium text-ink">{o.customer?.name}</span>
+                  {" — "}
+                  <span className="font-mono">{o.rupyz_order_id}</span>
+                  {" · "}{formatINR(o.total_amount)}
+                </p>
+                <p className="text-2xs text-warn mb-4">
+                  If stock on the truck is short for any item, you&apos;ll see a warning. The bill won&apos;t save until you have enough on the truck.
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={() => setConfirmingOrderId(null)} disabled={pending}>
+                    Cancel
+                  </Button>
+                  <Button className="flex-1" onClick={() => handleAttach(o.id)} disabled={pending}>
+                    {pending ? "Adding…" : "Add to trip"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

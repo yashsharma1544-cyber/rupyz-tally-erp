@@ -160,6 +160,231 @@ export async function createTrip(input: CreateTripInput) {
 }
 
 // =============================================================================
+// ATTACH ORDER TO ACTIVE TRIP
+// Used when an order arrives after the trip has started. The order's items roll
+// into the trip's load (qty_planned += order qty, qty_loaded UNCHANGED so the
+// stock guard catches shortages naturally), and a pre_order trip_bill is created
+// so the lead sees it on the mobile app.
+//
+// Returns a "stockWarnings" array if any items exceed remaining stock — the
+// caller can surface this in the UI but the attach proceeds either way.
+// =============================================================================
+export interface AttachOrderToTripInput {
+  orderId: string;
+  tripId: string;
+}
+
+export interface StockWarning {
+  productName: string;
+  qtyNeeded: number;
+  qtyRemaining: number;
+}
+
+export async function attachOrderToTrip(input: AttachOrderToTripInput) {
+  try {
+    const actor = await requireRoles(["admin", "van_lead"]);
+    const admin = createAdminClient();
+
+    // Validate trip
+    const { data: trip } = await admin.from("van_trips")
+      .select("id, status, trip_number, beat_id").eq("id", input.tripId).maybeSingle();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status !== "in_progress") {
+      return { error: `Trip is "${trip.status}" — only on-route trips accept new orders. For planning-stage trips, edit the trip plan instead.` };
+    }
+
+    // Validate order
+    const { data: order } = await admin.from("orders")
+      .select("id, customer_id, total_amount, amount, payment_option_check, app_status, customer:customers(id, name, beat_id)")
+      .eq("id", input.orderId)
+      .maybeSingle();
+    if (!order) return { error: "Order not found" };
+    if (!["approved", "partially_dispatched"].includes(order.app_status)) {
+      return { error: `Order is "${order.app_status}" — only approved orders can be attached` };
+    }
+
+    const customer = Array.isArray(order.customer) ? order.customer[0] : order.customer;
+    if (!customer) return { error: "Order has no customer" };
+    if (customer.beat_id !== trip.beat_id) {
+      return { error: `Customer ${customer.name} is not on this trip's beat` };
+    }
+
+    // Refuse duplicate attach
+    const { data: dup } = await admin.from("trip_bills")
+      .select("id, trip_id, is_cancelled")
+      .eq("source_order_id", input.orderId)
+      .eq("is_cancelled", false)
+      .maybeSingle();
+    if (dup) return { error: "This order is already on a trip" };
+
+    // Fetch order items
+    const { data: items } = await admin.from("order_items")
+      .select("product_id, qty, price, total_price, product:products(id, name)")
+      .eq("order_id", input.orderId);
+    if (!items || items.length === 0) return { error: "Order has no items" };
+
+    type Item = { product_id: string; qty: number; price: number; total_price: number; product: { id: string; name: string } | { id: string; name: string }[] | null };
+
+    // Roll items up by product (an order can list the same product more than once in theory)
+    const itemsByProduct = new Map<string, { qty: number; productName: string }>();
+    for (const it of (items as Item[])) {
+      const prod = Array.isArray(it.product) ? it.product[0] : it.product;
+      const cur = itemsByProduct.get(it.product_id) ?? { qty: 0, productName: prod?.name ?? "—" };
+      cur.qty += Number(it.qty);
+      itemsByProduct.set(it.product_id, cur);
+    }
+
+    // Compute current stock state to detect shortages (warn-only)
+    const { data: existingLoad } = await admin.from("trip_load_items")
+      .select("product_id, qty_loaded, qty_planned")
+      .eq("trip_id", input.tripId);
+    const { data: existingBills } = await admin.from("trip_bills")
+      .select("id, is_cancelled, items:trip_bill_items(product_id, qty)")
+      .eq("trip_id", input.tripId)
+      .eq("is_cancelled", false);
+
+    const loadedByProduct = new Map<string, { loaded: number; planned: number }>();
+    for (const li of (existingLoad ?? []) as Array<{ product_id: string; qty_loaded: number | null; qty_planned: number }>) {
+      loadedByProduct.set(li.product_id, {
+        loaded: Number(li.qty_loaded ?? li.qty_planned),
+        planned: Number(li.qty_planned),
+      });
+    }
+    const soldByProduct = new Map<string, number>();
+    for (const b of (existingBills ?? []) as Array<{
+      id: string; is_cancelled: boolean; items: Array<{ product_id: string; qty: number }>;
+    }>) {
+      for (const it of b.items ?? []) {
+        soldByProduct.set(it.product_id, (soldByProduct.get(it.product_id) ?? 0) + Number(it.qty));
+      }
+    }
+
+    const warnings: StockWarning[] = [];
+    for (const [pid, { qty, productName }] of itemsByProduct.entries()) {
+      const loaded = loadedByProduct.get(pid)?.loaded ?? 0;
+      const sold = soldByProduct.get(pid) ?? 0;
+      const remaining = loaded - sold;
+      if (qty > remaining + 0.0001) {
+        warnings.push({ productName, qtyNeeded: qty, qtyRemaining: remaining });
+      }
+    }
+
+    // 1. Bump trip_load_items qty_planned by the new order qty (insert if missing).
+    //    qty_loaded stays as-is — that's the truth about what's physically on the truck.
+    for (const [pid, { qty }] of itemsByProduct.entries()) {
+      const existing = loadedByProduct.get(pid);
+      if (existing) {
+        // Need current source_pre_order_qty so we can bump it correctly
+        const { data: row } = await admin.from("trip_load_items")
+          .select("source_pre_order_qty")
+          .eq("trip_id", input.tripId).eq("product_id", pid).single();
+        await admin.from("trip_load_items").update({
+          qty_planned: existing.planned + qty,
+          source_pre_order_qty: Number(row?.source_pre_order_qty ?? 0) + qty,
+        }).eq("trip_id", input.tripId).eq("product_id", pid);
+      } else {
+        await admin.from("trip_load_items").insert({
+          trip_id: input.tripId,
+          product_id: pid,
+          qty_planned: qty,
+          qty_loaded: 0, // not loaded — this is what triggers a stock warning
+          source_pre_order_qty: qty,
+          source_buffer_qty: 0,
+        });
+      }
+    }
+
+    // 2. Create the pre_order trip_bill
+    const { data: bn } = await admin.rpc("next_trip_bill_number", { p_trip_id: input.tripId });
+    const billNumber = bn as unknown as string;
+    const paymentMode: "cash" | "credit" = order.payment_option_check === "PAY_ON_DELIVERY" ? "cash" : "credit";
+
+    const { data: bill, error: bErr } = await admin.from("trip_bills").insert({
+      trip_id: input.tripId,
+      bill_number: billNumber,
+      bill_type: "pre_order",
+      customer_id: order.customer_id,
+      source_order_id: order.id,
+      payment_mode: paymentMode,
+      subtotal: Number(order.amount),
+      total_amount: Number(order.total_amount),
+      notes: `Added mid-trip by ${actor.fullName}`,
+      created_by: actor.userId,
+    }).select("id").single();
+    if (bErr || !bill) return { error: bErr?.message ?? "Failed to create trip bill" };
+
+    // 3. Add bill items
+    const { error: biErr } = await admin.from("trip_bill_items").insert(
+      (items as Item[]).map(it => ({
+        bill_id: bill.id,
+        product_id: it.product_id,
+        qty: Number(it.qty),
+        rate: Number(it.price),
+        amount: Number(it.total_price ?? Number(it.qty) * Number(it.price)),
+      })),
+    );
+    if (biErr) return { error: `Saving items: ${biErr.message}` };
+
+    revalidatePath(`/trips/${input.tripId}`);
+    revalidatePath(`/van/${input.tripId}`);
+    revalidatePath("/orders");
+    return {
+      ok: true,
+      billNumber,
+      tripNumber: trip.trip_number,
+      stockWarnings: warnings,
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// LIST ACTIVE TRIPS FOR ORDER (used by order drawer / mobile to pick a trip)
+// Returns trips that are in_progress for the order's customer's beat.
+// =============================================================================
+export async function listActiveTripsForOrder(orderId: string) {
+  try {
+    await requireRoles(["admin", "van_lead", "approver", "dispatch", "delivery", "accounts", "salesman"]);
+    const admin = createAdminClient();
+
+    const { data: order } = await admin.from("orders")
+      .select("id, app_status, customer:customers(id, beat_id)")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order) return { error: "Order not found" };
+
+    const customer = Array.isArray(order.customer) ? order.customer[0] : order.customer;
+    const beatId = customer?.beat_id;
+    if (!beatId) return { ok: true, trips: [], orderEligible: false, reason: "Customer has no beat" };
+
+    if (!["approved", "partially_dispatched"].includes(order.app_status)) {
+      return { ok: true, trips: [], orderEligible: false, reason: `Order status is "${order.app_status}"` };
+    }
+
+    // Already on a trip?
+    const { data: existing } = await admin.from("trip_bills")
+      .select("trip_id, is_cancelled")
+      .eq("source_order_id", orderId)
+      .eq("is_cancelled", false)
+      .maybeSingle();
+    if (existing) {
+      return { ok: true, trips: [], orderEligible: false, reason: "Already on a trip" };
+    }
+
+    const { data: trips } = await admin.from("van_trips")
+      .select("id, trip_number, trip_date, status, lead:app_users!van_trips_lead_id_fkey(id,full_name)")
+      .eq("beat_id", beatId)
+      .eq("status", "in_progress")
+      .order("trip_date", { ascending: false });
+
+    return { ok: true, trips: (trips ?? []), orderEligible: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
 // SAVE TRIP PLAN (add/edit/remove buffer items during planning)
 // `bufferRows` represents the COMPLETE desired buffer state.
 // Products not in the list have their buffer cleared.
