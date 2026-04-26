@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Truck, MapPin, Printer, FileCheck2, AlertCircle, CheckCircle2,
   Smartphone, Ban, ArrowLeft, IndianRupee, Package, Receipt, Plus, Trash2, Save,
-  Pencil, X,
+  Pencil, X, Eye, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -15,6 +15,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody,
+} from "@/components/ui/sheet";
 import { createClient } from "@/lib/supabase/client";
 import type {
   AppUser, VanTrip, VanTripStatus, TripLoadItem, TripBill, VanTripKpis, Product,
@@ -94,11 +97,18 @@ export function TripDetail({
     (canEditPlanInProgress && editPlanMode);
   const isInProgressEdit = trip.status === "in_progress" && editPlanMode;
 
+  // View-bill drawer state (read-only)
+  const [viewingBillId, setViewingBillId] = useState<string | null>(null);
+  const viewingBill = useMemo(
+    () => bills.find(b => b.id === viewingBillId) ?? null,
+    [bills, viewingBillId],
+  );
+
   async function reload() {
     const [{ data: t }, { data: li }, { data: bl }, { data: kp }] = await Promise.all([
       supabase.from("van_trips").select("*, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)").eq("id", tripId).single(),
       supabase.from("trip_load_items").select("*, product:products(id,name,unit)").eq("trip_id", tripId).order("created_at"),
-      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*)").eq("trip_id", tripId).order("created_at"),
+      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*, product:products(id,name,unit,mrp))").eq("trip_id", tripId).order("created_at"),
       supabase.rpc("van_trip_kpis", { p_trip_id: tripId }),
     ]);
     if (t) setTrip(t as unknown as VanTrip);
@@ -912,17 +922,23 @@ export function TripDetail({
                   <th className="px-2 py-1.5 text-right">Total</th>
                   <th className="px-2 py-1.5 text-right">Old o/s collected</th>
                   <th className="px-2 py-1.5 text-left">Mode</th>
+                  <th className="px-2 py-1.5 w-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-paper-line">
                 {bills.map(b => (
-                  <tr key={b.id} className={b.is_cancelled ? "opacity-40 line-through" : ""}>
+                  <tr
+                    key={b.id}
+                    onClick={() => setViewingBillId(b.id)}
+                    className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : ""}`}
+                  >
                     <td className="px-2 py-1.5 font-mono text-2xs">{b.bill_number}{b.paper_bill_no && <span className="text-ink-subtle"> · {b.paper_bill_no}</span>}</td>
                     <td className="px-2 py-1.5">{b.customer?.name ?? "—"}</td>
                     <td className="px-2 py-1.5"><Badge variant={b.bill_type === "pre_order" ? "neutral" : "accent"}>{b.bill_type === "pre_order" ? "Pre-order" : "Spot"}</Badge></td>
                     <td className="px-2 py-1.5 text-right tabular">{formatINR(b.total_amount)}</td>
                     <td className="px-2 py-1.5 text-right tabular text-ink-muted">{formatINR(b.outstanding_collected)}</td>
                     <td className="px-2 py-1.5"><Badge variant={b.payment_mode === "cash" ? "ok" : "warn"}>{b.payment_mode}</Badge></td>
+                    <td className="px-2 py-1.5 text-ink-subtle"><Eye size={13}/></td>
                   </tr>
                 ))}
               </tbody>
@@ -1026,6 +1042,120 @@ export function TripDetail({
           )}
         </div>
       )}
+
+      {/* Bill detail drawer (read-only) */}
+      <Sheet open={viewingBillId !== null} onOpenChange={(open) => !open && setViewingBillId(null)}>
+        <SheetContent className="w-full max-w-md sm:max-w-md">
+          {viewingBill && (
+            <>
+              <SheetHeader>
+                <div>
+                  <SheetTitle>{viewingBill.customer?.name ?? "—"}</SheetTitle>
+                  <SheetDescription>
+                    <span className="font-mono">{viewingBill.bill_number}</span>
+                    {viewingBill.paper_bill_no && <span className="text-ink-subtle"> · paper {viewingBill.paper_bill_no}</span>}
+                  </SheetDescription>
+                </div>
+              </SheetHeader>
+              <SheetBody>
+                {/* Status badges */}
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <Badge variant={viewingBill.bill_type === "pre_order" ? "neutral" : "accent"}>
+                    {viewingBill.bill_type === "pre_order" ? "Pre-order delivery" : "Spot bill"}
+                  </Badge>
+                  <Badge variant={viewingBill.payment_mode === "cash" ? "ok" : "warn"}>
+                    {viewingBill.payment_mode}
+                  </Badge>
+                  {viewingBill.is_cancelled && <Badge variant="danger">Cancelled</Badge>}
+                  {!viewingBill.confirmed_at && !viewingBill.is_cancelled && viewingBill.bill_type === "pre_order" && (
+                    <Badge variant="warn">Pending delivery</Badge>
+                  )}
+                </div>
+
+                {/* Customer info */}
+                <div className="text-xs text-ink-muted mb-4 space-y-0.5">
+                  {viewingBill.customer?.mobile && <div>Mobile: <span className="tabular text-ink">{viewingBill.customer.mobile}</span></div>}
+                  {viewingBill.customer?.city && <div>City: <span className="text-ink">{viewingBill.customer.city}</span></div>}
+                  {viewingBill.confirmed_at && (
+                    <div>Confirmed: <span className="text-ink">{new Date(viewingBill.confirmed_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span></div>
+                  )}
+                </div>
+
+                {/* Items — name + qty in bold */}
+                <div className="border border-paper-line rounded mb-4">
+                  <div className="bg-paper-subtle/60 px-3 py-1.5 text-2xs uppercase tracking-wide text-ink-muted border-b border-paper-line">
+                    Items ({viewingBill.items?.length ?? 0})
+                  </div>
+                  {(viewingBill.items?.length ?? 0) === 0 ? (
+                    <div className="text-sm text-ink-muted italic px-3 py-3">No items.</div>
+                  ) : (
+                    <div className="divide-y divide-paper-line">
+                      {viewingBill.items?.map(it => (
+                        <div key={it.id} className="px-3 py-2.5">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="font-semibold text-base flex-1 min-w-0">{it.product?.name ?? "—"}</span>
+                            <span className="font-bold text-base tabular whitespace-nowrap">
+                              {Number(it.qty).toFixed(0)}
+                              {it.product?.unit && <span className="text-sm font-normal text-ink-muted ml-1">{it.product.unit}</span>}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between text-2xs text-ink-muted mt-0.5">
+                            <span>@ {formatINR(it.rate)}</span>
+                            <span className="tabular">{formatINR(it.amount)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Totals */}
+                <div className="bg-paper-subtle/40 border border-paper-line rounded p-3 text-sm space-y-1 mb-4">
+                  <div className="flex justify-between text-ink-muted">
+                    <span>Subtotal</span><span className="tabular">{formatINR(viewingBill.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold border-t border-paper-line pt-1 mt-1">
+                    <span>Total</span><span className="tabular">{formatINR(viewingBill.total_amount)}</span>
+                  </div>
+                  {Number(viewingBill.cash_received) > 0 && (
+                    <div className="flex justify-between text-ok text-2xs pt-1">
+                      <span>Cash received now</span><span className="tabular">{formatINR(viewingBill.cash_received)}</span>
+                    </div>
+                  )}
+                  {Number(viewingBill.outstanding_collected) > 0 && (
+                    <div className="flex justify-between text-ok text-2xs">
+                      <span>Old outstanding collected</span><span className="tabular">{formatINR(viewingBill.outstanding_collected)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Linked source order */}
+                {viewingBill.source_order_id && (
+                  <div className="text-xs text-ink-muted mb-4 flex items-center gap-1.5">
+                    <FileText size={12}/>
+                    <span>Linked to original order:</span>
+                    <Link href={`/orders?focus=${viewingBill.source_order_id}`} className="text-accent hover:underline">
+                      view in Orders
+                    </Link>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {viewingBill.notes && (
+                  <div className="border border-paper-line rounded p-3 mb-4">
+                    <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Notes</div>
+                    <div className="text-sm text-ink whitespace-pre-wrap">{viewingBill.notes}</div>
+                  </div>
+                )}
+
+                <p className="text-2xs text-ink-subtle text-center pt-2">
+                  Read-only view. To edit or cancel, use the mobile billing app.
+                </p>
+              </SheetBody>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
