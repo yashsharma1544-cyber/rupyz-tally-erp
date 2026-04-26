@@ -14,9 +14,10 @@ export default async function OrdersPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: me }, { data: salesmen }, { data: lastSync }] = await Promise.all([
+  const [{ data: me }, { data: salesmen }, { data: beats }, { data: lastSync }] = await Promise.all([
     supabase.from("app_users").select("*").eq("id", user.id).single(),
     supabase.from("salesmen").select("id,name").order("name"),
+    supabase.from("beats").select("id,name").eq("active", true).order("name"),
     supabase.from("rupyz_sync_log")
       .select("started_at, status, orders_inserted, orders_updated, error_message")
       .order("started_at", { ascending: false })
@@ -43,7 +44,7 @@ export default async function OrdersPage() {
           </Link>
         }
       />
-      <OrdersClient salesmen={salesmen ?? []} me={me as AppUser} />
+      <OrdersClient salesmen={salesmen ?? []} beats={beats ?? []} me={me as AppUser} />
     </>
   );
 }

@@ -9,7 +9,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
-import type { Order, Salesman, OrderAppStatus, AppUser } from "@/lib/types";
+import type { Order, Salesman, Beat, OrderAppStatus, AppUser } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { OrderDrawer } from "./order-drawer";
@@ -93,9 +93,11 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
 
 export function OrdersClient({
   salesmen,
+  beats,
   me,
 }: {
   salesmen: Pick<Salesman, "id" | "name">[];
+  beats: Pick<Beat, "id" | "name">[];
   me: AppUser;
 }) {
   const supabase = useMemo(() => createClient(), []);
@@ -109,6 +111,7 @@ export function OrdersClient({
   const [searchDebounced, setSearchDebounced] = useState("");
   const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
   const [salesmanF, setSalesmanF] = useState<string>("all");
+  const [beatF, setBeatF] = useState<string>("all");
   const [dateF, setDateF] = useState<string>("today");
 
   // KPIs per status group (count + kg + amount)
@@ -133,7 +136,7 @@ export function OrdersClient({
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, dateF]);
+  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, beatF, dateF]);
 
   // Fetch KPIs (count, kg, amount) per status group via RPC
   useEffect(() => {
@@ -144,7 +147,10 @@ export function OrdersClient({
         const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
         sinceTs = new Date(Date.now() - days * 86400 * 1000).toISOString();
       }
-      const { data, error } = await supabase.rpc("orders_kpis_by_status", { since_ts: sinceTs });
+      const { data, error } = await supabase.rpc("orders_kpis_by_status", {
+        since_ts: sinceTs,
+        beat_id_filter: beatF !== "all" ? beatF : null,
+      });
       if (cancelled || error) {
         if (error) toast.error(`KPI load failed: ${error.message}`);
         return;
@@ -175,7 +181,7 @@ export function OrdersClient({
       setKpis(next);
     })();
     return () => { cancelled = true; };
-  }, [supabase, dateF, reloadKey]);
+  }, [supabase, dateF, beatF, reloadKey]);
 
   // Fetch rows for the active tab
   useEffect(() => {
@@ -187,14 +193,31 @@ export function OrdersClient({
       // Strip chars that would break Supabase's .or() filter syntax
       const safeTerm = term.replace(/[,()]/g, "");
 
-      // If searching, first find matching customer IDs so we can OR them with order-number matches
-      let customerIds: string[] = [];
-      if (safeTerm) {
+      // Step 1: if beat filter active, get the customer IDs in that beat (the base set)
+      let beatCustomerIds: string[] | null = null; // null = no beat filter
+      if (beatF !== "all") {
         const { data: cs } = await supabase
           .from("customers")
           .select("id")
+          .eq("beat_id", beatF);
+        beatCustomerIds = (cs ?? []).map((c: { id: string }) => c.id);
+        // No customers in this beat → bail out early with empty list
+        if (beatCustomerIds.length === 0) {
+          if (!cancelled) { setRows([]); setTotal(0); setLoading(false); }
+          return;
+        }
+      }
+
+      // Step 2: if searching, find matching customer IDs (constrained to beat if active)
+      let customerIds: string[] = [];
+      if (safeTerm) {
+        let cq = supabase
+          .from("customers")
+          .select("id")
           .ilike("name", `%${safeTerm}%`)
-          .limit(300); // cap to keep URL length sane
+          .limit(300);
+        if (beatCustomerIds !== null) cq = cq.in("id", beatCustomerIds);
+        const { data: cs } = await cq;
         customerIds = (cs ?? []).map((c: { id: string }) => c.id);
       }
 
@@ -204,6 +227,10 @@ export function OrdersClient({
 
       if (tabDef.statuses !== "all") {
         q = q.in("app_status", tabDef.statuses);
+      }
+      // Apply beat narrowing to the orders query (always, when active)
+      if (beatCustomerIds !== null) {
+        q = q.in("customer_id", beatCustomerIds);
       }
       if (safeTerm) {
         if (customerIds.length > 0) {
@@ -230,7 +257,7 @@ export function OrdersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, tab, searchDebounced, salesmanF, dateF, page, reloadKey]);
+  }, [supabase, tab, searchDebounced, salesmanF, beatF, dateF, page, reloadKey]);
 
   const activeTabDef = TABS.find(t => t.key === tab)!;
 
@@ -261,6 +288,14 @@ export function OrdersClient({
           <SelectContent>
             <SelectItem value="all">All salesmen</SelectItem>
             {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <Select value={beatF} onValueChange={setBeatF}>
+          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Beat" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All beats</SelectItem>
+            {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
           </SelectContent>
         </Select>
 
