@@ -39,13 +39,17 @@ export function VanMobileBilling({
   const [kpis, setKpis] = useState<VanTripKpis | null>(null);
   const [customers, setCustomers] = useState<CustomerLite[]>(initialCustomers);
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"preorder" | "walkin">("preorder");
   const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer">("list");
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
 
   async function reload() {
     const [{ data: bl }, { data: kp }, { data: out }] = await Promise.all([
-      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*)").eq("trip_id", trip.id).order("created_at", { ascending: false }),
+      supabase.from("trip_bills")
+        .select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*, product:products(id,name,unit,mrp))")
+        .eq("trip_id", trip.id)
+        .order("created_at", { ascending: false }),
       supabase.rpc("van_trip_kpis", { p_trip_id: trip.id }),
       supabase.from("customer_outstanding").select("*").gt("amount", 0),
     ]);
@@ -61,14 +65,14 @@ export function VanMobileBilling({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip.id]);
 
-  const filteredCustomers = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return customers.slice(0, 30);
-    return customers.filter(c =>
-      c.name?.toLowerCase().includes(q) ||
-      (c.mobile && c.mobile.includes(q))
-    ).slice(0, 30);
-  }, [customers, search]);
+  // Set of customer IDs that have any pre_order bill on this trip (cancelled or not)
+  const preOrderCustomerIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const b of bills) {
+      if (b.bill_type === "pre_order" && !b.is_cancelled) s.add(b.customer_id);
+    }
+    return s;
+  }, [bills]);
 
   // Map: customerId → undelivered pre-order bill (one customer can have one open pre-order bill per trip in our model)
   const preOrderByCustomer = useMemo(() => {
@@ -86,6 +90,31 @@ export function VanMobileBilling({
     for (const b of bills) if (!b.is_cancelled && b.confirmed_at) s.add(b.customer_id);
     return s;
   }, [bills]);
+
+  // Per-tab customer pools
+  const preOrderCustomers = useMemo(
+    () => customers.filter(c => preOrderCustomerIds.has(c.id)),
+    [customers, preOrderCustomerIds],
+  );
+  const walkInCustomers = useMemo(
+    () => customers.filter(c => !preOrderCustomerIds.has(c.id)),
+    [customers, preOrderCustomerIds],
+  );
+
+  // Search within active tab
+  const filteredCustomers = useMemo(() => {
+    const pool = tab === "preorder" ? preOrderCustomers : walkInCustomers;
+    const q = search.trim().toLowerCase();
+    if (!q) return pool.slice(0, 50);
+    return pool.filter(c =>
+      c.name?.toLowerCase().includes(q) ||
+      (c.mobile && c.mobile.includes(q))
+    ).slice(0, 50);
+  }, [preOrderCustomers, walkInCustomers, tab, search]);
+
+  // Counts for tab badges
+  const preOrderPendingCount = preOrderByCustomer.size;
+  const preOrderTotalCount = preOrderCustomerIds.size;
 
   if (trip.status !== "in_progress") {
     return (
@@ -144,15 +173,49 @@ export function VanMobileBilling({
           </div>
         )}
 
+        {/* Tab toggle */}
+        <div className="grid grid-cols-2 gap-1 mb-3 bg-paper-subtle border border-paper-line rounded p-0.5">
+          <button
+            onClick={() => setTab("preorder")}
+            className={`text-sm font-medium py-2 rounded transition-colors ${
+              tab === "preorder" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+            }`}
+          >
+            Pre-orders
+            <span className={`ml-1.5 text-2xs tabular ${tab === "preorder" ? "text-warn" : "text-ink-subtle"}`}>
+              {preOrderPendingCount > 0 ? `${preOrderPendingCount}/${preOrderTotalCount}` : `${preOrderTotalCount}`}
+            </span>
+          </button>
+          <button
+            onClick={() => setTab("walkin")}
+            className={`text-sm font-medium py-2 rounded transition-colors ${
+              tab === "walkin" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+            }`}
+          >
+            Walk-ins
+            <span className={`ml-1.5 text-2xs tabular ${tab === "walkin" ? "text-ink-muted" : "text-ink-subtle"}`}>
+              {walkInCustomers.length}
+            </span>
+          </button>
+        </div>
+
         {/* Search */}
         <div className="relative mb-3">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer by name or mobile…" className="pl-8" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={tab === "preorder" ? "Search pre-order customer…" : "Search customer or mobile…"}
+            className="pl-8"
+          />
         </div>
 
-        <Button variant="outline" size="sm" className="w-full mb-3" onClick={() => setActiveView("newcustomer")}>
-          <Plus size={11}/> Add new walk-in customer
-        </Button>
+        {/* Add walk-in button — only on walk-in tab */}
+        {tab === "walkin" && (
+          <Button variant="outline" size="sm" className="w-full mb-3" onClick={() => setActiveView("newcustomer")}>
+            <Plus size={11}/> Add new walk-in customer
+          </Button>
+        )}
 
         {/* Customer list */}
         <div className="space-y-1.5">
@@ -189,7 +252,13 @@ export function VanMobileBilling({
             );
           })}
           {filteredCustomers.length === 0 && (
-            <div className="text-center text-sm text-ink-muted py-8">No customers match "{search}"</div>
+            <div className="text-center text-sm text-ink-muted py-8">
+              {search ? `No customers match "${search}"` :
+                tab === "preorder"
+                  ? (preOrderTotalCount === 0 ? "No pre-orders for this trip." : "All pre-orders billed ✓")
+                  : "No walk-in customers in this beat."
+              }
+            </div>
           )}
         </div>
       </div>
@@ -247,12 +316,14 @@ function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripB
             <span className="font-mono text-2xs">{bill.bill_number}</span>
           </div>
           {bill.items?.map(it => (
-            <div key={it.id} className="flex justify-between text-sm py-0.5">
-              <span>{it.product?.name ?? "—"}</span>
-              <span className="tabular text-ink-muted text-xs">
-                {it.qty} × {formatINR(it.rate)}
-              </span>
-              <span className="tabular ml-2">{formatINR(it.amount)}</span>
+            <div key={it.id} className="flex items-start gap-2 text-sm py-1 border-b border-paper-line last:border-b-0">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{it.product?.name ?? "—"}</div>
+                <div className="text-2xs text-ink-muted tabular">
+                  {it.qty} {it.product?.unit ? `× ${it.product.unit}` : ""} @ {formatINR(it.rate)}
+                </div>
+              </div>
+              <div className="tabular text-right whitespace-nowrap font-medium">{formatINR(it.amount)}</div>
             </div>
           ))}
           <div className="border-t border-paper-line mt-2 pt-2 flex justify-between font-semibold">
