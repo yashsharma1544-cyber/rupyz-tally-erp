@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -112,6 +112,35 @@ export function TripDetail({
     reload().finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
+
+  // Keep a stable ref to reload() so polling effects don't re-create on every render
+  const reloadRef = useRef<() => Promise<void>>();
+  useEffect(() => { reloadRef.current = reload; });
+
+  // Live updates: while the trip is on route, poll every 15s + refresh on tab focus
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  useEffect(() => {
+    if (trip.status !== "in_progress") return;
+
+    const POLL_MS = 15_000;
+
+    function maybeReload() {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      reloadRef.current?.().then(() => setLastSyncedAt(new Date())).catch(() => {});
+    }
+
+    const interval = setInterval(maybeReload, POLL_MS);
+    window.addEventListener("focus", maybeReload);
+    document.addEventListener("visibilitychange", maybeReload);
+    // Initial sync timestamp
+    setLastSyncedAt(new Date());
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", maybeReload);
+      document.removeEventListener("visibilitychange", maybeReload);
+    };
+  }, [trip.status]);
 
   useEffect(() => {
     // Pre-fill buffer + loaded qty form from saved values (works for planning/loading
@@ -588,6 +617,18 @@ export function TripDetail({
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-mono text-base">{trip.trip_number}</span>
                 <Badge variant={sb.variant}>{sb.label}</Badge>
+                {trip.status === "in_progress" && (
+                  <span
+                    className="inline-flex items-center gap-1 text-2xs text-ok"
+                    title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString("en-IN")}` : "Live updates enabled"}
+                  >
+                    <span className="relative inline-flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-ok opacity-75 animate-ping"></span>
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok"></span>
+                    </span>
+                    Live
+                  </span>
+                )}
               </div>
               <div className="text-sm text-ink-muted">
                 {trip.beat?.name} · {new Date(trip.trip_date).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
