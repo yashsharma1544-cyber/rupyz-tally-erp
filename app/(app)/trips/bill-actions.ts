@@ -24,6 +24,55 @@ async function requireRoles(roles: string[]): Promise<ActorInfo> {
 const VAN_ROLES = ["admin", "van_lead", "van_helper"];
 
 // =============================================================================
+// HELPER: compute remaining stock per product on a trip.
+// Optionally exclude one bill's items (for editing a bill — we want to know
+// stock as if this bill weren't yet committed).
+// Returns a map: productId → { loaded, sold, remaining, productName }
+// Products not loaded on the trip will not appear in the map.
+// =============================================================================
+async function computeRemainingStock(tripId: string, excludeBillId?: string): Promise<Map<string, { loaded: number; sold: number; remaining: number; productName: string }>> {
+  const admin = createAdminClient();
+
+  const [{ data: loadItems }, { data: bills }] = await Promise.all([
+    admin.from("trip_load_items")
+      .select("product_id, qty_loaded, qty_planned, product:products(name)")
+      .eq("trip_id", tripId),
+    admin.from("trip_bills")
+      .select("id, is_cancelled, items:trip_bill_items(product_id, qty)")
+      .eq("trip_id", tripId)
+      .eq("is_cancelled", false),
+  ]);
+
+  const result = new Map<string, { loaded: number; sold: number; remaining: number; productName: string }>();
+  for (const li of (loadItems ?? []) as Array<{
+    product_id: string; qty_loaded: number | null; qty_planned: number;
+    product: { name: string } | { name: string }[] | null;
+  }>) {
+    const loaded = Number(li.qty_loaded ?? li.qty_planned);
+    const prod = Array.isArray(li.product) ? li.product[0] : li.product;
+    result.set(li.product_id, {
+      loaded,
+      sold: 0,
+      remaining: loaded,
+      productName: prod?.name ?? "product",
+    });
+  }
+  for (const bill of (bills ?? []) as Array<{
+    id: string; is_cancelled: boolean; items: Array<{ product_id: string; qty: number }>;
+  }>) {
+    if (excludeBillId && bill.id === excludeBillId) continue;
+    for (const it of bill.items ?? []) {
+      const cur = result.get(it.product_id);
+      if (cur) {
+        cur.sold += Number(it.qty);
+        cur.remaining = cur.loaded - cur.sold;
+      }
+    }
+  }
+  return result;
+}
+
+// =============================================================================
 // CONFIRM / EDIT PRE-ORDER BILL (during trip)
 // =============================================================================
 export interface ConfirmPreOrderBillInput {
@@ -49,6 +98,38 @@ export async function confirmPreOrderBill(input: ConfirmPreOrderBillInput) {
     if (bill.bill_type !== "pre_order") return { error: "Not a pre-order bill" };
     const tripStatus = Array.isArray(bill.trip) ? bill.trip[0]?.status : (bill.trip as { status: string } | null)?.status;
     if (tripStatus !== "in_progress") return { error: `Trip is "${tripStatus}"` };
+
+    // Stock guard — only matters if the user is editing the bill (adds or qty increases).
+    // Compute the FINAL state of items per product after this edit, then compare to
+    // remaining stock as if this bill weren't yet committed.
+    if ((input.itemEdits?.length ?? 0) > 0 || (input.itemAdditions?.length ?? 0) > 0 || (input.itemRemovals?.length ?? 0) > 0) {
+      const { data: currentItems } = await admin.from("trip_bill_items")
+        .select("id, product_id, qty").eq("bill_id", input.billId);
+      const finalQty = new Map<string, number>();
+      for (const it of (currentItems ?? []) as Array<{ id: string; product_id: string; qty: number }>) {
+        if (input.itemRemovals?.includes(it.id)) continue;
+        const edit = input.itemEdits?.find(e => e.itemId === it.id);
+        const q = edit ? edit.qty : Number(it.qty);
+        finalQty.set(it.product_id, (finalQty.get(it.product_id) ?? 0) + q);
+      }
+      for (const a of input.itemAdditions ?? []) {
+        if (a.qty <= 0) return { error: "Qty must be > 0" };
+        finalQty.set(a.productId, (finalQty.get(a.productId) ?? 0) + a.qty);
+      }
+
+      const remaining = await computeRemainingStock(bill.trip_id, input.billId);
+      for (const [pid, qty] of finalQty.entries()) {
+        const stock = remaining.get(pid);
+        if (!stock) {
+          // Product wasn't loaded — only matters if user added it via additions
+          const { data: p } = await admin.from("products").select("name").eq("id", pid).single();
+          return { error: `${p?.name ?? "Product"} is not loaded on this trip` };
+        }
+        if (qty > stock.remaining + 0.0001) {
+          return { error: `Not enough ${stock.productName} on truck — only ${stock.remaining.toFixed(0)} available, you need ${qty.toFixed(0)}` };
+        }
+      }
+    }
 
     // Apply line edits
     if (input.itemRemovals?.length) {
@@ -139,6 +220,21 @@ export async function createSpotBill(input: CreateSpotBillInput) {
     const { data: prods } = await admin.from("products")
       .select("id, name").in("id", productIds);
     if ((prods?.length ?? 0) !== productIds.length) return { error: "Some products not found in master" };
+
+    // Stock guard — sum qty per product, reject if any exceeds remaining on truck
+    const remaining = await computeRemainingStock(input.tripId);
+    const totalByProduct = new Map<string, number>();
+    for (const it of input.items) {
+      totalByProduct.set(it.productId, (totalByProduct.get(it.productId) ?? 0) + it.qty);
+    }
+    for (const [pid, qty] of totalByProduct.entries()) {
+      const stock = remaining.get(pid);
+      const prodName = stock?.productName ?? prods?.find(p => p.id === pid)?.name ?? "product";
+      if (!stock) return { error: `${prodName} is not loaded on this trip` };
+      if (qty > stock.remaining + 0.0001) {
+        return { error: `Not enough ${prodName} on truck — only ${stock.remaining.toFixed(0)} available, you need ${qty.toFixed(0)}` };
+      }
+    }
 
     const { data: bn } = await admin.rpc("next_trip_bill_number", { p_trip_id: input.tripId });
     const billNumber = bn as unknown as string;

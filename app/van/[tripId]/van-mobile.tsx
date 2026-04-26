@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package,
+  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 import type {
-  AppUser, VanTrip, Customer, Product, TripBill, VanTripKpis, CustomerOutstanding,
+  AppUser, VanTrip, Customer, Product, TripBill, VanTripKpis, CustomerOutstanding, TripLoadItem,
 } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import {
 
 type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
 type CustomerLite = Pick<Customer, "id" | "name" | "mobile" | "city">;
+type StockRow = { productId: string; productName: string; productUnit: string; loaded: number; sold: number; remaining: number };
 
 export function VanMobileBilling({
   trip, me, customers: initialCustomers, products,
@@ -35,25 +36,30 @@ export function VanMobileBilling({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [bills, setBills] = useState<TripBill[]>([]);
+  const [loadItems, setLoadItems] = useState<TripLoadItem[]>([]);
   const [outstanding, setOutstanding] = useState<Map<string, CustomerOutstanding>>(new Map());
   const [kpis, setKpis] = useState<VanTripKpis | null>(null);
   const [customers, setCustomers] = useState<CustomerLite[]>(initialCustomers);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"preorder" | "walkin">("preorder");
-  const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer">("list");
+  const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer" | "stock">("list");
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
 
   async function reload() {
-    const [{ data: bl }, { data: kp }, { data: out }] = await Promise.all([
+    const [{ data: bl }, { data: li }, { data: kp }, { data: out }] = await Promise.all([
       supabase.from("trip_bills")
         .select("*, customer:customers(id,name,mobile,city), items:trip_bill_items(*, product:products(id,name,unit,mrp))")
         .eq("trip_id", trip.id)
         .order("created_at", { ascending: false }),
+      supabase.from("trip_load_items")
+        .select("*, product:products(id,name,unit)")
+        .eq("trip_id", trip.id),
       supabase.rpc("van_trip_kpis", { p_trip_id: trip.id }),
       supabase.from("customer_outstanding").select("*").gt("amount", 0),
     ]);
     setBills((bl ?? []) as unknown as TripBill[]);
+    setLoadItems((li ?? []) as unknown as TripLoadItem[]);
     if (Array.isArray(kp) && kp[0]) setKpis(kp[0] as VanTripKpis);
     const m = new Map<string, CustomerOutstanding>();
     for (const o of (out ?? []) as CustomerOutstanding[]) m.set(o.customer_id, o);
@@ -116,6 +122,39 @@ export function VanMobileBilling({
   const preOrderPendingCount = preOrderByCustomer.size;
   const preOrderTotalCount = preOrderCustomerIds.size;
 
+  // Per-product stock state — single source of truth for client-side display + validation
+  const stockMap = useMemo(() => {
+    const m = new Map<string, StockRow>();
+    for (const li of loadItems) {
+      const loaded = Number(li.qty_loaded ?? li.qty_planned);
+      m.set(li.product_id, {
+        productId: li.product_id,
+        productName: li.product?.name ?? "—",
+        productUnit: li.product?.unit ?? "",
+        loaded,
+        sold: 0,
+        remaining: loaded,
+      });
+    }
+    for (const b of bills) {
+      if (b.is_cancelled) continue;
+      for (const it of b.items ?? []) {
+        const cur = m.get(it.product_id);
+        if (cur) {
+          cur.sold += Number(it.qty);
+          cur.remaining = cur.loaded - cur.sold;
+        }
+      }
+    }
+    return m;
+  }, [loadItems, bills]);
+
+  const totalRemainingQty = useMemo(() => {
+    let total = 0;
+    for (const v of stockMap.values()) total += v.remaining;
+    return total;
+  }, [stockMap]);
+
   if (trip.status !== "in_progress") {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center px-4">
@@ -141,7 +180,7 @@ export function VanMobileBilling({
   if (activeView === "spot" && activeCustomerId) {
     const customer = customers.find(c => c.id === activeCustomerId);
     if (!customer) { setActiveView("list"); return null; }
-    return <SpotBillView trip={trip} customer={customer} products={products} outstanding={outstanding.get(customer.id)} onBack={() => { setActiveView("list"); reload(); }} />;
+    return <SpotBillView trip={trip} customer={customer} products={products} stockMap={stockMap} outstanding={outstanding.get(customer.id)} onBack={() => { setActiveView("list"); reload(); }} />;
   }
   if (activeView === "newcustomer") {
     return <NewCustomerView trip={trip} onCreated={(id) => {
@@ -149,6 +188,9 @@ export function VanMobileBilling({
       setActiveCustomerId(id);
       setActiveView("spot");
     }} onBack={() => setActiveView("list")} />;
+  }
+  if (activeView === "stock") {
+    return <StockView trip={trip} stockMap={stockMap} onBack={() => setActiveView("list")} />;
   }
 
   // ============== LIST VIEW ==============
@@ -169,7 +211,9 @@ export function VanMobileBilling({
           <div className="grid grid-cols-3 gap-2 my-3">
             <MiniStat icon={Receipt} label="Bills" value={`${kpis.bills_count}`} />
             <MiniStat icon={IndianRupee} label="Cash" value={formatINR(kpis.cash_bills_total + kpis.outstanding_collected)} />
-            <MiniStat icon={Package} label="Stock left" value={`${kpis.total_kg_remaining.toFixed(0)}`} />
+            <button onClick={() => setActiveView("stock")} className="text-left">
+              <MiniStat icon={Layers} label="Stock left ›" value={`${totalRemainingQty.toFixed(0)}`} />
+            </button>
           </div>
         )}
 
@@ -218,11 +262,37 @@ export function VanMobileBilling({
         )}
 
         {/* Customer list */}
-        <div className="space-y-1.5">
+        <div className={tab === "walkin" ? "divide-y divide-paper-line border border-paper-line rounded bg-paper-card" : "space-y-1.5"}>
           {filteredCustomers.map(c => {
             const preOrder = preOrderByCustomer.get(c.id);
             const billed = billedCustomerIds.has(c.id);
             const out = outstanding.get(c.id);
+            const initial = c.name?.charAt(0).toUpperCase() ?? "?";
+
+            // Walk-in customers: tight list-row layout, no card chrome.
+            if (tab === "walkin") {
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { setActiveCustomerId(c.id); setActiveView("spot"); }}
+                  className={`w-full text-left flex items-center gap-3 px-3 py-2.5 ${billed ? "bg-ok-soft/30" : ""}`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${billed ? "bg-ok text-paper-card" : "bg-paper-subtle text-ink-muted"}`}>
+                    {billed ? <CheckCircle2 size={14}/> : initial}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm truncate">{c.name}</div>
+                    <div className="text-2xs text-ink-muted truncate">
+                      {c.mobile ?? "—"}{c.city ? ` · ${c.city}` : ""}
+                      {out && !billed && <span className="text-warn ml-1.5">· o/s {formatINR(out.amount)}</span>}
+                    </div>
+                  </div>
+                  <span className="text-ink-subtle text-xs">›</span>
+                </button>
+              );
+            }
+
+            // Pre-order customers: rich card with badge + amount.
             return (
               <button
                 key={c.id}
@@ -316,14 +386,18 @@ function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripB
             <span className="font-mono text-2xs">{bill.bill_number}</span>
           </div>
           {bill.items?.map(it => (
-            <div key={it.id} className="flex items-start gap-2 text-sm py-1 border-b border-paper-line last:border-b-0">
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{it.product?.name ?? "—"}</div>
-                <div className="text-2xs text-ink-muted tabular">
-                  {it.qty} {it.product?.unit ? `× ${it.product.unit}` : ""} @ {formatINR(it.rate)}
-                </div>
+            <div key={it.id} className="py-2 border-b border-paper-line last:border-b-0">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-semibold text-base flex-1 min-w-0">{it.product?.name ?? "—"}</span>
+                <span className="font-bold text-base tabular whitespace-nowrap">
+                  {Number(it.qty).toFixed(0)}
+                  {it.product?.unit ? <span className="text-sm font-normal text-ink-muted ml-1">{it.product.unit}</span> : null}
+                </span>
               </div>
-              <div className="tabular text-right whitespace-nowrap font-medium">{formatINR(it.amount)}</div>
+              <div className="flex items-baseline justify-between text-2xs text-ink-muted mt-0.5">
+                <span>@ {formatINR(it.rate)}</span>
+                <span className="tabular">{formatINR(it.amount)}</span>
+              </div>
             </div>
           ))}
           <div className="border-t border-paper-line mt-2 pt-2 flex justify-between font-semibold">
@@ -377,7 +451,10 @@ function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripB
 // ===========================================================================
 // SPOT BILL VIEW (no pre-order — fresh bill)
 // ===========================================================================
-function SpotBillView({ trip, customer, products, outstanding, onBack }: { trip: VanTrip; customer: CustomerLite; products: ProductLite[]; outstanding?: CustomerOutstanding; onBack: () => void }) {
+function SpotBillView({ trip, customer, products, stockMap, outstanding, onBack }: {
+  trip: VanTrip; customer: CustomerLite; products: ProductLite[];
+  stockMap: Map<string, StockRow>; outstanding?: CustomerOutstanding; onBack: () => void;
+}) {
   const [items, setItems] = useState<{ tempId: string; productId: string; qty: number; rate: number }[]>([
     { tempId: crypto.randomUUID(), productId: "", qty: 0, rate: 0 },
   ]);
@@ -386,6 +463,22 @@ function SpotBillView({ trip, customer, products, outstanding, onBack }: { trip:
   const [paperBillNo, setPaperBillNo] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [pending, startTransition] = useTransition();
+
+  // Only show products that are actually on the truck and have remaining stock
+  const loadedProducts = products.filter(p => {
+    const s = stockMap.get(p.id);
+    return s && s.remaining > 0;
+  });
+
+  // For each line, compute how much is still available (subtracting what THIS bill draft uses)
+  function remainingForLine(currentTempId: string, productId: string): number {
+    const stock = stockMap.get(productId);
+    if (!stock) return 0;
+    const usedByOtherLines = items
+      .filter(it => it.tempId !== currentTempId && it.productId === productId)
+      .reduce((s, it) => s + (it.qty || 0), 0);
+    return Math.max(0, stock.remaining - usedByOtherLines);
+  }
 
   function addLine() {
     setItems([...items, { tempId: crypto.randomUUID(), productId: "", qty: 0, rate: 0 }]);
@@ -402,6 +495,20 @@ function SpotBillView({ trip, customer, products, outstanding, onBack }: { trip:
   function handleSave() {
     const valid = items.filter(it => it.productId && it.qty > 0);
     if (!valid.length) { toast.error("Add at least one item"); return; }
+
+    // Client-side stock guard (server enforces too)
+    const totals = new Map<string, number>();
+    for (const it of valid) totals.set(it.productId, (totals.get(it.productId) ?? 0) + it.qty);
+    for (const [pid, qty] of totals.entries()) {
+      const stock = stockMap.get(pid);
+      if (!stock) {
+        toast.error(`Product not loaded on truck`); return;
+      }
+      if (qty > stock.remaining + 0.0001) {
+        toast.error(`Not enough ${stock.productName} — only ${stock.remaining.toFixed(0)} left`); return;
+      }
+    }
+
     if (!paperBillNo.trim()) {
       if (!confirm("No paper bill number entered. Continue?")) return;
     }
@@ -444,6 +551,8 @@ function SpotBillView({ trip, customer, products, outstanding, onBack }: { trip:
           </div>
           {items.map((it) => {
             const prod = products.find(p => p.id === it.productId);
+            const lineRemaining = it.productId ? remainingForLine(it.tempId, it.productId) : 0;
+            const overStock = it.productId && it.qty > lineRemaining + 0.0001;
             return (
               <div key={it.tempId} className="border-b border-paper-line last:border-b-0 py-2 space-y-1.5">
                 <Select value={it.productId} onValueChange={(v) => {
@@ -452,21 +561,44 @@ function SpotBillView({ trip, customer, products, outstanding, onBack }: { trip:
                 }}>
                   <SelectTrigger><SelectValue placeholder="Pick product…" /></SelectTrigger>
                   <SelectContent>
-                    {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    {loadedProducts.map(p => {
+                      const s = stockMap.get(p.id);
+                      return (
+                        <SelectItem key={p.id} value={p.id}>
+                          <span>{p.name}</span>
+                          {s && <span className="text-2xs text-ink-muted ml-2">· {s.remaining.toFixed(0)} left</span>}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 <div className="grid grid-cols-3 gap-1.5 items-center">
-                  <Input type="number" step="0.001" inputMode="decimal" placeholder="Qty" value={it.qty || ""} onChange={(e) => patch(it.tempId, { qty: parseFloat(e.target.value) || 0 })} className="text-right tabular" />
+                  <Input
+                    type="number" step="0.001" inputMode="decimal" placeholder="Qty"
+                    value={it.qty || ""}
+                    onChange={(e) => patch(it.tempId, { qty: parseFloat(e.target.value) || 0 })}
+                    className={`text-right tabular ${overStock ? "border-danger text-danger" : ""}`}
+                  />
                   <Input type="number" step="0.01" inputMode="decimal" placeholder="Rate" value={it.rate || ""} onChange={(e) => patch(it.tempId, { rate: parseFloat(e.target.value) || 0 })} className="text-right tabular" />
                   <div className="flex items-center justify-between">
                     <span className="text-xs tabular text-ink-muted">{formatINR(it.qty * it.rate)}</span>
                     <button onClick={() => remove(it.tempId)} className="text-ink-muted hover:text-danger"><Trash2 size={13}/></button>
                   </div>
                 </div>
-                {prod && <div className="text-2xs text-ink-subtle">{prod.unit} · MRP {formatINR(prod.mrp ?? 0)}</div>}
+                {prod && (
+                  <div className="text-2xs flex justify-between">
+                    <span className="text-ink-subtle">{prod.unit} · MRP {formatINR(prod.mrp ?? 0)}</span>
+                    <span className={overStock ? "text-danger font-medium" : "text-ink-muted"}>
+                      {overStock ? `Only ${lineRemaining.toFixed(0)} on truck!` : `${lineRemaining.toFixed(0)} on truck`}
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })}
+          {loadedProducts.length === 0 && items.every(it => !it.productId) && (
+            <div className="text-2xs text-warn italic py-2">No stock left on the truck — head back to office.</div>
+          )}
           <div className="border-t border-paper-line mt-2 pt-2 flex justify-between font-semibold">
             <span>Total</span><span className="tabular">{formatINR(subtotal)}</span>
           </div>
@@ -539,6 +671,76 @@ function NewCustomerView({ trip, onCreated, onBack }: { trip: VanTrip; onCreated
         <Button className="w-full" size="lg" onClick={handleCreate} disabled={pending}>
           {pending ? "Saving…" : "Create & start bill"}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// STOCK VIEW (live inventory: loaded / sold / remaining per SKU)
+// ===========================================================================
+function StockView({ trip, stockMap, onBack }: {
+  trip: VanTrip;
+  stockMap: Map<string, StockRow>;
+  onBack: () => void;
+}) {
+  const rows = Array.from(stockMap.values()).sort((a, b) => a.productName.localeCompare(b.productName));
+  const totalLoaded = rows.reduce((s, r) => s + r.loaded, 0);
+  const totalSold = rows.reduce((s, r) => s + r.sold, 0);
+  const totalRemaining = rows.reduce((s, r) => s + r.remaining, 0);
+
+  return (
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-md mx-auto px-3 py-4">
+        <button onClick={onBack} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
+          <ArrowLeft size={11}/> Back
+        </button>
+        <h1 className="text-lg font-bold flex items-center gap-2">
+          <Layers size={16}/> Stock on truck
+        </h1>
+        <p className="text-xs text-ink-muted mb-3">{trip.trip_number} · {trip.beat?.name}</p>
+
+        {/* Roll-up */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <MiniStat icon={Package} label="Loaded" value={totalLoaded.toFixed(0)} />
+          <MiniStat icon={Receipt} label="Sold" value={totalSold.toFixed(0)} />
+          <MiniStat icon={Layers} label="Remaining" value={totalRemaining.toFixed(0)} />
+        </div>
+
+        {/* Per-SKU breakdown */}
+        <div className="bg-paper-card border border-paper-line rounded divide-y divide-paper-line">
+          {rows.length === 0 ? (
+            <div className="text-center text-sm text-ink-muted py-8">No stock loaded.</div>
+          ) : rows.map(r => {
+            const pct = r.loaded > 0 ? (r.sold / r.loaded) * 100 : 0;
+            const empty = r.remaining <= 0;
+            const low = !empty && pct >= 80;
+            return (
+              <div key={r.productId} className="px-3 py-2.5">
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <span className="font-semibold text-sm flex-1 min-w-0 truncate">{r.productName}</span>
+                  <span className={`tabular text-base font-bold ${empty ? "text-danger" : low ? "text-warn" : "text-ink"}`}>
+                    {r.remaining.toFixed(0)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between text-2xs text-ink-muted">
+                  <span>{r.productUnit}</span>
+                  <span>Loaded {r.loaded.toFixed(0)} · Sold {r.sold.toFixed(0)}</span>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1 bg-paper-subtle rounded-full mt-1.5 overflow-hidden">
+                  <div
+                    className={`h-full ${empty ? "bg-danger" : low ? "bg-warn" : "bg-accent"}`}
+                    style={{ width: `${Math.min(100, pct).toFixed(0)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-2xs text-center text-ink-subtle pt-3">
+          Updated live as bills are saved.
+        </p>
       </div>
     </div>
   );
