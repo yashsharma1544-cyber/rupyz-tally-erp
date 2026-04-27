@@ -728,13 +728,47 @@ export async function cancelTrip(tripId: string, reason: string) {
       reconcile_notes: `[CANCELLED by ${actor.fullName}] ${reason.trim()}`,
     }).eq("id", tripId);
 
-    // Cascade-cancel any non-cancelled bills so their source orders unlock
-    await admin.from("trip_bills").update({
-      is_cancelled: true,
-    }).eq("trip_id", tripId).eq("is_cancelled", false);
+    // Cascade-cancel non-cancelled bills. For confirmed pre-order bills, also roll
+    // the linked source order back from 'delivered' to 'approved' so it's available
+    // for a fresh trip. We don't touch outstanding amounts — if money was actually
+    // collected, that's a separate manual reversal in the customer outstanding tab.
+    const { data: liveBills } = await admin
+      .from("trip_bills")
+      .select("id, bill_type, source_order_id, bill_number, confirmed_at")
+      .eq("trip_id", tripId)
+      .eq("is_cancelled", false);
+
+    for (const bill of (liveBills ?? []) as Array<{
+      id: string; bill_type: string; source_order_id: string | null;
+      bill_number: string; confirmed_at: string | null;
+    }>) {
+      // Mark the bill cancelled
+      await admin.from("trip_bills").update({
+        is_cancelled: true,
+        notes: `[CANCELLED via trip cancel by ${actor.fullName}] ${reason.trim()}`,
+      }).eq("id", bill.id);
+
+      // Roll back the linked source order if this was a confirmed pre-order
+      if (bill.bill_type === "pre_order" && bill.source_order_id && bill.confirmed_at) {
+        const { data: cur } = await admin.from("orders")
+          .select("app_status").eq("id", bill.source_order_id).maybeSingle();
+        if (cur?.app_status === "delivered") {
+          await admin.from("orders").update({ app_status: "approved" }).eq("id", bill.source_order_id);
+          await admin.from("order_audit_events").insert({
+            order_id: bill.source_order_id,
+            event_type: "trip_cancelled",
+            actor_id: actor.userId,
+            actor_name: actor.fullName,
+            comment: `Trip cancelled — bill ${bill.bill_number} reversed`,
+            details: { from_status: "delivered", to_status: "approved", trip_id: tripId, trip_bill_id: bill.id, reason: reason.trim() },
+          });
+        }
+      }
+    }
 
     revalidatePath(`/trips/${tripId}`);
     revalidatePath("/trips");
+    revalidatePath("/orders");
     return { ok: true };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
