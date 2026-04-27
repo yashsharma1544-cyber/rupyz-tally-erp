@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import type { Order, Salesman, Beat, OrderAppStatus, AppUser } from "@/lib/types
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { OrderDrawer } from "./order-drawer";
+import { bulkApproveOrders } from "./actions";
+import { bulkAttachOrdersToTrip, listAllActiveTrips } from "../trips/actions";
 
 const PAGE_SIZE = 50;
 
@@ -135,6 +137,11 @@ export function OrdersClient({
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Bulk-selection state — Set of selected order IDs.
+  // selectionMode flips on when user enters bulk mode, off when they leave or clear.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
@@ -178,12 +185,161 @@ export function OrdersClient({
 
   const [open, setOpen] = useState<Order | null>(null);
 
+  // ============== BULK ACTIONS ==============
+  const [bulkPending, startBulkTransition] = useTransition();
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  type ActiveTrip = { id: string; trip_number: string; trip_date: string; beat_id: string; status: string; beat: { id: string; name: string } | null; lead: { id: string; full_name: string } | null };
+  const [activeTrips, setActiveTrips] = useState<ActiveTrip[]>([]);
+  const [pickedTripId, setPickedTripId] = useState("");
+
+  // Page-level checkbox state
+  const allOnPageSelected = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
+  const someOnPageSelected = rows.some(r => selectedIds.has(r.id)) && !allOnPageSelected;
+
+  function toggleOne(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function togglePage() {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        rows.forEach(r => next.delete(r.id));
+      } else {
+        rows.forEach(r => next.add(r.id));
+      }
+      return next;
+    });
+  }
+  async function selectAllMatchingFilter() {
+    // Build the same query that drives the rows fetch, but select only id and skip paging.
+    // Hard cap at 500.
+    const tabDef = TABS.find(t => t.key === tab)!;
+    const term = searchDebounced.trim();
+    const safeTerm = term.replace(/[,()]/g, "");
+
+    let q = supabase.from("orders").select("id");
+    if (tabDef.statuses !== "all") q = q.in("app_status", tabDef.statuses);
+    if (statusF !== "all") q = q.eq("app_status", statusF);
+    if (salesmanF !== "all") q = q.eq("salesman_id", salesmanF);
+    if (dateF !== "all") {
+      const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
+      const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+      q = q.gte("rupyz_created_at", since);
+    }
+
+    // Beat filter — narrows by customer_id
+    if (beatF !== "all") {
+      const { data: cs } = await supabase.from("customers").select("id").eq("beat_id", beatF);
+      const ids = (cs ?? []).map((c: { id: string }) => c.id);
+      if (ids.length === 0) { toast.error("No customers in that beat"); return; }
+      q = q.in("customer_id", ids);
+    }
+
+    if (safeTerm) {
+      // Search filter — same logic as the row fetch (just on rupyz_order_id for simplicity here)
+      q = q.ilike("rupyz_order_id", `%${safeTerm}%`);
+    }
+
+    q = q.limit(501); // pull one extra to detect overflow
+
+    const { data, error } = await q;
+    if (error) { toast.error(error.message); return; }
+    const ids = (data ?? []).map((r: { id: string }) => r.id);
+    if (ids.length === 0) { toast.error("No orders match the current filter"); return; }
+    if (ids.length > 500) {
+      toast.error(`Too many matches (>${500}). Narrow your filter — try a shorter date range or a specific beat.`);
+      return;
+    }
+    setSelectedIds(new Set(ids));
+    toast.success(`Selected ${ids.length} order${ids.length === 1 ? "" : "s"}`);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setShowAttachPicker(false);
+  }
+
+  // Bulk approve
+  function handleBulkApprove() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) { toast.error("No orders selected"); return; }
+    if (!confirm(`Approve ${ids.length} order${ids.length === 1 ? "" : "s"}? Orders not in 'received' status will be skipped.`)) return;
+    startBulkTransition(async () => {
+      const res = await bulkApproveOrders(ids);
+      if (res.error) { toast.error(res.error); return; }
+      const failed = (res.total ?? 0) - (res.succeeded ?? 0);
+      if (failed === 0) {
+        toast.success(`Approved all ${res.succeeded} orders`);
+      } else {
+        const sample = (res.results ?? []).filter(r => !r.ok).slice(0, 2).map(r => r.error).join("; ");
+        toast.warning(`Approved ${res.succeeded} of ${res.total}. ${failed} skipped (${sample}${failed > 2 ? ", …" : ""})`, { duration: 8000 });
+      }
+      exitSelectionMode();
+      setReloadKey(k => k + 1);
+    });
+  }
+
+  // Bulk attach to trip — open picker first
+  async function startBulkAttach() {
+    if (selectedIds.size === 0) { toast.error("No orders selected"); return; }
+    setShowAttachPicker(true);
+    setPickedTripId("");
+    setActiveTrips([]);
+    const res = await listAllActiveTrips();
+    if ("error" in res && res.error) {
+      toast.error(res.error);
+      setShowAttachPicker(false);
+      return;
+    }
+    const trips = (res.trips ?? []) as unknown as ActiveTrip[];
+    setActiveTrips(trips);
+    if (trips.length === 0) {
+      toast.error("No active trips right now. Start a trip first.");
+      setShowAttachPicker(false);
+      return;
+    }
+    if (trips.length === 1) setPickedTripId(trips[0].id);
+  }
+
+  function handleBulkAttach() {
+    const ids = Array.from(selectedIds);
+    if (!pickedTripId) { toast.error("Pick a trip"); return; }
+    const trip = activeTrips.find(t => t.id === pickedTripId);
+    if (!trip) { toast.error("Trip not found"); return; }
+    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name})? Orders from other beats will be skipped.`)) return;
+    startBulkTransition(async () => {
+      const res = await bulkAttachOrdersToTrip(ids, pickedTripId);
+      if (res.error) { toast.error(res.error); return; }
+      const failed = (res.total ?? 0) - (res.succeeded ?? 0);
+      const sw = res.stockWarningCount ?? 0;
+      if (failed === 0 && sw === 0) {
+        toast.success(`Added ${res.succeeded} order${res.succeeded === 1 ? "" : "s"} to ${res.tripNumber}`);
+      } else if (failed === 0 && sw > 0) {
+        toast.warning(`Added ${res.succeeded}, but ${sw} stock warning${sw === 1 ? "" : "s"} — lead will see at billing time`, { duration: 8000 });
+      } else {
+        const sample = (res.results ?? []).filter(r => !r.ok).slice(0, 2).map(r => r.error).join("; ");
+        toast.warning(`Added ${res.succeeded} of ${res.total}. ${failed} skipped (${sample}${failed > 2 ? ", …" : ""})`, { duration: 10000 });
+      }
+      exitSelectionMode();
+      setReloadKey(k => k + 1);
+    });
+  }
+  // ============== END BULK ACTIONS ==============
+
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 250);
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, beatF, statusF, dateF]);
+  useEffect(() => { setPage(0); setSelectedIds(new Set()); }, [searchDebounced, tab, salesmanF, beatF, statusF, dateF]);
 
   // Reset statusF when tab changes if the current value isn't valid for the new tab
   useEffect(() => {
@@ -393,6 +549,19 @@ export function OrdersClient({
         >
           {tab === "all" ? "Showing all" : `View all (${kpis.all.count})`}
         </Button>
+
+        {(["admin", "approver", "van_lead", "dispatch"].includes(me.role)) && (
+          <Button
+            variant={selectionMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              if (selectionMode) exitSelectionMode();
+              else setSelectionMode(true);
+            }}
+          >
+            {selectionMode ? <><X size={11}/> Exit bulk mode</> : <><CheckSquare size={11}/> Bulk select</>}
+          </Button>
+        )}
       </div>
 
       {/* Table */}
@@ -401,6 +570,18 @@ export function OrdersClient({
           <table className="w-full text-sm">
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                {selectionMode && (
+                  <th className="px-3 py-2 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allOnPageSelected}
+                      ref={el => { if (el) el.indeterminate = someOnPageSelected; }}
+                      onChange={togglePage}
+                      className="cursor-pointer"
+                      aria-label="Select all on page"
+                    />
+                  </th>
+                )}
                 <th className="px-3 py-2 font-medium">Order #</th>
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Customer</th>
@@ -413,14 +594,39 @@ export function OrdersClient({
             <tbody className="divide-y divide-paper-line">
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}><td colSpan={7} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={selectionMode ? 8 : 7} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
                 ))
               ) : rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
+                <tr><td colSpan={selectionMode ? 8 : 7} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
               ) : (
-                rows.map((o) => (
-                  <tr key={o.id} onClick={() => setOpen(o)} className="hover:bg-paper-subtle/40 transition-colors cursor-pointer">
-                    <td className="px-3 py-2 font-mono text-xs">{o.rupyz_order_id}{o.is_edited && <Badge variant="warn" className="ml-1.5">edited</Badge>}</td>
+                rows.map((o) => {
+                  const isSelected = selectedIds.has(o.id);
+                  return (
+                    <tr
+                      key={o.id}
+                      onClick={(e) => {
+                        // In selection mode, clicking the row toggles the checkbox
+                        // unless it was the checkbox itself (already handled).
+                        if (selectionMode) {
+                          if ((e.target as HTMLElement).tagName !== "INPUT") toggleOne(o.id);
+                        } else {
+                          setOpen(o);
+                        }
+                      }}
+                      className={`hover:bg-paper-subtle/40 transition-colors cursor-pointer ${isSelected ? "bg-accent-soft/40" : ""}`}
+                    >
+                      {selectionMode && (
+                        <td className="px-3 py-2 w-10" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOne(o.id)}
+                            className="cursor-pointer"
+                            aria-label="Select this order"
+                          />
+                        </td>
+                      )}
+                      <td className="px-3 py-2 font-mono text-xs">{o.rupyz_order_id}{o.is_edited && <Badge variant="warn" className="ml-1.5">edited</Badge>}</td>
                     <td className="px-3 py-2 tabular text-ink-muted">
                       {new Date(o.rupyz_created_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </td>
@@ -441,7 +647,8 @@ export function OrdersClient({
                       <Badge variant={statusBadgeVariant(o.app_status)}>{o.app_status.replace(/_/g, " ")}</Badge>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -459,6 +666,96 @@ export function OrdersClient({
           </div>
         </div>
       </div>
+
+      {/* Bulk action bar — floats above page when any orders are selected */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-paper-card border border-paper-line rounded-md shadow-lg px-4 py-2.5 flex items-center gap-3">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-base tabular">{selectedIds.size}</span>
+            <span className="text-xs text-ink-muted">selected</span>
+          </div>
+          <button
+            onClick={selectAllMatchingFilter}
+            className="text-2xs text-accent hover:underline whitespace-nowrap"
+            disabled={bulkPending}
+          >
+            Select all matching filter
+          </button>
+          <button
+            onClick={clearSelection}
+            className="text-2xs text-ink-muted hover:text-ink whitespace-nowrap"
+            disabled={bulkPending}
+          >
+            Clear
+          </button>
+          <span className="border-l border-paper-line h-5"></span>
+          {(["admin", "approver"].includes(me.role)) && (
+            <Button size="sm" onClick={handleBulkApprove} disabled={bulkPending}>
+              <CheckCircle2 size={11}/> {bulkPending ? "Approving…" : "Approve"}
+            </Button>
+          )}
+          {(["admin", "van_lead"].includes(me.role)) && (
+            <Button size="sm" variant="outline" onClick={startBulkAttach} disabled={bulkPending}>
+              <Truck size={11}/> Add to active trip
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Bulk attach picker — overlay */}
+      {showAttachPicker && (
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-[2px] z-40 flex items-center justify-center px-4">
+          <div className="bg-paper-card border border-paper-line rounded-md shadow-xl max-w-md w-full p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Add {selectedIds.size} order{selectedIds.size === 1 ? "" : "s"} to which trip?</h3>
+              <button onClick={() => setShowAttachPicker(false)} className="text-ink-muted hover:text-ink" disabled={bulkPending}><X size={14}/></button>
+            </div>
+
+            {activeTrips.length === 0 ? (
+              <p className="text-sm text-ink-muted py-4">Loading trips…</p>
+            ) : (
+              <>
+                <div className="space-y-1.5 mb-4 max-h-72 overflow-y-auto">
+                  {activeTrips.map(t => (
+                    <label
+                      key={t.id}
+                      className={`flex items-center gap-2 p-2.5 border rounded cursor-pointer ${pickedTripId === t.id ? "border-accent bg-accent-soft/30" : "border-paper-line hover:border-paper-line"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="bulk-trip-pick"
+                        value={t.id}
+                        checked={pickedTripId === t.id}
+                        onChange={() => setPickedTripId(t.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono text-2xs text-ink-muted">{t.trip_number}</div>
+                        <div className="text-sm font-medium">{t.beat?.name ?? "—"}</div>
+                        <div className="text-2xs text-ink-muted">
+                          {new Date(t.trip_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                          {t.lead && <> · {t.lead.full_name}</>}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-2xs text-ink-subtle mb-3">
+                  Orders whose customers aren&apos;t on the selected trip&apos;s beat will be skipped.
+                </p>
+              </>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowAttachPicker(false)} disabled={bulkPending}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleBulkAttach} disabled={bulkPending || !pickedTripId}>
+                <Truck size={11}/> {bulkPending ? "Adding…" : "Add to trip"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <OrderDrawer
         order={open}

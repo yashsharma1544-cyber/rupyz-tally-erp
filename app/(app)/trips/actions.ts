@@ -397,6 +397,100 @@ export async function listActiveTripsForOrder(orderId: string) {
 }
 
 // =============================================================================
+// LIST ALL ACTIVE TRIPS (for the bulk-attach picker — admin needs to see every
+// in-progress trip across all beats, not filtered by a specific order's beat)
+// =============================================================================
+export async function listAllActiveTrips() {
+  try {
+    await requireRoles(["admin", "van_lead", "approver", "dispatch"]);
+    const admin = createAdminClient();
+
+    const { data: trips } = await admin.from("van_trips")
+      .select("id, trip_number, trip_date, beat_id, status, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
+      .eq("status", "in_progress")
+      .order("trip_date", { ascending: false });
+
+    return { ok: true, trips: (trips ?? []) };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// BULK ATTACH ORDERS TO TRIP
+// Each order's customer must be on the trip's beat; mismatched-beat orders are
+// reported as failures rather than silently skipped. Process one at a time so
+// per-order stock warnings can be surfaced.
+// =============================================================================
+export interface BulkAttachResult {
+  orderId: string;
+  ok: boolean;
+  error?: string;
+  billNumber?: string;
+  stockWarnings?: StockWarning[];
+}
+
+export async function bulkAttachOrdersToTrip(orderIds: string[], tripId: string) {
+  try {
+    if (!orderIds || orderIds.length === 0) return { error: "No orders selected" };
+    if (orderIds.length > 500) return { error: "Too many orders (max 500). Narrow your selection." };
+    if (!tripId) return { error: "No trip selected" };
+
+    await requireRoles(["admin", "van_lead"]);
+
+    // Quick sanity: the trip must exist and be in_progress (attachOrderToTrip checks
+    // each call, but failing fast on a bad trip avoids 500 nuisance results)
+    const admin = createAdminClient();
+    const { data: trip } = await admin.from("van_trips")
+      .select("id, status, trip_number").eq("id", tripId).maybeSingle();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status !== "in_progress") {
+      return { error: `Trip is "${trip.status}" — only on-route trips accept new orders` };
+    }
+
+    const results: BulkAttachResult[] = [];
+    let succeeded = 0;
+    const allWarnings: { orderId: string; warnings: StockWarning[] }[] = [];
+
+    for (const orderId of orderIds) {
+      try {
+        const res = await attachOrderToTrip({ orderId, tripId });
+        if (res.error) {
+          results.push({ orderId, ok: false, error: res.error });
+        } else {
+          results.push({
+            orderId, ok: true,
+            billNumber: res.billNumber,
+            stockWarnings: res.stockWarnings,
+          });
+          succeeded++;
+          if (res.stockWarnings && res.stockWarnings.length > 0) {
+            allWarnings.push({ orderId, warnings: res.stockWarnings });
+          }
+        }
+      } catch (e: unknown) {
+        results.push({ orderId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath(`/van/${tripId}`);
+    revalidatePath("/orders");
+
+    return {
+      ok: true,
+      succeeded,
+      total: orderIds.length,
+      tripNumber: trip.trip_number,
+      results,
+      stockWarningCount: allWarnings.reduce((s, w) => s + w.warnings.length, 0),
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
 // SAVE TRIP PLAN (add/edit/remove buffer items during planning)
 // `bufferRows` represents the COMPLETE desired buffer state.
 // Products not in the list have their buffer cleared.

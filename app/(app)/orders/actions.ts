@@ -70,6 +70,66 @@ export async function approveOrder(orderId: string, comment?: string) {
 }
 
 // =============================================================================
+// BULK APPROVE
+// Process orders one by one. Returns per-order results so the client can
+// display a "X of Y succeeded" summary with reasons for any failures.
+// Hard cap at 500 to prevent runaway operations.
+// =============================================================================
+export interface BulkOrderResult {
+  orderId: string;
+  ok: boolean;
+  error?: string;
+}
+
+export async function bulkApproveOrders(orderIds: string[]) {
+  try {
+    if (!orderIds || orderIds.length === 0) return { error: "No orders selected" };
+    if (orderIds.length > 500) return { error: "Too many orders (max 500). Narrow your selection." };
+
+    const actor = await requireRoles(["admin", "approver"]);
+    const admin = createAdminClient();
+
+    const results: BulkOrderResult[] = [];
+    let succeeded = 0;
+    const now = new Date().toISOString();
+
+    for (const orderId of orderIds) {
+      try {
+        const { data: order } = await admin
+          .from("orders").select("id, app_status").eq("id", orderId).maybeSingle();
+        if (!order) {
+          results.push({ orderId, ok: false, error: "Not found" });
+          continue;
+        }
+        if (order.app_status !== "received") {
+          results.push({ orderId, ok: false, error: `Status is "${order.app_status}"` });
+          continue;
+        }
+        const { error: updErr } = await admin.from("orders").update({
+          app_status: "approved",
+          approved_at: now,
+          approved_by: actor.userId,
+        }).eq("id", orderId);
+        if (updErr) {
+          results.push({ orderId, ok: false, error: updErr.message });
+          continue;
+        }
+        await logEvent(admin, orderId, "approved", actor, "Bulk approval");
+        results.push({ orderId, ok: true });
+        succeeded++;
+      } catch (e: unknown) {
+        results.push({ orderId, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    revalidatePath("/orders");
+    return { ok: true, succeeded, total: orderIds.length, results };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
 // REJECT
 // =============================================================================
 export async function rejectOrder(orderId: string, reason: string) {
