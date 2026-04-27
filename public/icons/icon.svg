@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Solid background (so any size renders cleanly) -->
+  <rect width="512" height="512" rx="96" fill="#0d5b58"/>
+
+  <!-- Truck silhouette, simplified, light tone -->
+  <g fill="#faf7f2" opacity="0.18">
+    <!-- Cab + box -->
+    <rect x="80" y="180" width="240" height="140" rx="10"/>
+    <path d="M320 220 L380 220 L420 270 L420 320 L320 320 Z"/>
+    <!-- Wheels -->
+    <circle cx="160" cy="340" r="28" fill="#0d5b58"/>
+    <circle cx="160" cy="340" r="22" fill="#faf7f2"/>
+    <circle cx="370" cy="340" r="28" fill="#0d5b58"/>
+    <circle cx="370" cy="340" r="22" fill="#faf7f2"/>
+  </g>
+
+  <!-- VAN wordmark — bold, centered -->
+  <text x="256" y="290"
+        font-family="IBM Plex Sans, system-ui, sans-serif"
+        font-weight="700"
+        font-size="140"
+        text-anchor="middle"
+        fill="#faf7f2"
+        letter-spacing="6">VAN</text>
+
+  <!-- Small SUSHIL caption underneath -->
+  <text x="256" y="370"
+        font-family="IBM Plex Sans, system-ui, sans-serif"
+        font-weight="500"
+        font-size="34"
+        text-anchor="middle"
+        fill="#faf7f2"
+        opacity="0.65"
+        letter-spacing="8">SUSHIL</text>
+</svg>

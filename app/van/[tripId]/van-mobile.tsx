@@ -165,7 +165,7 @@ export function VanMobileBilling({
           <p className="text-sm text-ink-muted mb-4">
             Trip status is "{trip.status}". Mobile billing is only available while the trip is on route.
           </p>
-          <Link href={`/trips/${trip.id}`} className="text-sm text-accent hover:underline">View trip</Link>
+          <Link href="/van" className="text-sm text-accent hover:underline">All trips</Link>
         </div>
       </div>
     );
@@ -201,8 +201,8 @@ export function VanMobileBilling({
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
-        <Link href={`/trips/${trip.id}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-          <ArrowLeft size={11}/> Trip detail
+        <Link href="/van" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
+          <ArrowLeft size={11}/> All trips
         </Link>
         <h1 className="text-lg font-bold flex items-center gap-2">
           {trip.trip_number}

@@ -1,10 +1,31 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "Rupyz · Tally ERP",
   description: "Order management for Sushil Agencies",
+  manifest: "/manifest.json",
+  applicationName: "Sushil Agencies VAN",
+  appleWebApp: {
+    capable: true,
+    title: "VAN",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/favicon.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0d5b58",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -30,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               warning: "!bg-[#f7ecd5] !text-[#8a5a00] !border-[#8a5a00]/30",
               info: "!bg-[#e8f0ef] !text-[#0d5b58] !border-[#0d5b58]/30",
               closeButton:
-                "!bg-white !border !border-[#e6e1d7] !text-[#4a5959] hover:!bg-[#f3efe8]",
+                "!bg-white !border !border-[#e6e1d7] !text-[#4a5959] hover:!bg-[#f3efe8] !opacity-100 !top-2 !right-2 !left-auto !w-6 !h-6 !rounded-full",
             },
           }}
         />
