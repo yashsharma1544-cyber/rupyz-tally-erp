@@ -100,7 +100,13 @@ function OrderDrawerInner({
   const [dispatchMode, setDispatchMode] = useState(false);
 
   // Attach-to-trip state
-  type ActiveTrip = { id: string; trip_number: string; trip_date: string; status: string; lead: { id: string; full_name: string } | { id: string; full_name: string }[] | null };
+  type ActiveTrip = {
+    id: string; trip_number: string; trip_date: string; status: string;
+    beat_id?: string;
+    beat?: { id: string; name: string } | { id: string; name: string }[] | null;
+    same_beat?: boolean;
+    lead: { id: string; full_name: string } | { id: string; full_name: string }[] | null;
+  };
   const [attachTripMode, setAttachTripMode] = useState(false);
   const [activeTrips, setActiveTrips] = useState<ActiveTrip[]>([]);
   const [attachTripId, setAttachTripId] = useState<string>("");
@@ -371,26 +377,36 @@ function OrderDrawerInner({
 
         {attachTripMode && (
           <div className="px-5 py-3 border-t border-paper-line bg-paper-subtle/40 space-y-2">
-            <Label className="text-xs">Active trip on {order.customer?.city ?? "this beat"}</Label>
+            <Label className="text-xs">Active trips</Label>
             {attachLoading ? (
               <div className="text-sm text-ink-muted">Looking for active trips…</div>
             ) : activeTrips.length === 0 ? (
               <div className="text-sm text-ink-muted italic">
-                No active trip running on this customer&apos;s beat right now.
-                Wait for the next trip, or use Create Dispatch instead.
+                No active trip is running right now. Start a trip first, or use Create Dispatch instead.
               </div>
             ) : activeTrips.length === 1 ? (
               <div className="text-sm">
-                Will attach to{" "}
-                <strong className="font-mono">{activeTrips[0].trip_number}</strong>
-                {" — "}
-                <span className="text-ink-muted">
-                  Lead: {(Array.isArray(activeTrips[0].lead) ? activeTrips[0].lead[0] : activeTrips[0].lead)?.full_name ?? "—"}
-                </span>
-                <div className="text-2xs text-ink-subtle mt-1">
-                  The lead will see this as a new pre-order on the mobile app.
-                  If stock on the truck is short, you&apos;ll get a warning and the lead will see it at billing time.
-                </div>
+                {(() => {
+                  const t = activeTrips[0];
+                  const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
+                  const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
+                  return (
+                    <>
+                      Will attach to <strong className="font-mono">{t.trip_number}</strong>
+                      {" — "}
+                      <span className="text-ink-muted">{beat?.name ?? "—"} · Lead: {lead?.full_name ?? "—"}</span>
+                      {t.same_beat === false && (
+                        <div className="text-2xs text-warn mt-1">
+                          ⚠ Cross-beat: this trip is on {beat?.name}, but the customer is on a different beat. Make sure the lead can reach them.
+                        </div>
+                      )}
+                      <div className="text-2xs text-ink-subtle mt-1">
+                        The lead will see this as a new pre-order on the mobile app.
+                        If stock on the truck is short, you&apos;ll get a warning and the lead will see it at billing time.
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <>
@@ -399,16 +415,18 @@ function OrderDrawerInner({
                   <SelectContent>
                     {activeTrips.map(t => {
                       const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
+                      const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
                       return (
                         <SelectItem key={t.id} value={t.id}>
-                          {t.trip_number} · Lead: {lead?.full_name ?? "—"}
+                          {t.trip_number} · {beat?.name ?? "—"} · {lead?.full_name ?? "—"}
+                          {t.same_beat === false ? "  (other beat)" : ""}
                         </SelectItem>
                       );
                     })}
                   </SelectContent>
                 </Select>
                 <div className="text-2xs text-ink-subtle">
-                  Multiple active trips on this beat. Pick one — usually the trip whose lead can still reach this customer.
+                  Trips on the customer&apos;s own beat appear first. Cross-beat trips are marked.
                 </div>
               </>
             )}

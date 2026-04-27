@@ -28,12 +28,13 @@ type CustomerLite = Pick<Customer, "id" | "name" | "mobile" | "city">;
 type StockRow = { productId: string; productName: string; productUnit: string; loaded: number; sold: number; remaining: number };
 
 export function VanMobileBilling({
-  trip, me, customers: initialCustomers, products,
+  trip, me, customers: initialCustomers, products, crossBeatMode,
 }: {
   trip: VanTrip;
   me: AppUser;
   customers: CustomerLite[];
   products: ProductLite[];
+  crossBeatMode?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [bills, setBills] = useState<TripBill[]>([]);
@@ -221,6 +222,16 @@ export function VanMobileBilling({
           </div>
         )}
 
+        {/* Cross-beat banner — admin attached orders from other beats to this trip */}
+        {crossBeatMode && (
+          <div className="bg-warn-soft border border-warn/30 rounded p-2 mb-3 text-2xs text-warn flex items-start gap-1.5">
+            <AlertCircle size={11} className="shrink-0 mt-0.5"/>
+            <span>
+              Admin added cross-beat orders to this trip. The walk-in tab now shows all customers — search carefully.
+            </span>
+          </div>
+        )}
+
         {/* Tab toggle */}
         <div className="grid grid-cols-2 gap-1 mb-3 bg-paper-subtle border border-paper-line rounded p-0.5">
           <button
@@ -337,7 +348,9 @@ export function VanMobileBilling({
               {search ? `No customers match "${search}"` :
                 tab === "preorder"
                   ? (preOrderTotalCount === 0 ? "No pre-orders for this trip." : "All pre-orders billed ✓")
-                  : "No walk-in customers in this beat."
+                  : crossBeatMode
+                    ? "No walk-in customers match. Try a different search."
+                    : "No walk-in customers in this beat."
               }
             </div>
           )}

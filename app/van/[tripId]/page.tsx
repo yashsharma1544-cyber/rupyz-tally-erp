@@ -24,14 +24,42 @@ export default async function VanMobilePage({ params }: { params: Promise<{ trip
     .maybeSingle();
   if (!trip) notFound();
 
-  // Customers belonging to this beat (and a few extras for ad-hoc)
-  const { data: customers } = await supabase
-    .from("customers")
-    .select("id, name, mobile, city, beat_id")
-    .eq("beat_id", trip.beat_id)
-    .eq("active", true)
-    .order("name")
-    .limit(500);
+  // Detect whether this trip has cross-beat bills attached. If so, admin has
+  // overridden the beat boundary, and the lead's walk-in tab should show ALL
+  // customers (not just same-beat ones) so the lead can find the cross-beat
+  // shops they need to visit.
+  const { data: extBills } = await supabase
+    .from("trip_bills")
+    .select("customer:customers(beat_id)")
+    .eq("trip_id", tripId)
+    .eq("is_cancelled", false);
+  const hasCrossBeat = ((extBills ?? []) as Array<{ customer: { beat_id: string | null } | { beat_id: string | null }[] | null }>)
+    .some(b => {
+      const c = Array.isArray(b.customer) ? b.customer[0] : b.customer;
+      return c?.beat_id && c.beat_id !== trip.beat_id;
+    });
+
+  // Customer list: same-beat by default (small, fast). When cross-beat bills
+  // exist, load all active customers so the lead can search/find the shops.
+  let customers;
+  if (hasCrossBeat) {
+    const res = await supabase
+      .from("customers")
+      .select("id, name, mobile, city, beat_id")
+      .eq("active", true)
+      .order("name")
+      .limit(2000);
+    customers = res.data;
+  } else {
+    const res = await supabase
+      .from("customers")
+      .select("id, name, mobile, city, beat_id")
+      .eq("active", true)
+      .eq("beat_id", trip.beat_id)
+      .order("name")
+      .limit(500);
+    customers = res.data;
+  }
 
   const { data: products } = await supabase
     .from("products")
@@ -45,6 +73,7 @@ export default async function VanMobilePage({ params }: { params: Promise<{ trip
       me={meTyped}
       customers={(customers ?? []) as Pick<Customer, "id" | "name" | "mobile" | "city">[]}
       products={(products ?? []) as Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">[]}
+      crossBeatMode={hasCrossBeat}
     />
   );
 }

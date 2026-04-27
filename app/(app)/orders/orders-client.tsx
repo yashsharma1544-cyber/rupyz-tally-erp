@@ -314,7 +314,7 @@ export function OrdersClient({
     if (!pickedTripId) { toast.error("Pick a trip"); return; }
     const trip = activeTrips.find(t => t.id === pickedTripId);
     if (!trip) { toast.error("Trip not found"); return; }
-    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name})? Orders from other beats will be skipped.`)) return;
+    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name})? Orders may be from other beats — admin override is enabled.`)) return;
     startBulkTransition(async () => {
       const res = await bulkAttachOrdersToTrip(ids, pickedTripId);
       if (res.error) { toast.error(res.error); return; }
@@ -740,7 +740,7 @@ export function OrdersClient({
                   ))}
                 </div>
                 <p className="text-2xs text-ink-subtle mb-3">
-                  Orders whose customers aren&apos;t on the selected trip&apos;s beat will be skipped.
+                  Orders from any beat can be attached. Make sure the lead can reach the cross-beat customers.
                 </p>
               </>
             )}

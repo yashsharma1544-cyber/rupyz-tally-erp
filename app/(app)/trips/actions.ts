@@ -212,9 +212,10 @@ export async function attachOrderToTrip(input: AttachOrderToTripInput) {
 
     const customer = Array.isArray(order.customer) ? order.customer[0] : order.customer;
     if (!customer) return { error: "Order has no customer" };
-    if (customer.beat_id !== trip.beat_id) {
-      return { error: `Customer ${customer.name} is not on this trip's beat` };
-    }
+    // Beat boundary is intentionally NOT enforced here — admin/van_lead are
+    // trusted to know when to attach cross-beat orders (e.g., "the lead drives
+    // past this shop today anyway"). The mobile app will surface cross-beat
+    // bills in the pre-order tab regardless.
 
     // Refuse duplicate attach
     const { data: dup } = await admin.from("trip_bills")
@@ -385,12 +386,21 @@ export async function listActiveTripsForOrder(orderId: string) {
     }
 
     const { data: trips } = await admin.from("van_trips")
-      .select("id, trip_number, trip_date, status, lead:app_users!van_trips_lead_id_fkey(id,full_name)")
-      .eq("beat_id", beatId)
+      .select("id, trip_number, trip_date, beat_id, status, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
       .eq("status", "in_progress")
       .order("trip_date", { ascending: false });
 
-    return { ok: true, trips: (trips ?? []), orderEligible: true };
+    // Flag each trip with whether its beat matches the order's customer beat —
+    // useful for sorting/highlighting in the picker. Cross-beat trips are still
+    // returned and selectable.
+    const flagged = (trips ?? []).map(t => ({
+      ...t,
+      same_beat: t.beat_id === beatId,
+    }));
+    // Sort same-beat first
+    flagged.sort((a, b) => (a.same_beat === b.same_beat ? 0 : a.same_beat ? -1 : 1));
+
+    return { ok: true, trips: flagged, orderEligible: true, customerBeatId: beatId };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
