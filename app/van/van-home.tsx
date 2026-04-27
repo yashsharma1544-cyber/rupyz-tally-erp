@@ -17,12 +17,12 @@ type TripWithBeat = VanTrip & {
 
 function statusBadge(s: VanTripStatus): { variant: "neutral" | "ok" | "warn" | "danger" | "accent"; label: string } {
   return {
-    planning:    { variant: "warn",   label: "Planning" },
-    loading:     { variant: "warn",   label: "Ready to start" },
-    in_progress: { variant: "accent", label: "On Route" },
-    returned:    { variant: "warn",   label: "Awaiting Reconcile" },
-    reconciled:  { variant: "ok",     label: "Reconciled" },
-    cancelled:   { variant: "danger", label: "Cancelled" },
+    planning:    { variant: "warn"   as const, label: "Planning" },
+    loading:     { variant: "warn"   as const, label: "Ready to start" },
+    in_progress: { variant: "accent" as const, label: "On Route" },
+    returned:    { variant: "warn"   as const, label: "Awaiting Reconcile" },
+    reconciled:  { variant: "ok"     as const, label: "Reconciled" },
+    cancelled:   { variant: "danger" as const, label: "Cancelled" },
   }[s];
 }
 
