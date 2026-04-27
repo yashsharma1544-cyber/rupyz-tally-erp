@@ -13,12 +13,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="relative z-10">{children}</div>
         <Toaster
-          position="top-right"
+          position="top-center"
+          richColors
+          closeButton
+          duration={4500}
           toastOptions={{
-            style: {
-              background: "var(--background, #faf7f2)",
-              color: "var(--foreground, #0e1414)",
-              border: "1px solid #e6e1d7",
+            unstyled: false,
+            classNames: {
+              // Keep types tinted (richColors handles that), but force solid surface + readable text
+              toast:
+                "!bg-white !text-[#0e1414] !border !border-[#e6e1d7] !shadow-lg !rounded-md !text-sm !font-medium",
+              title: "!font-semibold !text-[#0e1414]",
+              description: "!text-[#4a5959]",
+              success: "!bg-[#e3efe5] !text-[#1f6b3a] !border-[#1f6b3a]/30",
+              error: "!bg-[#f5e3e3] !text-[#9a2929] !border-[#9a2929]/30",
+              warning: "!bg-[#f7ecd5] !text-[#8a5a00] !border-[#8a5a00]/30",
+              info: "!bg-[#e8f0ef] !text-[#0d5b58] !border-[#0d5b58]/30",
+              closeButton:
+                "!bg-white !border !border-[#e6e1d7] !text-[#4a5959] hover:!bg-[#f3efe8]",
             },
           }}
         />
