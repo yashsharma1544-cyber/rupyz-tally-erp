@@ -332,16 +332,18 @@ export async function cancelBill(billId: string, reason: string) {
       notes: `[CANCELLED by ${actor.fullName}] ${reason.trim()}`,
     }).eq("id", billId);
 
-    // If we had marked the source order delivered when this bill was confirmed,
-    // roll it back to 'approved' (only when the bill was confirmed AND no other
-    // active bill is linked to the same order).
-    if (bill.bill_type === "pre_order" && bill.source_order_id && bill.confirmed_at) {
+    // For pre-order bills: when the bill is cancelled, roll the linked source order
+    // back to 'approved' so it's available for a fresh trip. The order may currently be
+    // either 'delivered' (bill was confirmed) or 'on_van_trip' (bill was pending).
+    // Only roll back if no other non-cancelled bill is still linked to the same order.
+    if (bill.bill_type === "pre_order" && bill.source_order_id) {
       const { data: otherActive } = await admin.from("trip_bills")
         .select("id").eq("source_order_id", bill.source_order_id).eq("is_cancelled", false).neq("id", billId).limit(1);
       if (!otherActive || otherActive.length === 0) {
         const { data: cur } = await admin.from("orders")
           .select("app_status").eq("id", bill.source_order_id).maybeSingle();
-        if (cur?.app_status === "delivered") {
+        const fromStatus = cur?.app_status;
+        if (fromStatus === "delivered" || fromStatus === "on_van_trip") {
           await admin.from("orders").update({ app_status: "approved" }).eq("id", bill.source_order_id);
           await admin.from("order_audit_events").insert({
             order_id: bill.source_order_id,
@@ -349,7 +351,7 @@ export async function cancelBill(billId: string, reason: string) {
             actor_id: actor.userId,
             actor_name: actor.fullName,
             comment: `VAN bill ${bill.bill_number} cancelled — order rolled back to approved`,
-            details: { from_status: "delivered", to_status: "approved", trip_bill_id: billId, reason: reason.trim() },
+            details: { from_status: fromStatus, to_status: "approved", trip_bill_id: billId, reason: reason.trim() },
           });
         }
       }

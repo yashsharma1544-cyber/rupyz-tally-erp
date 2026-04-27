@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, AlertCircle, PackageCheck, Truck, CheckCircle2, XCircle, type LucideIcon } from "lucide-react";
+import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ interface KpiRow {
 }
 
 // Status tabs — each maps a list of underlying app_status values
-type TabKey = "approval" | "dispatch" | "transit" | "delivered" | "rejected" | "all";
+type TabKey = "approval" | "dispatch" | "van" | "transit" | "delivered" | "rejected" | "all";
 
 interface TabDef {
   key: TabKey;
@@ -43,6 +43,9 @@ const TABS: TabDef[] = [
   { key: "dispatch",  label: "Ready to Dispatch",  statuses: ["approved", "partially_dispatched"],
     emptyHint: "Nothing to dispatch right now.",
     icon: PackageCheck,  accent: "accent" },
+  { key: "van",       label: "On VAN Trip",        statuses: ["on_van_trip"],
+    emptyHint: "No orders on a VAN trip right now.",
+    icon: Route,         accent: "accent" },
   { key: "transit",   label: "In Transit",         statuses: ["dispatched"],
     emptyHint: "No deliveries on the road right now.",
     icon: Truck,         accent: "accent" },
@@ -62,6 +65,7 @@ const TABS: TabDef[] = [
 function tabForStatus(s: OrderAppStatus): TabKey | null {
   if (s === "received") return "approval";
   if (s === "approved" || s === "partially_dispatched") return "dispatch";
+  if (s === "on_van_trip") return "van";
   if (s === "dispatched") return "transit";
   if (s === "delivered") return "delivered";
   if (s === "rejected" || s === "cancelled") return "rejected";
@@ -72,16 +76,40 @@ function defaultTabForRole(role: string): TabKey {
   switch (role) {
     case "approver": return "approval";
     case "dispatch": return "dispatch";
+    case "van_lead": return "van";
+    case "van_helper": return "van";
     case "delivery": return "transit";
     case "accounts": return "delivered";
     default:         return "all"; // admin, salesman, others
   }
 }
 
+// All statuses, in workflow order — used when tab='all'
+const ALL_STATUSES: OrderAppStatus[] = [
+  "received", "approved", "on_van_trip",
+  "partially_dispatched", "dispatched", "delivered",
+  "rejected", "cancelled", "closed",
+];
+
+// What status options does the dropdown show for a given tab?
+// For specific tabs: only the statuses that belong to that tab (if >1).
+// For 'all' tab: every status.
+function statusOptionsForTab(tab: TabKey): OrderAppStatus[] {
+  const def = TABS.find(t => t.key === tab);
+  if (!def) return [];
+  if (def.statuses === "all") return ALL_STATUSES;
+  return def.statuses.length > 1 ? def.statuses : [];
+}
+
+function statusLabel(s: OrderAppStatus): string {
+  return s.replace(/_/g, " ");
+}
+
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
     case "received": return "warn";
     case "approved":
+    case "on_van_trip":
     case "partially_dispatched":
     case "dispatched": return "accent";
     case "delivered": return "ok";
@@ -112,6 +140,7 @@ export function OrdersClient({
   const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
   const [salesmanF, setSalesmanF] = useState<string>("all");
   const [beatF, setBeatF] = useState<string>("all");
+  const [statusF, setStatusF] = useState<string>("all");
   const [dateF, setDateF] = useState<string>("today");
 
   // KPIs per status group (count + kg + amount)
@@ -119,6 +148,7 @@ export function OrdersClient({
   const emptyKpi: Record<TabKey, KpiAgg> = {
     approval:  { count: 0, kg: 0, amount: 0 },
     dispatch:  { count: 0, kg: 0, amount: 0 },
+    van:       { count: 0, kg: 0, amount: 0 },
     transit:   { count: 0, kg: 0, amount: 0 },
     delivered: { count: 0, kg: 0, amount: 0 },
     rejected:  { count: 0, kg: 0, amount: 0 },
@@ -153,7 +183,15 @@ export function OrdersClient({
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, beatF, dateF]);
+  useEffect(() => { setPage(0); }, [searchDebounced, tab, salesmanF, beatF, statusF, dateF]);
+
+  // Reset statusF when tab changes if the current value isn't valid for the new tab
+  useEffect(() => {
+    if (statusF === "all") return;
+    const valid = statusOptionsForTab(tab);
+    if (!valid.includes(statusF as OrderAppStatus)) setStatusF("all");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // Fetch KPIs (count, kg, amount) per status group via RPC
   useEffect(() => {
@@ -176,6 +214,7 @@ export function OrdersClient({
       const next: Record<TabKey, KpiAgg> = {
         approval:  { count: 0, kg: 0, amount: 0 },
         dispatch:  { count: 0, kg: 0, amount: 0 },
+        van:       { count: 0, kg: 0, amount: 0 },
         transit:   { count: 0, kg: 0, amount: 0 },
         delivered: { count: 0, kg: 0, amount: 0 },
         rejected:  { count: 0, kg: 0, amount: 0 },
@@ -245,6 +284,11 @@ export function OrdersClient({
       if (tabDef.statuses !== "all") {
         q = q.in("app_status", tabDef.statuses);
       }
+      // Status filter narrows further within the tab. The dropdown only shows
+      // statuses that are part of the current tab, so we just intersect.
+      if (statusF !== "all") {
+        q = q.eq("app_status", statusF);
+      }
       // Apply beat narrowing to the orders query (always, when active)
       if (beatCustomerIds !== null) {
         q = q.in("customer_id", beatCustomerIds);
@@ -274,7 +318,7 @@ export function OrdersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, tab, searchDebounced, salesmanF, beatF, dateF, page, reloadKey]);
+  }, [supabase, tab, searchDebounced, salesmanF, beatF, statusF, dateF, page, reloadKey]);
 
   const activeTabDef = TABS.find(t => t.key === tab)!;
 
@@ -313,6 +357,16 @@ export function OrdersClient({
           <SelectContent>
             <SelectItem value="all">All beats</SelectItem>
             {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <Select value={statusF} onValueChange={setStatusF}>
+          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {statusOptionsForTab(tab).map(s => (
+              <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

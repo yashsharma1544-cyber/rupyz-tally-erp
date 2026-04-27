@@ -150,9 +150,16 @@ export async function createTrip(input: CreateTripInput) {
           );
         }
       }
+
+      // Flip every successfully-bundled order to 'on_van_trip'
+      await admin.from("orders")
+        .update({ app_status: "on_van_trip" })
+        .in("id", input.preOrderIds)
+        .in("app_status", ["approved", "partially_dispatched"]);
     }
 
     revalidatePath("/trips");
+    revalidatePath("/orders");
     return { ok: true, tripId: trip.id, tripNumber: trip.trip_number };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
@@ -324,6 +331,11 @@ export async function attachOrderToTrip(input: AttachOrderToTripInput) {
       })),
     );
     if (biErr) return { error: `Saving items: ${biErr.message}` };
+
+    // 4. Flip the order's status to 'on_van_trip'
+    await admin.from("orders")
+      .update({ app_status: "on_van_trip" })
+      .eq("id", order.id);
 
     revalidatePath(`/trips/${input.tripId}`);
     revalidatePath(`/van/${input.tripId}`);
@@ -748,11 +760,13 @@ export async function cancelTrip(tripId: string, reason: string) {
         notes: `[CANCELLED via trip cancel by ${actor.fullName}] ${reason.trim()}`,
       }).eq("id", bill.id);
 
-      // Roll back the linked source order if this was a confirmed pre-order
-      if (bill.bill_type === "pre_order" && bill.source_order_id && bill.confirmed_at) {
+      // Roll back the linked source order if this was a pre-order with a meaningful
+      // status to undo (either 'delivered' or 'on_van_trip')
+      if (bill.bill_type === "pre_order" && bill.source_order_id) {
         const { data: cur } = await admin.from("orders")
           .select("app_status").eq("id", bill.source_order_id).maybeSingle();
-        if (cur?.app_status === "delivered") {
+        const fromStatus = cur?.app_status;
+        if (fromStatus === "delivered" || fromStatus === "on_van_trip") {
           await admin.from("orders").update({ app_status: "approved" }).eq("id", bill.source_order_id);
           await admin.from("order_audit_events").insert({
             order_id: bill.source_order_id,
@@ -760,7 +774,7 @@ export async function cancelTrip(tripId: string, reason: string) {
             actor_id: actor.userId,
             actor_name: actor.fullName,
             comment: `Trip cancelled — bill ${bill.bill_number} reversed`,
-            details: { from_status: "delivered", to_status: "approved", trip_id: tripId, trip_bill_id: bill.id, reason: reason.trim() },
+            details: { from_status: fromStatus, to_status: "approved", trip_id: tripId, trip_bill_id: bill.id, reason: reason.trim() },
           });
         }
       }
