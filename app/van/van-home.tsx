@@ -33,8 +33,8 @@ export function VanHome({ me }: { me: AppUser }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  async function reload() {
-    setLoading(true);
+  async function reload(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) setLoading(true);
     const { data, error } = await supabase
       .from("van_trips")
       .select("*, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
@@ -43,15 +43,17 @@ export function VanHome({ me }: { me: AppUser }) {
       .limit(50);
     if (error) toast.error(error.message);
     else setTrips((data ?? []) as unknown as TripWithBeat[]);
-    setLoading(false);
+    if (!opts.silent) setLoading(false);
   }
 
   useEffect(() => {
     reload();
-    // Refresh on focus / visibility return
+    // Refresh on focus / visibility return — silent (no loading state) so the
+    // trip list doesn't blank out for half a second every time the user
+    // switches tabs back.
     function onFocus() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      reload();
+      reload({ silent: true });
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -98,7 +100,7 @@ export function VanHome({ me }: { me: AppUser }) {
             <p className="text-xs text-ink-muted">Hi, {me.full_name.split(" ")[0]}</p>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={reload} className="p-2 text-ink-muted hover:text-ink" aria-label="Refresh" disabled={loading}>
+            <button onClick={() => reload()} className="p-2 text-ink-muted hover:text-ink" aria-label="Refresh" disabled={loading}>
               <RefreshCw size={15} className={loading ? "animate-spin" : ""}/>
             </button>
             <button onClick={handleSignOut} className="p-2 text-ink-muted hover:text-ink" aria-label="Sign out">

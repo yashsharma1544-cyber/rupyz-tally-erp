@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -166,7 +166,7 @@ export function OrdersClient({
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       setReloadKey(k => k + 1);
     }
-    const id = setInterval(tick, 30_000);
+    const id = setInterval(tick, 60_000);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
     return () => {
@@ -240,9 +240,15 @@ export function OrdersClient({
   }, [supabase, dateF, beatF, reloadKey]);
 
   // Fetch rows for the active tab
+  const prevReloadKeyRef = useRef(reloadKey);
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // Only show the loading skeleton for user-initiated changes (filters, tab,
+    // search, paging). Background polling silently swaps data when ready —
+    // otherwise the whole list flickers every 30 seconds.
+    const isPollingRefresh = prevReloadKeyRef.current !== reloadKey;
+    prevReloadKeyRef.current = reloadKey;
+    if (!isPollingRefresh) setLoading(true);
     (async () => {
       const tabDef = TABS.find(t => t.key === tab)!;
       const term = searchDebounced.trim();
