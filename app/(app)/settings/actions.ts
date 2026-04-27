@@ -54,7 +54,8 @@ export async function updateRupyzToken(rawToken: string) {
   // Strip "Bearer " prefix if user pasted it accidentally
   const token = rawToken.trim().replace(/^bearer\s+/i, "").trim();
   if (!token) return { error: "Empty token" };
-  if (token.length < 50) return { error: "That doesn't look like a token (too short)" };
+  // No length check — Rupyz uses short opaque tokens (~30 chars), not JWTs.
+  // Real validation happens via the test API call below.
 
   // Load current session for org_id
   const admin = createAdminClient();
