@@ -71,6 +71,7 @@ export interface Customer {
   city: string | null;
   pincode: string | null;
   beat_id: string | null;
+  beat_overridden_at: string | null;
   map_address: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -159,7 +160,10 @@ export interface Order {
   created_at: string;
   updated_at: string;
   // Joined
-  customer?: Pick<Customer, "id" | "name" | "customer_type" | "city" | "mobile"> | null;
+  customer?: (Pick<Customer, "id" | "name" | "customer_type" | "city" | "mobile"> & {
+    beat_overridden_at?: string | null;
+    beat?: Pick<Beat, "id" | "name"> | null;
+  }) | null;
   salesman?: Pick<Salesman, "id" | "name"> | null;
 }
 

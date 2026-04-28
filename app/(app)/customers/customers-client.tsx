@@ -269,11 +269,24 @@ function CustomerForm({
       };
 
       if (mode === "create") {
-        const { error } = await supabase.from("customers").insert(payload);
+        // For new customers, if admin sets a beat, mark it as locally overridden
+        const insertPayload = {
+          ...payload,
+          ...(payload.beat_id ? { beat_overridden_at: new Date().toISOString() } : {}),
+        };
+        const { error } = await supabase.from("customers").insert(insertPayload);
         if (error) { toast.error(error.message); return; }
         toast.success("Customer added");
       } else {
-        const { error } = await supabase.from("customers").update(payload).eq("id", initial!.id);
+        // For updates, only stamp the override if the beat actually changed
+        const beatChanged = (initial!.beat_id ?? null) !== (payload.beat_id ?? null);
+        const updatePayload = {
+          ...payload,
+          ...(beatChanged
+            ? { beat_overridden_at: payload.beat_id ? new Date().toISOString() : null }
+            : {}),
+        };
+        const { error } = await supabase.from("customers").update(updatePayload).eq("id", initial!.id);
         if (error) { toast.error(error.message); return; }
         toast.success("Customer updated");
       }

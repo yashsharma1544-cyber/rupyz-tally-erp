@@ -18,7 +18,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type {
   Order, OrderItem, OrderAuditEvent, OrderRevision, AppUser, Product,
-  Dispatch, OrderAppStatus,
+  Dispatch, OrderAppStatus, Beat,
 } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
@@ -27,6 +27,7 @@ import {
 } from "./actions";
 import { createDispatch, shipDispatch, cancelDispatch } from "../dispatches/actions";
 import { attachOrderToTrip, listActiveTripsForOrder } from "../trips/actions";
+import { updateCustomerBeat } from "../customers/actions";
 
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
@@ -55,17 +56,19 @@ export function OrderDrawer({
   onClose,
   onChanged,
   me,
+  beats = [],
 }: {
   order: Order | null;
   onClose: () => void;
   onChanged?: () => void;
   me: AppUser;
+  beats?: Pick<Beat, "id" | "name">[];
 }) {
   // Thin wrapper: handles the null case so the inner component can rely on a
   // non-null `order` typing and avoid TS narrowing issues inside async callbacks.
   // `key` ensures fresh state when switching between orders.
   if (!order) return null;
-  return <OrderDrawerInner key={order.id} order={order} onClose={onClose} onChanged={onChanged} me={me} />;
+  return <OrderDrawerInner key={order.id} order={order} onClose={onClose} onChanged={onChanged} me={me} beats={beats} />;
 }
 
 function OrderDrawerInner({
@@ -73,11 +76,13 @@ function OrderDrawerInner({
   onClose,
   onChanged,
   me,
+  beats,
 }: {
   order: Order;
   onClose: () => void;
   onChanged?: () => void;
   me: AppUser;
+  beats: Pick<Beat, "id" | "name">[];
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -305,7 +310,7 @@ function OrderDrawerInner({
               editMode={editMode} editState={editState} setEditState={setEditState}
               dispatchMode={dispatchMode} setDispatchMode={setDispatchMode}
               products={products} remainingQty={remainingQty}
-              me={me} reload={reload} pending={pending}
+              me={me} beats={beats} reload={reload} pending={pending}
             />
           )}
 
@@ -483,7 +488,7 @@ function CurrentTab({
   order, items, dispatches, loading,
   editMode, editState, setEditState,
   dispatchMode, setDispatchMode,
-  products, remainingQty, me, reload, pending,
+  products, remainingQty, me, beats, reload, pending,
 }: {
   order: Order;
   items: OrderItem[];
@@ -497,6 +502,7 @@ function CurrentTab({
   products: Pick<Product, "id" | "name" | "unit" | "base_price" | "gst_percent">[];
   remainingQty: (line: OrderItem) => number;
   me: AppUser;
+  beats: Pick<Beat, "id" | "name">[];
   reload: () => Promise<void>;
   pending: boolean;
 }) {
@@ -508,6 +514,15 @@ function CurrentTab({
           <div className="font-semibold">{order.customer?.name ?? <span className="italic text-ink-subtle">unknown</span>}</div>
           <div className="text-xs text-ink-muted mt-0.5">{order.customer?.customer_type ?? ""}</div>
           <div className="text-xs text-ink-muted">{order.delivery_mobile}</div>
+          <CustomerBeatRow
+            customerId={order.customer?.id ?? null}
+            beatName={order.customer?.beat?.name ?? null}
+            beatId={order.customer?.beat?.id ?? null}
+            overriddenAt={order.customer?.beat_overridden_at ?? null}
+            beats={beats}
+            isAdmin={me.role === "admin"}
+            onSaved={reload}
+          />
         </Card>
         <Card label="Salesman">
           <div className="font-semibold">{order.salesman?.name ?? order.rupyz_created_by_name ?? "—"}</div>
@@ -1060,6 +1075,83 @@ function labelFor(eventType: string): string {
     order_closed: "Order closed",
   };
   return map[eventType] ?? eventType;
+}
+
+function CustomerBeatRow({
+  customerId, beatName, beatId, overriddenAt, beats, isAdmin, onSaved,
+}: {
+  customerId: string | null;
+  beatName: string | null;
+  beatId: string | null;
+  overriddenAt: string | null;
+  beats: Pick<Beat, "id" | "name">[];
+  isAdmin: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [picked, setPicked] = useState<string>(beatId ?? "_");
+  const [pending, startTransition] = useTransition();
+
+  if (!customerId) return null;
+
+  function save() {
+    if (!customerId) return;
+    const newBeatId = picked === "_" ? null : picked;
+    startTransition(async () => {
+      const res = await updateCustomerBeat(customerId, newBeatId);
+      if (res.error) toast.error(res.error);
+      else {
+        toast.success("Beat updated");
+        setEditing(false);
+        await onSaved();
+      }
+    });
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <Select value={picked} onValueChange={setPicked}>
+          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Pick beat…" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_">No beat</SelectItem>
+            {beats.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={save} disabled={pending}>
+          {pending ? "…" : "Save"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setPicked(beatId ?? "_"); }} disabled={pending}>
+          <X size={11}/>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 text-xs flex items-center gap-1.5 flex-wrap">
+      <span className="text-ink-muted">Beat:</span>
+      <span className="text-ink">
+        {beatName ?? <span className="italic text-ink-subtle">none</span>}
+      </span>
+      {overriddenAt && (
+        <span
+          className="text-warn cursor-help"
+          title={`Beat manually set on ${new Date(overriddenAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} — Rupyz sync won't change it`}
+        >
+          *
+        </span>
+      )}
+      {isAdmin && (
+        <button
+          onClick={() => setEditing(true)}
+          className="text-2xs text-accent hover:underline ml-1"
+        >
+          Edit
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Card({ label, children }: { label: string; children: React.ReactNode }) {

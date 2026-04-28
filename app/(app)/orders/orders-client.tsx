@@ -441,7 +441,7 @@ export function OrdersClient({
 
       let q = supabase
         .from("orders")
-        .select("*, customer:customers(id,name,customer_type,city), salesman:salesmen(id,name)", { count: "exact" });
+        .select("*, customer:customers(id,name,customer_type,city,beat_overridden_at,beat:beats(id,name)), salesman:salesmen(id,name)", { count: "exact" });
 
       if (tabDef.statuses !== "all") {
         q = q.in("app_status", tabDef.statuses);
@@ -585,6 +585,7 @@ export function OrdersClient({
                 <th className="px-3 py-2 font-medium">Order #</th>
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Customer</th>
+                <th className="px-3 py-2 font-medium">Beat</th>
                 <th className="px-3 py-2 font-medium">Salesman</th>
                 <th className="px-3 py-2 font-medium text-right">Total</th>
                 <th className="px-3 py-2 font-medium">Payment</th>
@@ -594,10 +595,10 @@ export function OrdersClient({
             <tbody className="divide-y divide-paper-line">
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}><td colSpan={selectionMode ? 8 : 7} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={selectionMode ? 9 : 8} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
                 ))
               ) : rows.length === 0 ? (
-                <tr><td colSpan={selectionMode ? 8 : 7} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
+                <tr><td colSpan={selectionMode ? 9 : 8} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
               ) : (
                 rows.map((o) => {
                   const isSelected = selectedIds.has(o.id);
@@ -633,6 +634,23 @@ export function OrdersClient({
                     <td className="px-3 py-2">
                       <div className="font-medium">{o.customer?.name ?? <span className="italic text-ink-subtle">unknown</span>}</div>
                       <div className="text-2xs text-ink-subtle">{o.customer?.city ?? ""}</div>
+                    </td>
+                    <td className="px-3 py-2">
+                      {o.customer?.beat?.name ? (
+                        <span className="text-ink">
+                          {o.customer.beat.name}
+                          {o.customer.beat_overridden_at && (
+                            <span
+                              className="text-warn ml-0.5 cursor-help"
+                              title={`Beat manually set on ${new Date(o.customer.beat_overridden_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
+                            >
+                              *
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="italic text-ink-subtle">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-ink-muted">
                       {o.salesman?.name ?? <span className="italic text-ink-subtle">{o.rupyz_created_by_name ?? "—"}</span>}
@@ -762,6 +780,7 @@ export function OrdersClient({
         onClose={() => setOpen(null)}
         onChanged={() => setReloadKey(k => k + 1)}
         me={me}
+        beats={beats}
       />
     </div>
   );
