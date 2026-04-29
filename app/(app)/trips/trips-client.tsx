@@ -50,7 +50,7 @@ export function TripsClient({ me }: { me: AppUser }) {
   }, [supabase, statusF]);
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       <div className="flex items-center gap-2 mb-4">
         <Select value={statusF} onValueChange={setStatusF}>
           <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
@@ -68,7 +68,8 @@ export function TripsClient({ me }: { me: AppUser }) {
       </div>
 
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-paper-subtle/60 border-b border-paper-line">
             <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
               <th className="px-3 py-2 font-medium">Trip #</th>
@@ -117,6 +118,7 @@ export function TripsClient({ me }: { me: AppUser }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Helpful hints for empty/in-progress states */}

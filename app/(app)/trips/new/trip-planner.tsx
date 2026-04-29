@@ -129,7 +129,7 @@ export function TripPlanner({
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto">
       <Link href="/trips" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
         <ArrowLeft size={11}/> Back to trips
       </Link>

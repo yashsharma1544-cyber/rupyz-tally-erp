@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -14,6 +15,8 @@ import {
   Shield,
   Settings,
   LogOut,
+  Menu,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -34,6 +37,10 @@ const navItems = [
 
 export function Sidebar({ user }: { user: AppUser }) {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close drawer when navigation completes
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -41,10 +48,10 @@ export function Sidebar({ user }: { user: AppUser }) {
     window.location.href = "/login";
   }
 
-  return (
-    <aside className="w-56 shrink-0 border-r border-paper-line bg-paper-card/60 flex flex-col h-screen sticky top-0">
+  const navContent = (
+    <>
       {/* Brand */}
-      <div className="px-4 pt-4 pb-3 border-b border-paper-line">
+      <div className="px-4 pt-4 pb-3 border-b border-paper-line flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-7 w-7 rounded bg-ink text-paper flex items-center justify-center">
             <span className="font-bold text-xs tracking-tight">SA</span>
@@ -54,6 +61,14 @@ export function Sidebar({ user }: { user: AppUser }) {
             <div className="text-2xs text-ink-subtle uppercase tracking-wider">Rupyz · Tally ERP</div>
           </div>
         </div>
+        {/* Close button — mobile drawer only */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="lg:hidden text-ink-muted hover:text-ink p-1"
+          aria-label="Close menu"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       {/* Nav */}
@@ -68,7 +83,7 @@ export function Sidebar({ user }: { user: AppUser }) {
               href={item.href}
               prefetch
               className={cn(
-                "flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-all",
+                "flex items-center gap-2.5 px-2.5 py-2.5 lg:py-1.5 rounded text-sm transition-all",
                 active
                   ? "bg-accent text-white shadow-sm"
                   : "text-ink-muted hover:text-ink hover:bg-paper-subtle"
@@ -100,6 +115,51 @@ export function Sidebar({ user }: { user: AppUser }) {
           Sign out
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile / tablet top bar — visible <1024px (lg breakpoint) */}
+      <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between bg-paper-card/95 backdrop-blur border-b border-paper-line px-3 py-2">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="p-1.5 -ml-1.5 text-ink-muted hover:text-ink"
+          aria-label="Open menu"
+        >
+          <Menu size={20} />
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="h-6 w-6 rounded bg-ink text-paper flex items-center justify-center">
+            <span className="font-bold text-2xs tracking-tight">SA</span>
+          </div>
+          <span className="font-semibold text-sm">Sushil Agencies</span>
+        </div>
+        <div className="w-7"/>{/* spacer for balance */}
+      </div>
+
+      {/* Sidebar — desktop sticky aside, mobile drawer */}
+      <aside
+        className={cn(
+          "border-r border-paper-line bg-paper-card flex flex-col h-screen",
+          // Desktop ≥1024px: classic sidebar
+          "lg:sticky lg:top-0 lg:w-56 lg:shrink-0 lg:bg-paper-card/60",
+          // Mobile/tablet: slide-in drawer over content
+          "fixed top-0 left-0 z-50 w-72 max-w-[85vw] transition-transform duration-200 ease-out shadow-xl lg:shadow-none",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+        )}
+      >
+        {navContent}
+      </aside>
+
+      {/* Backdrop for mobile drawer */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-ink/40 backdrop-blur-[2px] z-40"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+    </>
   );
 }

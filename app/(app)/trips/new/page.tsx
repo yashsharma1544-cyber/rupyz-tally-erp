@@ -21,7 +21,7 @@ export default async function NewTripPage() {
   const meTyped = me as AppUser;
   if (!["admin", "van_lead"].includes(meTyped.role)) {
     return (
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         <PageHeader title="Forbidden" subtitle="Only admin or van_lead can create trips" />
       </div>
     );

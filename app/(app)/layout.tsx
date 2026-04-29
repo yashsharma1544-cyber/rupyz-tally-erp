@@ -1,7 +1,22 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/layout/sidebar";
 import type { AppUser } from "@/lib/types";
+
+// Admin pages get the desktop/admin manifest. The /van route group has its own
+// manifest declaration that overrides this for VAN routes. Both apps have
+// distinct `id` values so iOS/Android keep them separate when installed.
+export const metadata: Metadata = {
+  title: "Sushil Agencies ERP",
+  applicationName: "Sushil Agencies ERP",
+  manifest: "/manifest-admin.json",
+  appleWebApp: {
+    capable: true,
+    title: "SA ERP",
+    statusBarStyle: "default",
+  },
+};
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -30,9 +45,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="lg:flex min-h-screen">
       <Sidebar user={appUser as AppUser} />
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <main className="flex-1 min-w-0 overflow-x-hidden">{children}</main>
     </div>
   );
 }

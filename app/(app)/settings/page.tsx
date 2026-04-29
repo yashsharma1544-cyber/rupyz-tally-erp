@@ -30,7 +30,7 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" subtitle="Integration & system configuration" />
-      <div className="p-6 max-w-4xl space-y-6">
+      <div className="p-3 sm:p-6 max-w-4xl space-y-4 sm:space-y-6">
         <TokenPanel
           session={session as { org_id: number; username: string; expires_at: string; last_refreshed_at: string } | null}
         />

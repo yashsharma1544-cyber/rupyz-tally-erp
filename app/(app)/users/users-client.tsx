@@ -37,13 +37,14 @@ export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: P
   }
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       <div className="flex justify-end mb-4">
         <Button onClick={() => setAdding(true)}><Plus size={14} /> Invite User</Button>
       </div>
 
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-paper-subtle/60 border-b border-paper-line">
             <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
               <th className="px-3 py-2 font-medium">Name</th>
@@ -80,6 +81,7 @@ export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: P
             ))}
           </tbody>
         </table>
+      </div>
       </div>
 
       <Sheet open={adding} onOpenChange={(o) => { if (!o) setAdding(false); }}>

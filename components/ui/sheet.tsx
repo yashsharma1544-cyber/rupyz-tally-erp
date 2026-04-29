@@ -32,7 +32,7 @@ SheetContent.displayName = "SheetContent";
 export function SheetHeader({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex items-start justify-between border-b border-paper-line px-5 py-4", className)}
+      className={cn("flex items-start justify-between border-b border-paper-line px-3 sm:px-5 py-3 sm:py-4", className)}
       {...props}
     >
       {children}
@@ -46,7 +46,7 @@ export function SheetHeader({ className, children, ...props }: React.HTMLAttribu
 export function SheetTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <DialogPrimitive.Title
-      className={cn("text-lg font-semibold tracking-tight text-ink", className)}
+      className={cn("text-base sm:text-lg font-semibold tracking-tight text-ink", className)}
       {...props}
     />
   );
@@ -55,20 +55,20 @@ export function SheetTitle({ className, ...props }: React.HTMLAttributes<HTMLHea
 export function SheetDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-sm text-ink-muted mt-0.5", className)}
+      className={cn("text-xs sm:text-sm text-ink-muted mt-0.5", className)}
       {...props}
     />
   );
 }
 
 export function SheetBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex-1 overflow-y-auto px-5 py-5", className)} {...props} />;
+  return <div className={cn("flex-1 overflow-y-auto px-3 sm:px-5 py-4 sm:py-5", className)} {...props} />;
 }
 
 export function SheetFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex items-center justify-end gap-2 border-t border-paper-line px-5 py-3 bg-paper-subtle/50", className)}
+      className={cn("flex flex-wrap items-center justify-end gap-2 border-t border-paper-line px-3 sm:px-5 py-2.5 sm:py-3 bg-paper-subtle/50", className)}
       {...props}
     />
   );

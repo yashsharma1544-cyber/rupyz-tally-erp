@@ -90,7 +90,7 @@ export function CustomersClient({
   }, []);
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       {/* Filter bar */}
       <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4 flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
@@ -113,7 +113,7 @@ export function CustomersClient({
       {/* Table */}
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                 <th className="px-3 py-2 font-medium">Name</th>
@@ -297,7 +297,7 @@ function CustomerForm({
   return (
     <form onSubmit={handleSubmit} className="contents">
       <SheetBody>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <Field label="Name" required className="col-span-2">
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} required disabled={pending} />
           </Field>

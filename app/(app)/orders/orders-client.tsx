@@ -485,9 +485,9 @@ export function OrdersClient({
   const activeTabDef = TABS.find(t => t.key === tab)!;
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       {/* KPI cards — also serve as tab switchers */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-2.5 mb-3 sm:mb-4">
         {TABS.filter(t => t.key !== "all").map((t) => (
           <KpiCard
             key={t.key}
@@ -501,13 +501,13 @@ export function OrdersClient({
 
       {/* Filter bar */}
       <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
+        <div className="relative flex-1 min-w-full sm:min-w-[220px]">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order # or customer name…" className="pl-8" />
         </div>
 
         <Select value={salesmanF} onValueChange={setSalesmanF}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Salesman" /></SelectTrigger>
+          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Salesman" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All salesmen</SelectItem>
             {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -515,7 +515,7 @@ export function OrdersClient({
         </Select>
 
         <Select value={beatF} onValueChange={setBeatF}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Beat" /></SelectTrigger>
+          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Beat" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All beats</SelectItem>
             {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
@@ -523,7 +523,7 @@ export function OrdersClient({
         </Select>
 
         <Select value={statusF} onValueChange={setStatusF}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
             {statusOptionsForTab(tab).map(s => (
@@ -533,7 +533,7 @@ export function OrdersClient({
         </Select>
 
         <Select value={dateF} onValueChange={setDateF}>
-          <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="flex-1 min-w-[120px] sm:flex-none sm:w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="today">Today</SelectItem>
             <SelectItem value="7d">Last 7 days</SelectItem>
@@ -567,7 +567,7 @@ export function OrdersClient({
       {/* Table */}
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                 {selectionMode && (
