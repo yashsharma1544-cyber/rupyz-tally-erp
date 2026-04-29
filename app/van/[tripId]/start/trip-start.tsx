@@ -1,25 +1,30 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Truck, Package, AlertCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Truck, Package, AlertCircle, Receipt, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import type { AppUser, VanTrip, TripLoadItem } from "@/lib/types";
+import type { AppUser, VanTrip, TripLoadItem, TripBill } from "@/lib/types";
+import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { markTripLoaded } from "@/app/(app)/trips/actions";
 
+type Step = "orders" | "loading";
+
 export function TripStart({
-  me, trip, initialLoadItems,
+  me, trip, initialLoadItems, initialBills,
 }: {
   me: AppUser;
   trip: VanTrip;
   initialLoadItems: TripLoadItem[];
+  initialBills: TripBill[];
 }) {
   const router = useRouter();
   const [items] = useState<TripLoadItem[]>(initialLoadItems);
+  const [bills] = useState<TripBill[]>(initialBills);
   const [loadedQtys, setLoadedQtys] = useState<Map<string, number>>(() => {
     const m = new Map<string, number>();
     for (const li of initialLoadItems) {
@@ -29,10 +34,21 @@ export function TripStart({
   });
   const [pending, startTransition] = useTransition();
 
+  // Wizard step. Default to "orders" if any pre-orders attached, else jump
+  // straight to "loading" (nothing useful in the orders view to look at).
+  const [step, setStep] = useState<Step>(initialBills.length > 0 ? "orders" : "loading");
+
   const isLeadOrAdmin = me.role === "admin" || me.id === trip.lead_id;
 
   const totalPlanned = items.reduce((s, li) => s + Number(li.qty_planned), 0);
   const totalLoaded = Array.from(loadedQtys.values()).reduce((s, q) => s + q, 0);
+
+  // Pre-order bills only — spot bills can't exist before in_progress
+  const preOrderBills = useMemo(
+    () => bills.filter(b => b.bill_type === "pre_order"),
+    [bills],
+  );
+  const preOrderTotal = preOrderBills.reduce((s, b) => s + Number(b.total_amount), 0);
 
   function handleStart() {
     if (items.length === 0) {
@@ -79,17 +95,103 @@ export function TripStart({
         {/* Summary pill */}
         <div className="grid grid-cols-2 gap-2 mb-4">
           <div className="bg-paper-card border border-paper-line rounded p-2.5">
-            <div className="text-2xs text-ink-muted uppercase tracking-wide">Planned</div>
-            <div className="text-lg font-bold tabular">{totalPlanned.toFixed(0)}</div>
-            <div className="text-2xs text-ink-subtle">{items.length} SKU{items.length !== 1 ? "s" : ""}</div>
+            <div className="text-2xs text-ink-muted uppercase tracking-wide">Pre-orders</div>
+            <div className="text-lg font-bold tabular">{preOrderBills.length}</div>
+            <div className="text-2xs text-ink-subtle">{formatINR(preOrderTotal)}</div>
           </div>
           <div className="bg-paper-card border border-paper-line rounded p-2.5">
-            <div className="text-2xs text-ink-muted uppercase tracking-wide">To load</div>
-            <div className="text-lg font-bold tabular text-accent">{totalLoaded.toFixed(0)}</div>
-            <div className="text-2xs text-ink-subtle">edit below if different</div>
+            <div className="text-2xs text-ink-muted uppercase tracking-wide">Planned</div>
+            <div className="text-lg font-bold tabular text-accent">{totalPlanned.toFixed(0)}</div>
+            <div className="text-2xs text-ink-subtle">{items.length} SKU{items.length !== 1 ? "s" : ""}</div>
           </div>
         </div>
 
+        {/* Step tabs */}
+        <div className="grid grid-cols-2 gap-1 mb-3 bg-paper-subtle border border-paper-line rounded p-0.5">
+          <button
+            onClick={() => setStep("orders")}
+            className={`text-xs font-medium py-2 rounded transition-colors flex items-center justify-center gap-1.5 ${
+              step === "orders" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+            }`}
+          >
+            <ShoppingBag size={11}/> Orders ({preOrderBills.length})
+          </button>
+          <button
+            onClick={() => setStep("loading")}
+            className={`text-xs font-medium py-2 rounded transition-colors flex items-center justify-center gap-1.5 ${
+              step === "loading" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+            }`}
+          >
+            <Package size={11}/> Loading sheet
+          </button>
+        </div>
+
+        {/* STEP 1 — Orders view */}
+        {step === "orders" && (
+          <>
+            {preOrderBills.length === 0 ? (
+              <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mb-3">
+                <Receipt size={28} className="mx-auto text-ink-subtle mb-2"/>
+                <h2 className="font-semibold text-sm mb-1">No pre-orders yet</h2>
+                <p className="text-xs text-ink-muted mb-3">
+                  Office can attach approved orders to this trip from the desktop. You can also start with buffer-only stock.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-paper-card border border-paper-line rounded-md mb-3 divide-y divide-paper-line">
+                <div className="px-3 py-2 bg-paper-subtle/40 text-2xs uppercase tracking-wide text-ink-muted font-semibold flex items-center gap-1.5">
+                  <ShoppingBag size={12}/> {preOrderBills.length} pre-order{preOrderBills.length === 1 ? "" : "s"} attached
+                </div>
+                {preOrderBills.map(b => {
+                  const cust = Array.isArray(b.customer) ? b.customer[0] : b.customer;
+                  type BillItem = { qty: number; product: { id: string; name: string; unit: string } | { id: string; name: string; unit: string }[] | null };
+                  const billItems = (b.items ?? []) as BillItem[];
+                  return (
+                    <div key={b.id} className="px-3 py-2.5">
+                      <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                        <span className="font-semibold text-sm flex-1 min-w-0 truncate">{cust?.name ?? "—"}</span>
+                        <span className="font-mono text-sm tabular shrink-0">{formatINR(b.total_amount)}</span>
+                      </div>
+                      <div className="text-2xs text-ink-muted mb-1">
+                        {b.bill_number}
+                        {cust?.city && <> · {cust.city}</>}
+                        {b.payment_mode && <> · {b.payment_mode}</>}
+                      </div>
+                      {billItems.length > 0 && (
+                        <div className="text-2xs text-ink-subtle">
+                          {billItems.slice(0, 3).map((it, i) => {
+                            const p = Array.isArray(it.product) ? it.product[0] : it.product;
+                            return (
+                              <span key={i}>
+                                {i > 0 && " · "}
+                                <span className="tabular text-ink">{Number(it.qty).toFixed(0)}</span> {p?.name ?? "—"}
+                              </span>
+                            );
+                          })}
+                          {billItems.length > 3 && <> · +{billItems.length - 3} more</>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Next button */}
+            <Button
+              className="w-full"
+              size="lg"
+              variant="outline"
+              onClick={() => setStep("loading")}
+            >
+              Next: Loading sheet <ArrowRight size={14}/>
+            </Button>
+          </>
+        )}
+
+        {/* STEP 2 — Loading sheet */}
+        {step === "loading" && (
+          <>
         {/* Empty state */}
         {items.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
@@ -167,6 +269,13 @@ export function TripStart({
           </div>
         )}
 
+        {/* "To load" total — small reminder right above the start button */}
+        {items.length > 0 && (
+          <div className="text-center mb-2 text-xs text-ink-muted">
+            Total to load: <span className="font-semibold text-ink tabular">{totalLoaded.toFixed(0)}</span>
+          </div>
+        )}
+
         {/* Action */}
         <Button
           className="w-full"
@@ -179,6 +288,20 @@ export function TripStart({
         <p className="text-2xs text-center text-ink-subtle mt-2">
           Once started, you&apos;ll go straight to the billing screen.
         </p>
+
+        {/* Back to orders */}
+        {preOrderBills.length > 0 && (
+          <Button
+            className="w-full mt-3"
+            variant="ghost"
+            size="sm"
+            onClick={() => setStep("orders")}
+          >
+            <ArrowLeft size={11}/> Back to orders
+          </Button>
+        )}
+          </>
+        )}
       </div>
     </div>
   );

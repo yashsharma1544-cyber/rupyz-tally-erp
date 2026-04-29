@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Truck, MapPin, Printer, FileCheck2, AlertCircle, CheckCircle2,
-  Smartphone, Ban, ArrowLeft, IndianRupee, Package, Receipt, Plus, Trash2, Save,
+  Smartphone, Ban, ArrowLeft, ArrowRight, IndianRupee, Package, Receipt, Plus, Trash2, Save,
   Pencil, X, Eye, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,13 @@ export function TripDetail({
     trip.status === "planning" || trip.status === "loading" ||
     (canEditPlanInProgress && editPlanMode);
   const isInProgressEdit = trip.status === "in_progress" && editPlanMode;
+
+  // Wizard step for pre-start trips (planning/loading). Show Orders view first
+  // so admin can verify which pre-orders got attached before working on the
+  // loading sheet. Only kicks in when admin is NOT in plan-edit mode (which is
+  // an explicit "show me the loading sheet" intent).
+  const isPreStart = trip.status === "planning" || trip.status === "loading";
+  const [planStep, setPlanStep] = useState<"orders" | "loading">("orders");
 
   // View-bill drawer state (read-only)
   const [viewingBillId, setViewingBillId] = useState<string | null>(null);
@@ -197,6 +204,14 @@ export function TripDetail({
     }
     return m;
   }, [bills]);
+
+  // Pre-order bills for the planning-stage wizard view. Spot bills shouldn't
+  // exist before in_progress, but filter just in case data is dirty.
+  const preOrderBills = useMemo(
+    () => bills.filter(b => b.bill_type === "pre_order" && !b.is_cancelled),
+    [bills],
+  );
+  const preOrderTotal = preOrderBills.reduce((s, b) => s + Number(b.total_amount), 0);
 
   // ========== HANDLERS ==========
 
@@ -697,8 +712,113 @@ export function TripDetail({
         </div>
       )}
 
-      {/* Loading sheet (planning/loading status, or admin during in_progress) */}
-      {showLoadingSheet && (
+      {/* Pre-start wizard: tabs + Orders view (when planning/loading) */}
+      {isPreStart && !isInProgressEdit && (
+        <>
+          <div className="grid grid-cols-2 gap-1 mb-4 bg-paper-subtle border border-paper-line rounded p-0.5 max-w-md">
+            <button
+              onClick={() => setPlanStep("orders")}
+              className={`text-sm font-medium py-2 rounded transition-colors flex items-center justify-center gap-1.5 ${
+                planStep === "orders" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+              }`}
+            >
+              <Receipt size={12}/> Orders ({preOrderBills.length})
+            </button>
+            <button
+              onClick={() => setPlanStep("loading")}
+              className={`text-sm font-medium py-2 rounded transition-colors flex items-center justify-center gap-1.5 ${
+                planStep === "loading" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
+              }`}
+            >
+              <Package size={12}/> Loading sheet
+            </button>
+          </div>
+
+          {planStep === "orders" && (
+            <div className="bg-paper-card border border-paper-line rounded-md p-3 sm:p-4 mb-4">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+                  Pre-orders attached ({preOrderBills.length})
+                </h2>
+                {preOrderBills.length > 0 && (
+                  <span className="text-xs text-ink-muted tabular">
+                    Total: <span className="font-semibold text-ink">{formatINR(preOrderTotal)}</span>
+                  </span>
+                )}
+              </div>
+              {preOrderBills.length === 0 ? (
+                <div className="text-center py-8">
+                  <Receipt size={28} className="mx-auto text-ink-subtle mb-2"/>
+                  <p className="text-sm font-medium mb-1">No pre-orders attached yet</p>
+                  <p className="text-xs text-ink-muted">
+                    Go to <Link href="/orders" className="text-accent hover:underline">Orders</Link> and bulk-attach approved orders, or skip straight to the loading sheet for buffer-only loads.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-3 sm:-mx-4">
+                  <table className="w-full text-sm min-w-[640px]">
+                    <thead className="text-2xs uppercase tracking-wide text-ink-muted border-b border-paper-line">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left">Bill #</th>
+                        <th className="px-3 py-1.5 text-left">Customer</th>
+                        <th className="px-3 py-1.5 text-left">Items</th>
+                        <th className="px-3 py-1.5 text-left">Pay</th>
+                        <th className="px-3 py-1.5 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-paper-line">
+                      {preOrderBills.map(b => {
+                        const cust = Array.isArray(b.customer) ? b.customer[0] : b.customer;
+                        type BillItem = { qty: number; product: { id: string; name: string; unit: string } | { id: string; name: string; unit: string }[] | null };
+                        const billItems = (b.items ?? []) as BillItem[];
+                        return (
+                          <tr
+                            key={b.id}
+                            onClick={() => setViewingBillId(b.id)}
+                            className="hover:bg-paper-subtle/40 cursor-pointer"
+                          >
+                            <td className="px-3 py-2 font-mono text-2xs text-ink-muted">{b.bill_number}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{cust?.name ?? "—"}</div>
+                              {cust?.city && <div className="text-2xs text-ink-subtle">{cust.city}</div>}
+                            </td>
+                            <td className="px-3 py-2 text-2xs text-ink-muted">
+                              {billItems.slice(0, 3).map((it, i) => {
+                                const p = Array.isArray(it.product) ? it.product[0] : it.product;
+                                return (
+                                  <span key={i}>
+                                    {i > 0 && ", "}
+                                    <span className="tabular text-ink">{Number(it.qty).toFixed(0)}</span> {p?.name ?? "—"}
+                                  </span>
+                                );
+                              })}
+                              {billItems.length > 3 && <> · +{billItems.length - 3}</>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge variant={b.payment_mode === "cash" ? "ok" : "neutral"}>
+                                {b.payment_mode}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono tabular">{formatINR(b.total_amount)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex items-center justify-end mt-4 pt-3 border-t border-paper-line">
+                <Button onClick={() => setPlanStep("loading")} size="sm">
+                  Next: Loading sheet <ArrowRight size={11}/>
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Loading sheet (planning/loading status when wizard step=loading, or admin during in_progress) */}
+      {showLoadingSheet && (!isPreStart || planStep === "loading" || isInProgressEdit) && (
         <div className="bg-paper-card border border-paper-line rounded-md p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
@@ -879,7 +999,12 @@ export function TripDetail({
           </table>
 
           {canManage && (
-            <div className="mt-3 flex gap-2 justify-end">
+            <div className="mt-3 flex gap-2 justify-end flex-wrap">
+              {isPreStart && preOrderBills.length > 0 && (
+                <Button variant="ghost" onClick={() => setPlanStep("orders")}>
+                  <ArrowLeft size={11}/> Back to orders
+                </Button>
+              )}
               <Button variant="outline" onClick={handleSavePlan} disabled={pending}>
                 <Save size={11}/> {pending ? "Saving…" : "Save Plan"}
               </Button>

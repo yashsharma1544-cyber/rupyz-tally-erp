@@ -1,7 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TripStart } from "./trip-start";
-import type { AppUser, VanTrip, TripLoadItem } from "@/lib/types";
+import type { AppUser, VanTrip, TripLoadItem, TripBill } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +38,21 @@ export default async function VanTripStartPage({ params }: { params: Promise<{ t
     .eq("trip_id", tripId)
     .order("created_at");
 
+  // Pre-orders attached to this trip (planning/loading state). The orders view
+  // shows these so admin/lead can verify which customers got bundled.
+  const { data: bills } = await supabase
+    .from("trip_bills")
+    .select("*, customer:customers(id,name,city), items:trip_bill_items(qty, product:products(id,name,unit))")
+    .eq("trip_id", tripId)
+    .eq("is_cancelled", false)
+    .order("created_at");
+
   return (
     <TripStart
       me={meTyped}
       trip={trip as unknown as VanTrip}
       initialLoadItems={(loadItems ?? []) as unknown as TripLoadItem[]}
+      initialBills={(bills ?? []) as unknown as TripBill[]}
     />
   );
 }
