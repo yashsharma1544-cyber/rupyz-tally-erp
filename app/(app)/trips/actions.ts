@@ -196,9 +196,11 @@ export async function attachOrderToTrip(input: AttachOrderToTripInput) {
     const { data: trip } = await admin.from("van_trips")
       .select("id, status, trip_number, beat_id").eq("id", input.tripId).maybeSingle();
     if (!trip) return { error: "Trip not found" };
-    if (trip.status !== "in_progress") {
-      return { error: `Trip is "${trip.status}" — only on-route trips accept new orders. For planning-stage trips, edit the trip plan instead.` };
+    const ATTACHABLE_STATUSES = ["planning", "loading", "in_progress"];
+    if (!ATTACHABLE_STATUSES.includes(trip.status)) {
+      return { error: `Trip is "${trip.status}" — orders can only be attached to planning, loading, or on-route trips` };
     }
+    const isPreStart = trip.status === "planning" || trip.status === "loading";
 
     // Validate order
     const { data: order } = await admin.from("orders")
@@ -268,12 +270,16 @@ export async function attachOrderToTrip(input: AttachOrderToTripInput) {
     }
 
     const warnings: StockWarning[] = [];
-    for (const [pid, { qty, productName }] of itemsByProduct.entries()) {
-      const loaded = loadedByProduct.get(pid)?.loaded ?? 0;
-      const sold = soldByProduct.get(pid) ?? 0;
-      const remaining = loaded - sold;
-      if (qty > remaining + 0.0001) {
-        warnings.push({ productName, qtyNeeded: qty, qtyRemaining: remaining });
+    // Stock warnings only make sense once the truck is loaded. Pre-start trips
+    // have qty_loaded=0 by design, so every attached order would falsely warn.
+    if (!isPreStart) {
+      for (const [pid, { qty, productName }] of itemsByProduct.entries()) {
+        const loaded = loadedByProduct.get(pid)?.loaded ?? 0;
+        const sold = soldByProduct.get(pid) ?? 0;
+        const remaining = loaded - sold;
+        if (qty > remaining + 0.0001) {
+          warnings.push({ productName, qtyNeeded: qty, qtyRemaining: remaining });
+        }
       }
     }
 
@@ -316,7 +322,9 @@ export async function attachOrderToTrip(input: AttachOrderToTripInput) {
       payment_mode: paymentMode,
       subtotal: Number(order.amount),
       total_amount: Number(order.total_amount),
-      notes: `Added mid-trip by ${actor.fullName}`,
+      notes: isPreStart
+        ? `Added during ${trip.status} by ${actor.fullName}`
+        : `Added mid-trip by ${actor.fullName}`,
       created_by: actor.userId,
     }).select("id").single();
     if (bErr || !bill) return { error: bErr?.message ?? "Failed to create trip bill" };
@@ -387,7 +395,7 @@ export async function listActiveTripsForOrder(orderId: string) {
 
     const { data: trips } = await admin.from("van_trips")
       .select("id, trip_number, trip_date, beat_id, status, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
-      .eq("status", "in_progress")
+      .in("status", ["planning", "loading", "in_progress"])
       .order("trip_date", { ascending: false });
 
     // Flag each trip with whether its beat matches the order's customer beat —
@@ -417,7 +425,7 @@ export async function listAllActiveTrips() {
 
     const { data: trips } = await admin.from("van_trips")
       .select("id, trip_number, trip_date, beat_id, status, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)")
-      .eq("status", "in_progress")
+      .in("status", ["planning", "loading", "in_progress"])
       .order("trip_date", { ascending: false });
 
     return { ok: true, trips: (trips ?? []) };
@@ -448,14 +456,16 @@ export async function bulkAttachOrdersToTrip(orderIds: string[], tripId: string)
 
     await requireRoles(["admin", "van_lead"]);
 
-    // Quick sanity: the trip must exist and be in_progress (attachOrderToTrip checks
-    // each call, but failing fast on a bad trip avoids 500 nuisance results)
+    // Quick sanity: the trip must exist and be attachable (planning, loading,
+    // or in_progress). attachOrderToTrip checks each call individually, but
+    // failing fast on a bad trip avoids 500 nuisance results.
     const admin = createAdminClient();
     const { data: trip } = await admin.from("van_trips")
       .select("id, status, trip_number").eq("id", tripId).maybeSingle();
     if (!trip) return { error: "Trip not found" };
-    if (trip.status !== "in_progress") {
-      return { error: `Trip is "${trip.status}" — only on-route trips accept new orders` };
+    const ATTACHABLE = ["planning", "loading", "in_progress"];
+    if (!ATTACHABLE.includes(trip.status)) {
+      return { error: `Trip is "${trip.status}" — orders can only be attached to planning, loading, or on-route trips` };
     }
 
     const results: BulkAttachResult[] = [];

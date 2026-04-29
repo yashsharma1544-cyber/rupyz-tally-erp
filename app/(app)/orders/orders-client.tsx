@@ -314,7 +314,8 @@ export function OrdersClient({
     if (!pickedTripId) { toast.error("Pick a trip"); return; }
     const trip = activeTrips.find(t => t.id === pickedTripId);
     if (!trip) { toast.error("Trip not found"); return; }
-    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name})? Orders may be from other beats — admin override is enabled.`)) return;
+    const statusLabel = trip.status === "in_progress" ? "on-route" : trip.status;
+    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name}, ${statusLabel})? Orders may be from any beat — admin override is enabled.`)) return;
     startBulkTransition(async () => {
       const res = await bulkAttachOrdersToTrip(ids, pickedTripId);
       if (res.error) { toast.error(res.error); return; }
@@ -747,7 +748,12 @@ export function OrdersClient({
                         onChange={() => setPickedTripId(t.id)}
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="font-mono text-2xs text-ink-muted">{t.trip_number}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-2xs text-ink-muted">{t.trip_number}</span>
+                          <Badge variant={t.status === "in_progress" ? "accent" : "neutral"}>
+                            {t.status === "in_progress" ? "on route" : t.status}
+                          </Badge>
+                        </div>
                         <div className="text-sm font-medium">{t.beat?.name ?? "—"}</div>
                         <div className="text-2xs text-ink-muted">
                           {new Date(t.trip_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
@@ -758,7 +764,7 @@ export function OrdersClient({
                   ))}
                 </div>
                 <p className="text-2xs text-ink-subtle mb-3">
-                  Orders from any beat can be attached. Make sure the lead can reach the cross-beat customers.
+                  Orders can be attached to planning, loading, or on-route trips. From any beat. Stock warnings only fire for on-route trips.
                 </p>
               </>
             )}

@@ -421,9 +421,10 @@ function OrderDrawerInner({
                     {activeTrips.map(t => {
                       const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
                       const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
+                      const statusLabel = t.status === "in_progress" ? "on route" : t.status;
                       return (
                         <SelectItem key={t.id} value={t.id}>
-                          {t.trip_number} · {beat?.name ?? "—"} · {lead?.full_name ?? "—"}
+                          {t.trip_number} · {beat?.name ?? "—"} · {statusLabel} · {lead?.full_name ?? "—"}
                           {t.same_beat === false ? "  (other beat)" : ""}
                         </SelectItem>
                       );
@@ -431,7 +432,7 @@ function OrderDrawerInner({
                   </SelectContent>
                 </Select>
                 <div className="text-2xs text-ink-subtle">
-                  Trips on the customer&apos;s own beat appear first. Cross-beat trips are marked.
+                  Same-beat on-route trips appear first. Planning/loading trips also accept attachments.
                 </div>
               </>
             )}
