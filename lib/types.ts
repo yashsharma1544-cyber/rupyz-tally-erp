@@ -211,6 +211,37 @@ export interface RupyzSyncLog {
   error_message: string | null;
 }
 
+export interface TallySyncLog {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "running" | "success" | "failed";
+  trigger: string | null;
+  outstanding_synced: number;
+  outstanding_matched: number;
+  outstanding_unmatched: number;
+  receipts_synced: number;
+  stock_synced: number;
+  error_message: string | null;
+}
+
+export interface TallyOutstanding {
+  id: string;
+  ledger_name: string;
+  ledger_guid: string | null;
+  ledger_parent: string | null;
+  ledger_state: string | null;
+  ledger_pincode: string | null;
+  ledger_mobile: string | null;
+  ledger_gstin: string | null;
+  amount: number;
+  raw_balance: number | null;
+  customer_id: string | null;
+  match_method: "name_exact" | "name_fuzzy" | "mobile" | "gstin" | "unmatched" | null;
+  match_score: number | null;
+  synced_at: string;
+}
+
 export type DispatchStatus = "pending" | "shipped" | "delivered" | "cancelled";
 
 export interface Dispatch {

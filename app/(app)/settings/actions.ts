@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import crypto from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function triggerSync() {
@@ -93,4 +94,46 @@ export async function updateRupyzToken(rawToken: string) {
   if (updErr) return { error: `Failed to save: ${updErr.message}` };
 
   return { ok: true };
+}
+
+// ============================================================================
+// TALLY AGENT SECRET (Phase 5 chunk 1)
+//
+// The local Tally agent authenticates to /api/tally/ingest using a Bearer
+// token. The token lives in app_settings(key='tally_agent_secret'). Admins
+// can view and regenerate it from the Tally panel.
+// ============================================================================
+
+
+export async function getTallyAgentSecret() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
+  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+
+  const admin = createAdminClient();
+  const { data } = await admin.from("app_settings").select("value, updated_at").eq("key", "tally_agent_secret").maybeSingle();
+  return { ok: true, secret: data?.value ?? null, updated_at: data?.updated_at ?? null };
+}
+
+export async function regenerateTallyAgentSecret() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+  const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
+  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+
+  // 32 bytes hex = 64 chars; URL-safe to paste into config.ini
+  const newSecret = crypto.randomBytes(32).toString("hex");
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("app_settings").upsert({
+    key: "tally_agent_secret",
+    value: newSecret,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "key" });
+  if (error) return { error: error.message };
+
+  return { ok: true, secret: newSecret };
 }

@@ -4,7 +4,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { SyncPanel } from "./sync-panel";
 import { OutstandingPanel } from "./outstanding-panel";
 import { TokenPanel } from "./token-panel";
-import type { RupyzSyncLog } from "@/lib/types";
+import { TallyPanel } from "./tally-panel";
+import type { RupyzSyncLog, TallySyncLog } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +16,17 @@ export default async function SettingsPage() {
   const { data: me } = await supabase.from("app_users").select("role").eq("id", user.id).single();
   if (!me || me.role !== "admin") redirect("/dashboard");
 
-  const [{ data: session }, { data: logs }, { data: outAgg }] = await Promise.all([
+  const [{ data: session }, { data: logs }, { data: outAgg }, { data: tallyLogs }] = await Promise.all([
     supabase.from("rupyz_session").select("org_id, username, expires_at, last_refreshed_at").maybeSingle(),
     supabase.from("rupyz_sync_log")
       .select("*")
       .order("started_at", { ascending: false })
       .limit(15),
     supabase.from("customer_outstanding").select("amount"),
+    supabase.from("tally_sync_log")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(15),
   ]);
 
   const totalRows = outAgg?.length ?? 0;
@@ -42,7 +47,8 @@ export default async function SettingsPage() {
 
         <OutstandingPanel totalRows={totalRows} totalAmount={totalAmount} />
 
-        <Card title="Tally bridge"  detail="Coming in Phase 5 — local agent registration, manual sync trigger." />
+        <TallyPanel logs={(tallyLogs ?? []) as TallySyncLog[]} />
+
         <Card title="WATi WhatsApp" detail="Coming in Phase 6 — API key, template IDs, sender number." />
       </div>
     </>
