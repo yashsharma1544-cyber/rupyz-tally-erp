@@ -367,7 +367,10 @@ export interface TripBill {
   created_by: string | null;
   created_at: string;
   // Joined
-  customer?: Pick<Customer, "id" | "name" | "mobile" | "city"> | null;
+  customer?: (Pick<Customer, "id" | "name" | "mobile" | "city"> & {
+    beat_id?: string | null;
+    beat?: Pick<Beat, "id" | "name"> | Pick<Beat, "id" | "name">[] | null;
+  }) | null;
   source_order?: Pick<Order, "id" | "rupyz_order_id" | "app_status"> | null;
   items?: TripBillItem[];
 }

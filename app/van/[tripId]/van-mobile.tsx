@@ -240,7 +240,7 @@ export function VanMobileBilling({
               tab === "preorder" ? "bg-paper-card shadow-sm text-ink" : "text-ink-muted"
             }`}
           >
-            Pre-orders
+            Orders
             <span className={`ml-1.5 text-2xs tabular ${tab === "preorder" ? "text-warn" : "text-ink-subtle"}`}>
               {preOrderPendingCount > 0 ? `${preOrderPendingCount}/${preOrderTotalCount}` : `${preOrderTotalCount}`}
             </span>
@@ -264,7 +264,7 @@ export function VanMobileBilling({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={tab === "preorder" ? "Search pre-order customer…" : "Search customer or mobile…"}
+            placeholder={tab === "preorder" ? "Search order customer…" : "Search customer or mobile…"}
             className="pl-8"
           />
         </div>
@@ -347,7 +347,7 @@ export function VanMobileBilling({
             <div className="text-center text-sm text-ink-muted py-8">
               {search ? `No customers match "${search}"` :
                 tab === "preorder"
-                  ? (preOrderTotalCount === 0 ? "No pre-orders for this trip." : "All pre-orders billed ✓")
+                  ? (preOrderTotalCount === 0 ? "No orders for this trip." : "All orders billed ✓")
                   : crossBeatMode
                     ? "No walk-in customers match. Try a different search."
                     : "No walk-in customers in this beat."

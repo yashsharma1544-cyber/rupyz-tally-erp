@@ -115,7 +115,7 @@ export function TripDetail({
     const [{ data: t }, { data: li }, { data: bl }, { data: kp }] = await Promise.all([
       supabase.from("van_trips").select("*, beat:beats(id,name), lead:app_users!van_trips_lead_id_fkey(id,full_name)").eq("id", tripId).single(),
       supabase.from("trip_load_items").select("*, product:products(id,name,unit)").eq("trip_id", tripId).order("created_at"),
-      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city), source_order:orders!trip_bills_source_order_id_fkey(id,rupyz_order_id,app_status), items:trip_bill_items(*, product:products(id,name,unit,mrp))").eq("trip_id", tripId).order("created_at"),
+      supabase.from("trip_bills").select("*, customer:customers(id,name,mobile,city,beat_id,beat:beats(id,name)), source_order:orders!trip_bills_source_order_id_fkey(id,rupyz_order_id,app_status), items:trip_bill_items(*, product:products(id,name,unit,mrp))").eq("trip_id", tripId).order("created_at"),
       supabase.rpc("van_trip_kpis", { p_trip_id: tripId }),
     ]);
     if (t) setTrip(t as unknown as VanTrip);
@@ -1079,7 +1079,22 @@ export function TripDetail({
                       className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : ""}`}
                     >
                       <td className="px-2 py-1.5 font-mono text-2xs">{b.bill_number}{b.paper_bill_no && <span className="text-ink-subtle"> · {b.paper_bill_no}</span>}</td>
-                      <td className="px-2 py-1.5">{b.customer?.name ?? "—"}</td>
+                      <td className="px-2 py-1.5">
+                        {b.customer?.name ?? "—"}
+                        {(() => {
+                          const cust = b.customer;
+                          if (!cust?.beat_id || cust.beat_id === trip.beat_id) return null;
+                          const beat = Array.isArray(cust.beat) ? cust.beat[0] : cust.beat;
+                          return (
+                            <span
+                              className="ml-1.5 text-2xs text-warn cursor-help"
+                              title={`Cross-beat: this customer is on ${beat?.name ?? "another beat"}, not the trip's beat`}
+                            >
+                              ⚠ {beat?.name ?? "other beat"}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-2 py-1.5"><Badge variant={b.bill_type === "pre_order" ? "neutral" : "accent"}>{b.bill_type === "pre_order" ? "Pre-order" : "Spot"}</Badge></td>
                       <td className="px-2 py-1.5 text-right tabular">{formatINR(b.total_amount)}</td>
                       <td className="px-2 py-1.5 text-right tabular text-ink-muted">{formatINR(b.outstanding_collected)}</td>
