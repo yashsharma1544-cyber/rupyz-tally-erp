@@ -97,6 +97,7 @@ export interface AppUser {
 export type OrderAppStatus =
   | "received"
   | "approved"
+  | "loading"
   | "on_van_trip"
   | "partially_dispatched"
   | "dispatched"

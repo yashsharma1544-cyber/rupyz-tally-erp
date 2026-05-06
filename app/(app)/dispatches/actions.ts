@@ -83,7 +83,16 @@ async function recomputeOrderStatus(
       const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
       return status === "shipped" || status === "delivered";
     });
-    newStatus = anyShipped ? "partially_dispatched" : "approved";
+    if (anyShipped) {
+      newStatus = "partially_dispatched";
+    } else {
+      // Nothing shipped, but is anything currently pending (= being loaded)?
+      const anyPending = (dispatchItems ?? []).some((di: { dispatch: { status: string } | { status: string }[] | null }) => {
+        const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
+        return status === "pending";
+      });
+      newStatus = anyPending ? "loading" : "approved";
+    }
   }
 
   await admin.from("orders").update({ app_status: newStatus }).eq("id", orderId);
@@ -100,9 +109,6 @@ export async function createDispatch(
     driverName?: string;
     driverPhone?: string;
     notes?: string;
-    /** Mark dispatch as shipped immediately (skip the desktop 'ship' step).
-     *  Used by the dispatch PWA where the godown act of dispatching IS shipping. */
-    shipImmediately?: boolean;
   } = {},
 ) {
   try {
@@ -167,15 +173,12 @@ export async function createDispatch(
     const { data: numRow } = await admin.rpc("next_dispatch_number");
     const dispatchNumber = numRow as unknown as string;
 
-    // Insert dispatch — PWA dispatchers want shipImmediately (the act of
-    // dispatching IS the act of shipping in the godown). Desktop callers leave
-    // it false so they can ship/cancel later.
-    const dispatchStatus = meta.shipImmediately ? "shipped" : "pending";
+    // Insert dispatch — always 'pending' (= loading on truck). The dispatcher
+    // will tap "Mark dispatched (truck left)" later to advance to 'shipped'.
     const { data: dispatch, error: dErr } = await admin.from("dispatches").insert({
       order_id: orderId,
       dispatch_number: dispatchNumber,
-      status: dispatchStatus,
-      shipped_at: meta.shipImmediately ? new Date().toISOString() : null,
+      status: "pending",
       vehicle_number: meta.vehicleNumber || null,
       driver_name: meta.driverName || null,
       driver_phone: meta.driverPhone || null,
@@ -196,14 +199,11 @@ export async function createDispatch(
       dispatch_number: dispatch.dispatch_number,
       total_qty: totalQty,
       total_amount: totalAmount,
-      ship_immediately: meta.shipImmediately ?? false,
     });
 
-    // If shipped immediately, advance the order's app_status accordingly so
-    // it disappears from the dispatch list on next refresh.
-    if (meta.shipImmediately) {
-      await recomputeOrderStatus(admin, orderId);
-    }
+    // Recompute the order's app_status — should flip to 'loading' if this is
+    // the first pending dispatch on it.
+    await recomputeOrderStatus(admin, orderId);
 
     revalidatePath("/orders");
     revalidatePath("/dispatches");
@@ -420,7 +420,6 @@ export async function bulkDispatchByBeat(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         notes: input.notes?.trim() || undefined,
-        shipImmediately: true,
       });
 
       if (res.error) {
@@ -515,7 +514,6 @@ export async function dispatchSelectedOrders(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         notes: input.notes?.trim() || undefined,
-        shipImmediately: true,
       });
 
       if (res.error) {
@@ -538,6 +536,67 @@ export async function dispatchSelectedOrders(input: {
       failed,
       total: results.length,
       results,
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// SHIP TRUCK (mark all pending dispatches with a given vehicle+driver as shipped)
+//
+// Used by the dispatch PWA when the dispatcher confirms "truck has left."
+// Advances every pending dispatch matching the (vehicle_number, driver_name)
+// pair to 'shipped' and recomputes each affected order's app_status.
+// =============================================================================
+
+export async function shipTruck(input: {
+  vehicleNumber: string;
+  driverName: string;
+}) {
+  try {
+    const actor = await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+
+    if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
+
+    // Pull the matching pending dispatches
+    const { data: dispatches, error: dErr } = await admin.from("dispatches")
+      .select("id, order_id")
+      .eq("status", "pending")
+      .eq("vehicle_number", input.vehicleNumber)
+      .eq("driver_name", input.driverName);
+    if (dErr) return { error: dErr.message };
+    if (!dispatches || dispatches.length === 0) return { error: "No pending dispatches found for this truck" };
+
+    const now = new Date().toISOString();
+    const dispatchIds = dispatches.map(d => d.id);
+    const orderIds = Array.from(new Set(dispatches.map(d => d.order_id)));
+
+    // Flip them all to 'shipped'
+    const { error: uErr } = await admin.from("dispatches")
+      .update({ status: "shipped", shipped_at: now, shipped_by: actor.userId })
+      .in("id", dispatchIds);
+    if (uErr) return { error: uErr.message };
+
+    // Log + recompute each affected order's status
+    for (const orderId of orderIds) {
+      await logEvent(admin, orderId, "truck_dispatched", actor, undefined, {
+        vehicle_number: input.vehicleNumber,
+        driver_name: input.driverName,
+        dispatch_count: dispatches.filter(d => d.order_id === orderId).length,
+      });
+      await recomputeOrderStatus(admin, orderId);
+    }
+
+    revalidatePath("/dispatch");
+    revalidatePath("/orders");
+    revalidatePath("/dispatches");
+
+    return {
+      ok: true,
+      dispatchCount: dispatches.length,
+      orderCount: orderIds.length,
     };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };

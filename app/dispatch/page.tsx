@@ -11,6 +11,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Truck, ChevronRight, MapPin, Package, IndianRupee } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { TrucksLoadingPanel } from "./trucks-loading-panel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,6 +33,18 @@ interface BeatRow {
   total_amount: number;
 }
 
+interface TruckRow {
+  vehicle_number: string;
+  driver_name: string;
+  driver_phone: string;
+  dispatch_count: number;
+  order_count: number;
+  total_qty: number;
+  total_amount: number;
+  oldest_loaded_at: string;
+  dispatch_ids: string[];
+}
+
 export default async function DispatchHomePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -51,8 +64,12 @@ export default async function DispatchHomePage() {
     );
   }
 
-  const { data: kpis } = await supabase.rpc("dispatch_kpis_by_beat");
+  const [{ data: kpis }, { data: trucks }] = await Promise.all([
+    supabase.rpc("dispatch_kpis_by_beat"),
+    supabase.rpc("trucks_loading"),
+  ]);
   const beatRows = (kpis ?? []) as BeatRow[];
+  const truckRows = (trucks ?? []) as TruckRow[];
 
   const totalOrders = beatRows.reduce((s, b) => s + Number(b.order_count), 0);
   const totalKg     = beatRows.reduce((s, b) => s + Number(b.total_kg), 0);
@@ -93,6 +110,29 @@ export default async function DispatchHomePage() {
           >
             <Truck size={14}/> Load a truck
           </Link>
+        )}
+
+        {/* Trucks currently being loaded — needs "Mark dispatched" action */}
+        {truckRows.length > 0 && (
+          <TrucksLoadingPanel
+            trucks={truckRows.map(t => ({
+              vehicleNumber: t.vehicle_number,
+              driverName: t.driver_name,
+              driverPhone: t.driver_phone,
+              dispatchCount: Number(t.dispatch_count),
+              orderCount: Number(t.order_count),
+              totalQty: Number(t.total_qty),
+              totalAmount: Number(t.total_amount),
+              oldestLoadedAt: t.oldest_loaded_at,
+            }))}
+          />
+        )}
+
+        {/* Section heading for beats */}
+        {beatRows.length > 0 && (
+          <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2 mt-4">
+            Approved &mdash; ready to load
+          </h2>
         )}
 
         {/* Beat tiles */}

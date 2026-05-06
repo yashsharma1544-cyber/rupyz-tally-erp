@@ -112,8 +112,7 @@ export function OrderDispatchClient({
           driverName: driver.trim(),
           driverPhone: driverPhone.trim() || undefined,
           notes: notes.trim() || undefined,
-          shipImmediately: true,
-        },
+          },
       );
       if (res.error) {
         toast.error(res.error);

@@ -43,7 +43,7 @@ const TABS: TabDef[] = [
   { key: "approval",  label: "Waiting for approval",   statuses: ["received"],
     emptyHint: "Nothing waiting for your approval. Nice work.",
     icon: AlertCircle,   accent: "warn" },
-  { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
+  { key: "dispatch",  label: "Approved",  statuses: ["approved", "loading", "partially_dispatched"],
     emptyHint: "Nothing to send out right now.",
     icon: PackageCheck,  accent: "accent" },
   { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
@@ -89,7 +89,7 @@ function defaultTabForRole(role: string): TabKey {
 
 // All statuses, in workflow order — used when tab='all'
 const ALL_STATUSES: OrderAppStatus[] = [
-  "received", "approved", "on_van_trip",
+  "received", "approved", "loading", "on_van_trip",
   "partially_dispatched", "dispatched", "delivered",
   "rejected", "cancelled", "closed",
 ];
@@ -109,6 +109,7 @@ function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
     case "approved":              return "Approved";
+    case "loading":               return "Loading";
     case "on_van_trip":           return "On VAN";
     case "partially_dispatched":  return "Partly sent";
     case "dispatched":            return "Sent";
@@ -122,6 +123,7 @@ function statusLabel(s: OrderAppStatus): string {
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
     case "received": return "warn";
+    case "loading":  return "warn";
     case "approved":
     case "on_van_trip":
     case "partially_dispatched":
