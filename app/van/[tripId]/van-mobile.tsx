@@ -257,7 +257,13 @@ export function VanMobileBilling({
   if (activeView === "preorder" && activeBillId) {
     const bill = bills.find(b => b.id === activeBillId);
     if (!bill) { setActiveView("list"); return null; }
-    return <PreOrderBillView bill={bill} products={products} outstanding={outstanding.get(bill.customer_id)} onBack={() => { setActiveView("list"); reload(); }} />;
+    return <PreOrderBillView
+      bill={bill}
+      products={products}
+      outstanding={outstanding.get(bill.customer_id)}
+      onBack={() => { setActiveView("list"); reload(); }}
+      onUndeliver={() => setUndeliverFor({ billId: bill.id, customerName: bill.customer?.name ?? "this customer" })}
+    />;
   }
   if (activeView === "spot" && activeCustomerId) {
     const customer = customers.find(c => c.id === activeCustomerId);
@@ -437,18 +443,7 @@ export function VanMobileBilling({
                   </div>
                 </button>
 
-                {/* Action footer: Can't deliver (when pending) OR Undo (when undelivered) */}
-                {preOrder && !billed && !isUndelivered && (
-                  <div className="mt-2 pt-2 border-t border-paper-line/70 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setUndeliverFor({ billId: preOrder.id, customerName: c.name })}
-                      className="text-2xs text-ink-muted hover:text-danger inline-flex items-center gap-1 px-1 py-0.5"
-                    >
-                      <X size={10}/> Can&apos;t deliver
-                    </button>
-                  </div>
-                )}
+                {/* Action footer: Undo (only shown for already-undelivered bills) */}
                 {isUndelivered && undelivered && (
                   <div className="mt-2 pt-2 border-t border-paper-line/70 flex justify-end">
                     <button
@@ -461,10 +456,10 @@ export function VanMobileBilling({
                           else { toast.success("Reverted — you can deliver this order"); reload(); }
                         });
                       }}
-                      className="text-2xs text-ink-muted hover:text-accent inline-flex items-center gap-1 px-1 py-0.5"
+                      className="text-xs text-accent hover:bg-accent-soft inline-flex items-center gap-1 px-2 py-1 rounded border border-accent/30"
                       disabled={undeliverPending}
                     >
-                      <RotateCcw size={10}/> Undo
+                      <RotateCcw size={11}/> Undo
                     </button>
                   </div>
                 )}
@@ -620,7 +615,14 @@ export function VanMobileBilling({
           billId={undeliverFor.billId}
           customerName={undeliverFor.customerName}
           onClose={() => setUndeliverFor(null)}
-          onDone={() => { setUndeliverFor(null); reload(); }}
+          onDone={() => {
+            setUndeliverFor(null);
+            // If we were inside a bill detail view, return to the list since
+            // the bill is now undelivered and re-confirming would fail.
+            setActiveView("list");
+            setActiveBillId(null);
+            reload();
+          }}
         />
       )}
     </div>
@@ -732,7 +734,7 @@ function UndeliverSheet({
 // ===========================================================================
 // PRE-ORDER BILL VIEW (deliver an existing pre-order)
 // ===========================================================================
-function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripBill; products: ProductLite[]; outstanding?: CustomerOutstanding; onBack: () => void }) {
+function PreOrderBillView({ bill, products, outstanding, onBack, onUndeliver }: { bill: TripBill; products: ProductLite[]; outstanding?: CustomerOutstanding; onBack: () => void; onUndeliver: () => void }) {
   const [paymentMode, setPaymentMode] = useState<"cash" | "credit">(bill.payment_mode);
   const [outCollected, setOutCollected] = useState<string>("");
   const [paperBillNo, setPaperBillNo] = useState<string>(bill.paper_bill_no ?? "");
@@ -831,6 +833,16 @@ function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripB
 
         <Button className="w-full" size="lg" onClick={handleConfirm} disabled={pending}>
           {pending ? "Saving…" : "Confirm Bill & Delivery"}
+        </Button>
+
+        <Button
+          variant="outline"
+          className="w-full mt-2 border-danger/40 text-danger hover:bg-danger-soft"
+          size="lg"
+          onClick={onUndeliver}
+          disabled={pending}
+        >
+          <X size={14}/> Can&apos;t deliver
         </Button>
       </div>
     </div>
