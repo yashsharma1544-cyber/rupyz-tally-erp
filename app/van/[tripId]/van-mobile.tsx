@@ -66,7 +66,6 @@ export function VanMobileBilling({
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
   const [showEndTrip, setShowEndTrip] = useState(false);
   const [endingTrip, startEndTrip] = useTransition();
-  const [undeliverFor, setUndeliverFor] = useState<{ billId: string; customerName: string } | null>(null);
   const [undeliverPending, startUndeliverTransition] = useTransition();
   const router = useRouter();
 
@@ -262,7 +261,6 @@ export function VanMobileBilling({
       products={products}
       outstanding={outstanding.get(bill.customer_id)}
       onBack={() => { setActiveView("list"); reload(); }}
-      onUndeliver={() => setUndeliverFor({ billId: bill.id, customerName: bill.customer?.name ?? "this customer" })}
     />;
   }
   if (activeView === "spot" && activeCustomerId) {
@@ -609,124 +607,6 @@ export function VanMobileBilling({
           </div>
         </div>
       )}
-      {/* Undeliver sheet — pick a reason, write a note if Other */}
-      {undeliverFor && (
-        <UndeliverSheet
-          billId={undeliverFor.billId}
-          customerName={undeliverFor.customerName}
-          onClose={() => setUndeliverFor(null)}
-          onDone={() => {
-            setUndeliverFor(null);
-            // If we were inside a bill detail view, return to the list since
-            // the bill is now undelivered and re-confirming would fail.
-            setActiveView("list");
-            setActiveBillId(null);
-            reload();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// UNDELIVER SHEET — bottom sheet to pick a reason and submit
-// =============================================================================
-function UndeliverSheet({
-  billId, customerName, onClose, onDone,
-}: {
-  billId: string;
-  customerName: string;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [reason, setReason] = useState<string>("");
-  const [note, setNote] = useState<string>("");
-  const [pending, startTransition] = useTransition();
-
-  const requiresNote = reason === "other";
-  const canSubmit = !!reason && (!requiresNote || note.trim().length > 0);
-
-  function submit() {
-    if (!canSubmit) return;
-    startTransition(async () => {
-      const res = await markBillUndelivered({
-        billId,
-        reason,
-        note: note.trim() || undefined,
-      });
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(`${customerName} marked undelivered`);
-      onDone();
-    });
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
-      onClick={() => !pending && onClose()}
-    >
-      <div
-        className="bg-paper-card border border-paper-line rounded-t-lg sm:rounded-lg shadow-xl w-full sm:max-w-sm p-4 max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <X size={16} className="text-danger"/>
-          <h2 className="font-semibold">Can&apos;t deliver?</h2>
-        </div>
-        <p className="text-xs text-ink-muted mb-3">
-          Marking <strong>{customerName}</strong> as undelivered. Office will re-attach to next trip.
-        </p>
-
-        <Label className="text-2xs uppercase tracking-wide text-ink-muted">Why?</Label>
-        <div className="space-y-1.5 mt-1.5 mb-3">
-          {REASON_OPTIONS.map(opt => (
-            <button
-              key={opt.code}
-              type="button"
-              onClick={() => setReason(opt.code)}
-              className={`w-full text-left text-sm px-3 py-2 rounded border transition-colors ${
-                reason === opt.code
-                  ? "bg-danger-soft border-danger text-danger font-medium"
-                  : "bg-paper-card border-paper-line hover:border-ink-subtle"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {requiresNote && (
-          <div className="mb-3">
-            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Note (required for &ldquo;Other&rdquo;)</Label>
-            <Textarea
-              className="w-full mt-1"
-              rows={2}
-              placeholder="Briefly explain…"
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              autoFocus
-            />
-          </div>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={pending} className="sm:flex-1">
-            Cancel
-          </Button>
-          <Button
-            variant="outline"
-            disabled={!canSubmit || pending}
-            onClick={submit}
-            className="sm:flex-1 border-danger/40 text-danger hover:bg-danger-soft"
-          >
-            <X size={11}/> {pending ? "Marking…" : "Mark undelivered"}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -734,12 +614,18 @@ function UndeliverSheet({
 // ===========================================================================
 // PRE-ORDER BILL VIEW (deliver an existing pre-order)
 // ===========================================================================
-function PreOrderBillView({ bill, products, outstanding, onBack, onUndeliver }: { bill: TripBill; products: ProductLite[]; outstanding?: CustomerOutstanding; onBack: () => void; onUndeliver: () => void }) {
+function PreOrderBillView({ bill, products, outstanding, onBack }: { bill: TripBill; products: ProductLite[]; outstanding?: CustomerOutstanding; onBack: () => void }) {
   const [paymentMode, setPaymentMode] = useState<"cash" | "credit">(bill.payment_mode);
   const [outCollected, setOutCollected] = useState<string>("");
   const [paperBillNo, setPaperBillNo] = useState<string>(bill.paper_bill_no ?? "");
   const [notes, setNotes] = useState<string>(bill.notes ?? "");
   const [pending, startTransition] = useTransition();
+
+  // Inline undeliver flow state. When `undeliverMode` is true, the bottom of
+  // the screen swaps from the two main buttons to a reason picker.
+  const [undeliverMode, setUndeliverMode] = useState(false);
+  const [undeliverReason, setUndeliverReason] = useState<string>("");
+  const [undeliverNote, setUndeliverNote] = useState<string>("");
 
   function handleConfirm() {
     if (!paperBillNo.trim()) {
@@ -757,6 +643,27 @@ function PreOrderBillView({ bill, products, outstanding, onBack, onUndeliver }: 
       });
       if (res.error) toast.error(res.error);
       else { toast.success(`Bill ${bill.bill_number} confirmed`); onBack(); }
+    });
+  }
+
+  function handleUndeliver() {
+    if (!undeliverReason) { toast.error("Pick a reason"); return; }
+    if (undeliverReason === "other" && !undeliverNote.trim()) {
+      toast.error("Please write a short note");
+      return;
+    }
+    startTransition(async () => {
+      const res = await markBillUndelivered({
+        billId: bill.id,
+        reason: undeliverReason,
+        note: undeliverNote.trim() || undefined,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${bill.customer?.name ?? "Customer"} marked undelivered`);
+      onBack();
     });
   }
 
@@ -831,19 +738,83 @@ function PreOrderBillView({ bill, products, outstanding, onBack, onUndeliver }: 
         <Label className="block mb-1">Notes (optional)</Label>
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mb-3" />
 
-        <Button className="w-full" size="lg" onClick={handleConfirm} disabled={pending}>
-          {pending ? "Saving…" : "Confirm Bill & Delivery"}
-        </Button>
+        {!undeliverMode ? (
+          <>
+            <Button className="w-full" size="lg" onClick={handleConfirm} disabled={pending}>
+              {pending ? "Saving…" : "Confirm Bill & Delivery"}
+            </Button>
 
-        <Button
-          variant="outline"
-          className="w-full mt-2 border-danger/40 text-danger hover:bg-danger-soft"
-          size="lg"
-          onClick={onUndeliver}
-          disabled={pending}
-        >
-          <X size={14}/> Can&apos;t deliver
-        </Button>
+            <Button
+              variant="outline"
+              className="w-full mt-2 border-danger/40 text-danger hover:bg-danger-soft"
+              size="lg"
+              onClick={() => setUndeliverMode(true)}
+              disabled={pending}
+            >
+              <X size={14}/> Can&apos;t deliver
+            </Button>
+          </>
+        ) : (
+          /* Inline reason picker — replaces the two main buttons.
+             Self-contained: pick reason, optional note, submit or cancel. */
+          <div className="bg-danger-soft/40 border border-danger/30 rounded-md p-3">
+            <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold text-danger">
+              <X size={13}/> Why can&apos;t this be delivered?
+            </div>
+            <p className="text-2xs text-ink-muted mb-2.5">
+              Office will pick this up on the next trip for {bill.customer?.city ?? "this beat"}.
+            </p>
+
+            <div className="space-y-1.5 mb-2.5">
+              {REASON_OPTIONS.map(opt => (
+                <button
+                  key={opt.code}
+                  type="button"
+                  onClick={() => setUndeliverReason(opt.code)}
+                  className={`w-full text-left text-sm px-3 py-2 rounded border transition-colors ${
+                    undeliverReason === opt.code
+                      ? "bg-danger-soft border-danger text-danger font-medium"
+                      : "bg-paper-card border-paper-line hover:border-ink-subtle"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {undeliverReason === "other" && (
+              <div className="mb-2.5">
+                <Label className="text-2xs uppercase tracking-wide text-ink-muted">Note (required)</Label>
+                <Textarea
+                  className="w-full mt-1"
+                  rows={2}
+                  placeholder="Briefly explain…"
+                  value={undeliverNote}
+                  onChange={e => setUndeliverNote(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => { setUndeliverMode(false); setUndeliverReason(""); setUndeliverNote(""); }}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                disabled={pending || !undeliverReason || (undeliverReason === "other" && !undeliverNote.trim())}
+                onClick={handleUndeliver}
+                className="border-danger/40 text-danger hover:bg-danger-soft"
+              >
+                <X size={11}/> {pending ? "Marking…" : "Confirm undelivered"}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
