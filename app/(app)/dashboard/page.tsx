@@ -242,8 +242,8 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-2 sm:space-y-2.5">
-              {tasks.map((t) => (
-                <TaskCard key={t.key} {...t} />
+              {tasks.map(({ key, ...t }) => (
+                <TaskCard key={key} {...t} />
               ))}
             </div>
           )}
