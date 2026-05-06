@@ -337,3 +337,93 @@ export async function getPhotoPublicUrl(objectName: string) {
   const { data } = admin.storage.from("pod-photos").getPublicUrl(objectName);
   return data.publicUrl;
 }
+
+// =============================================================================
+// BULK DISPATCH BY BEAT
+//
+// Creates one dispatch row per approved/partially_dispatched order in the
+// given beat, all sharing the same vehicle/driver. Each dispatch contains
+// the full remaining quantity per line.
+//
+// Stops on the first failure and returns a partial-success result so the
+// dispatcher knows which orders went through.
+// =============================================================================
+
+export async function bulkDispatchByBeat(input: {
+  beatId: string;
+  vehicleNumber: string;
+  driverName: string;
+  driverPhone?: string;
+  notes?: string;
+}) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+
+    if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
+    if (!input.driverName.trim()) return { error: "Driver name is required" };
+
+    // Find candidate orders for this beat
+    const { data: orders, error: oErr } = await admin
+      .from("orders")
+      .select("id, rupyz_order_id, customer:customers!inner(name, beat_id)")
+      .in("app_status", ["approved", "partially_dispatched"])
+      .eq("customer.beat_id", input.beatId);
+    if (oErr) return { error: oErr.message };
+    const orderList = (orders ?? []) as unknown as Array<{ id: string; rupyz_order_id: string }>;
+    if (orderList.length === 0) return { error: "No approved orders found for this beat" };
+
+    // For each order, load remaining (un-dispatched) line quantities and dispatch full remaining
+    const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
+
+    for (const o of orderList) {
+      // Pull order items with already-dispatched qty
+      const { data: items } = await admin
+        .from("order_items")
+        .select("id, qty, total_dispatched_qty")
+        .eq("order_id", o.id);
+
+      const lines = (items ?? [])
+        .map((it: { id: string; qty: number; total_dispatched_qty: number | null }) => ({
+          orderItemId: it.id,
+          qty: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
+        }))
+        .filter(l => l.qty > 0);
+
+      if (lines.length === 0) {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: "Nothing left to dispatch" });
+        continue;
+      }
+
+      const res = await createDispatch(o.id, lines, {
+        vehicleNumber: input.vehicleNumber.trim(),
+        driverName: input.driverName.trim(),
+        driverPhone: input.driverPhone?.trim() || undefined,
+        notes: input.notes?.trim() || undefined,
+      });
+
+      if (res.error) {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: res.error });
+      } else {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: true, dispatchNumber: res.dispatchNumber });
+      }
+    }
+
+    const succeeded = results.filter(r => r.ok).length;
+    const failed = results.filter(r => !r.ok).length;
+
+    revalidatePath("/dispatch");
+    revalidatePath("/orders");
+    revalidatePath("/dispatches");
+
+    return {
+      ok: failed === 0,
+      succeeded,
+      failed,
+      total: results.length,
+      results,
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
