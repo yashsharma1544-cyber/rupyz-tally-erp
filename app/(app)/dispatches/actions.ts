@@ -427,3 +427,97 @@ export async function bulkDispatchByBeat(input: {
     return { error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// =============================================================================
+// DISPATCH SELECTED ORDERS (load-truck wizard)
+//
+// Like bulkDispatchByBeat but operates on an explicit list of order IDs
+// instead of "all in beat." Used by the wizard at /dispatch/[beatId]/load-truck.
+//
+// Each order is dispatched at full remaining quantity. Vehicle/driver is
+// shared across all dispatches.
+// =============================================================================
+
+export async function dispatchSelectedOrders(input: {
+  orderIds: string[];
+  vehicleNumber: string;
+  driverName: string;
+  driverPhone?: string;
+  notes?: string;
+}) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+
+    if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
+    if (!input.driverName.trim()) return { error: "Driver name is required" };
+    if (!input.orderIds || input.orderIds.length === 0) return { error: "No orders selected" };
+
+    // Validate all order IDs exist and are in dispatchable state
+    const { data: orders, error: oErr } = await admin
+      .from("orders")
+      .select("id, rupyz_order_id, app_status")
+      .in("id", input.orderIds);
+    if (oErr) return { error: oErr.message };
+    const orderList = (orders ?? []) as Array<{ id: string; rupyz_order_id: string; app_status: string }>;
+
+    const invalid = orderList.filter(o => !["approved", "partially_dispatched"].includes(o.app_status));
+    if (invalid.length > 0) {
+      return { error: `${invalid.length} order(s) not dispatchable (already sent or cancelled). Refresh the list.` };
+    }
+    if (orderList.length !== input.orderIds.length) {
+      return { error: "Some selected orders no longer exist. Refresh the list." };
+    }
+
+    const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
+
+    for (const o of orderList) {
+      const { data: items } = await admin
+        .from("order_items")
+        .select("id, qty, total_dispatched_qty")
+        .eq("order_id", o.id);
+
+      const lines = (items ?? [])
+        .map((it: { id: string; qty: number; total_dispatched_qty: number | null }) => ({
+          orderItemId: it.id,
+          qty: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
+        }))
+        .filter(l => l.qty > 0);
+
+      if (lines.length === 0) {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: "Nothing left to dispatch" });
+        continue;
+      }
+
+      const res = await createDispatch(o.id, lines, {
+        vehicleNumber: input.vehicleNumber.trim(),
+        driverName: input.driverName.trim(),
+        driverPhone: input.driverPhone?.trim() || undefined,
+        notes: input.notes?.trim() || undefined,
+      });
+
+      if (res.error) {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: res.error });
+      } else {
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: true, dispatchNumber: res.dispatchNumber });
+      }
+    }
+
+    const succeeded = results.filter(r => r.ok).length;
+    const failed = results.filter(r => !r.ok).length;
+
+    revalidatePath("/dispatch");
+    revalidatePath("/orders");
+    revalidatePath("/dispatches");
+
+    return {
+      ok: failed === 0,
+      succeeded,
+      failed,
+      total: results.length,
+      results,
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}

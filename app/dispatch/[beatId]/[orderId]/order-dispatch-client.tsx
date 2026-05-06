@@ -149,50 +149,8 @@ export function OrderDispatchClient({
           )}
         </div>
 
-        {/* Vehicle + driver — always visible */}
-        <div className="mt-4 space-y-3">
-          <div>
-            <Label className="text-xs">Vehicle # <span className="text-danger">*</span></Label>
-            <Input
-              className="mt-1"
-              placeholder="MH-20 AB 1234"
-              value={vehicle}
-              onChange={e => setVehicle(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Driver name <span className="text-danger">*</span></Label>
-            <Input
-              className="mt-1"
-              placeholder="e.g. Ramesh"
-              value={driver}
-              onChange={e => setDriver(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-ink-muted">Driver phone</Label>
-            <Input
-              className="mt-1"
-              placeholder="9876543210 (optional)"
-              inputMode="tel"
-              value={driverPhone}
-              onChange={e => setDriverPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-ink-muted">Notes</Label>
-            <Textarea
-              className="mt-1"
-              rows={2}
-              placeholder="Any extra info (optional)"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Items list */}
-        <div className="mt-5 pt-4 border-t border-paper-line">
+        {/* Items list — comes first now (vehicle/driver moved below) */}
+        <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
               Items in this order
@@ -287,6 +245,51 @@ export function OrderDispatchClient({
                 This order has no line items.
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Vehicle + driver — now BELOW items */}
+        <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
+          <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
+            Truck details
+          </h2>
+          <div>
+            <Label className="text-xs">Vehicle # <span className="text-danger">*</span></Label>
+            <Input
+              className="mt-1"
+              placeholder="MH-20 AB 1234"
+              value={vehicle}
+              onChange={e => setVehicle(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Driver name <span className="text-danger">*</span></Label>
+            <Input
+              className="mt-1"
+              placeholder="e.g. Ramesh"
+              value={driver}
+              onChange={e => setDriver(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-ink-muted">Driver phone</Label>
+            <Input
+              className="mt-1"
+              placeholder="9876543210 (optional)"
+              inputMode="tel"
+              value={driverPhone}
+              onChange={e => setDriverPhone(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-ink-muted">Notes</Label>
+            <Textarea
+              className="mt-1"
+              rows={2}
+              placeholder="Any extra info (optional)"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
           </div>
         </div>
       </div>

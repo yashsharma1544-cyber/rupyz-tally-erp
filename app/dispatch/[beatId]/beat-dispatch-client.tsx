@@ -90,13 +90,21 @@ export function BeatDispatchClient({
 
         {/* Dispatch-all button — top, prominent */}
         {totalOrders > 0 && (
-          <Button
-            className="w-full mb-3"
-            onClick={() => setShowBulk(true)}
-            disabled={pending}
-          >
-            <Truck size={13}/> Dispatch all {totalOrders} orders
-          </Button>
+          <>
+            <Button
+              className="w-full mb-2"
+              onClick={() => setShowBulk(true)}
+              disabled={pending}
+            >
+              <Truck size={13}/> Dispatch all {totalOrders} orders
+            </Button>
+            <Link
+              href={`/dispatch/${beat.id}/load-truck`}
+              className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-accent/40 text-accent text-sm font-medium hover:bg-accent-soft active:bg-accent-soft/80 transition-colors"
+            >
+              <Truck size={13}/> Load a truck (pick orders)
+            </Link>
+          </>
         )}
 
         {/* Order rows */}
