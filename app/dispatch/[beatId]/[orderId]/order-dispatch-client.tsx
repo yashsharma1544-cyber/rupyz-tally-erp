@@ -3,12 +3,11 @@
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Truck, Minus, Plus, Package, RotateCcw } from "lucide-react";
+import { ArrowLeft, Truck, Minus, Plus, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { createDispatch } from "@/app/(app)/dispatches/actions";
 
@@ -43,11 +42,17 @@ export function OrderDispatchClient({
   order: OrderForDispatch;
 }) {
   const router = useRouter();
+
+  // Per-line dispatch quantities. Default: full remaining (so "Confirm" sends
+  // everything as ordered). Edit mode reveals controls so dispatcher can
+  // reduce specific lines.
   const [qtys, setQtys] = useState<Map<string, number>>(() => {
     const m = new Map<string, number>();
     for (const it of order.items) m.set(it.id, it.remaining);
     return m;
   });
+  const [editMode, setEditMode] = useState(false);
+
   const [vehicle, setVehicle] = useState("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
@@ -70,13 +75,7 @@ export function OrderDispatchClient({
     });
   }
 
-  // Reset all dispatching qtys back to remaining (default)
-  function resetAll() {
-    const m = new Map<string, number>();
-    for (const it of order.items) m.set(it.id, it.remaining);
-    setQtys(m);
-  }
-
+  // Lines actually being dispatched (qty > 0)
   const dispatchableLines = useMemo(
     () => order.items
       .map(it => ({ orderItemId: it.id, qty: qtys.get(it.id) ?? 0, line: it }))
@@ -89,11 +88,19 @@ export function OrderDispatchClient({
     [dispatchableLines],
   );
 
+  // Will the dispatch be partial? (any line short of remaining)
+  const isPartial = useMemo(() => {
+    return order.items.some(it => {
+      if (it.remaining <= 0) return false;
+      return (qtys.get(it.id) ?? 0) < it.remaining;
+    });
+  }, [order.items, qtys]);
+
   const canDispatch = vehicle.trim().length > 0 && driver.trim().length > 0 && dispatchableLines.length > 0;
 
   function handleConfirm() {
     if (!canDispatch) {
-      toast.error("Vehicle # and driver name are required, and at least one item must have qty > 0");
+      toast.error("Vehicle # and driver name are required");
       return;
     }
     startTransition(async () => {
@@ -116,168 +123,196 @@ export function OrderDispatchClient({
     });
   }
 
-  const isPartial = dispatchableLines.some(l => l.qty < l.line.remaining)
-    || order.items.some(it => it.remaining > 0 && (qtys.get(it.id) ?? 0) === 0);
+  const itemCount = order.items.filter(it => it.remaining > 0).length;
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen bg-paper pb-24">
       <div className="max-w-md mx-auto px-3 py-4">
         <Link href={`/dispatch/${beatId}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-          <ArrowLeft size={11}/> Back to beat
+          <ArrowLeft size={11}/> Back
         </Link>
 
-        <h1 className="text-base font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
-        <div className="text-2xs text-ink-muted mb-3">
-          <span className="font-mono">{order.rupyzOrderId}</span>
-          {order.customer?.city && <> · {order.customer.city}</>}
-          {order.customer?.mobile && <> · {order.customer.mobile}</>}
-          {order.appStatus === "partially_dispatched" && <> · <Badge variant="warn">partly sent</Badge></>}
+        {/* Customer header */}
+        <h1 className="text-lg font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
+        <div className="text-xs text-ink-muted mt-0.5">
+          {[order.customer?.city, order.customer?.mobile].filter(Boolean).join(" · ")}
         </div>
+        <div className="text-2xs font-mono text-ink-subtle mt-0.5">{order.rupyzOrderId}</div>
 
-        {/* Summary */}
-        <div className="bg-paper-card border border-paper-line rounded-md p-2.5 mb-3 text-xs flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <span className="text-ink-muted">Dispatching:</span>{" "}
-            <span className="font-semibold tabular">{dispatchableLines.length}</span>
-            <span className="text-ink-subtle"> of </span>
-            <span className="tabular">{order.items.filter(it => it.remaining > 0).length}</span>
-            <span className="text-ink-muted"> lines</span>
-          </div>
-          <div className="font-mono tabular">{formatINR(totalAmt)}</div>
-        </div>
-
-        {/* Reset link */}
-        <div className="flex justify-end mb-1.5">
-          <button
-            type="button"
-            onClick={resetAll}
-            className="text-2xs text-ink-muted hover:text-ink inline-flex items-center gap-1"
-          >
-            <RotateCcw size={9}/> Reset to full
-          </button>
-        </div>
-
-        {/* Lines */}
-        <div className="space-y-2 mb-4">
-          {order.items.map(it => {
-            const dispatching = qtys.get(it.id) ?? 0;
-            const max = it.remaining;
-            const noRemaining = max <= 0;
-
-            return (
-              <div
-                key={it.id}
-                className={`bg-paper-card border rounded p-3 ${noRemaining ? "border-paper-line opacity-60" : "border-paper-line"}`}
-              >
-                <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                  <div className="font-medium text-sm flex-1 min-w-0 truncate">{it.productName}</div>
-                  <div className="text-2xs text-ink-muted shrink-0">
-                    {formatINR(it.price)}/unit
-                  </div>
-                </div>
-                <div className="text-2xs text-ink-muted mb-2">
-                  Ordered: <span className="tabular">{it.orderedQty}</span>
-                  {it.alreadyDispatched > 0 && <> · already sent: <span className="tabular">{it.alreadyDispatched}</span></>}
-                  {!noRemaining && <> · <strong className="text-ink">remaining: <span className="tabular">{it.remaining}</span></strong></>}
-                  {noRemaining && <> · <span className="text-ok">fully sent</span></>}
-                </div>
-
-                {!noRemaining && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => bumpQty(it.id, -1, max)}
-                      disabled={dispatching <= 0}
-                      className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
-                      aria-label="Decrease"
-                    >
-                      <Minus size={14}/>
-                    </button>
-                    <Input
-                      inputMode="decimal"
-                      className="text-center font-mono tabular flex-1 max-w-[100px]"
-                      value={dispatching}
-                      onChange={(e) => {
-                        const n = parseFloat(e.target.value);
-                        if (Number.isFinite(n)) setQty(it.id, Math.min(max, n));
-                        else if (e.target.value === "") setQty(it.id, 0);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => bumpQty(it.id, 1, max)}
-                      disabled={dispatching >= max}
-                      className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
-                      aria-label="Increase"
-                    >
-                      <Plus size={14}/>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {order.items.length === 0 && (
-            <div className="text-center py-6 bg-paper-card border border-paper-line rounded">
-              <Package size={24} className="mx-auto text-ink-subtle mb-2"/>
-              <p className="text-sm text-ink-muted">This order has no line items.</p>
-            </div>
+        {/* Single-line summary */}
+        <div className="mt-3 pb-3 border-b border-paper-line text-sm">
+          <span className="font-semibold tabular">{itemCount}</span>
+          <span className="text-ink-muted"> item{itemCount === 1 ? "" : "s"} · </span>
+          <span className="font-semibold tabular">{formatINR(totalAmt)}</span>
+          {order.appStatus === "partially_dispatched" && (
+            <span className="ml-2 text-2xs text-warn">· partly sent already</span>
           )}
         </div>
 
-        {/* Vehicle + driver */}
-        <div className="bg-paper-card border border-paper-line rounded p-3 mb-3">
-          <Label className="text-2xs uppercase tracking-wide text-ink-muted">Vehicle # *</Label>
-          <Input
-            className="mt-1 mb-3"
-            placeholder="MH-20 AB 1234"
-            value={vehicle}
-            onChange={e => setVehicle(e.target.value)}
-          />
-
-          <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver name *</Label>
-          <Input
-            className="mt-1 mb-3"
-            placeholder="e.g. Ramesh"
-            value={driver}
-            onChange={e => setDriver(e.target.value)}
-          />
-
-          <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver phone (optional)</Label>
-          <Input
-            className="mt-1 mb-3"
-            placeholder="9876543210"
-            inputMode="tel"
-            value={driverPhone}
-            onChange={e => setDriverPhone(e.target.value)}
-          />
-
-          <Label className="text-2xs uppercase tracking-wide text-ink-muted">Notes (optional)</Label>
-          <Textarea
-            className="mt-1"
-            rows={2}
-            placeholder="e.g. partial dispatch — no stock for Red Label"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-          />
+        {/* Vehicle + driver — always visible */}
+        <div className="mt-4 space-y-3">
+          <div>
+            <Label className="text-xs">Vehicle # <span className="text-danger">*</span></Label>
+            <Input
+              className="mt-1"
+              placeholder="MH-20 AB 1234"
+              value={vehicle}
+              onChange={e => setVehicle(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Driver name <span className="text-danger">*</span></Label>
+            <Input
+              className="mt-1"
+              placeholder="e.g. Ramesh"
+              value={driver}
+              onChange={e => setDriver(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-ink-muted">Driver phone</Label>
+            <Input
+              className="mt-1"
+              placeholder="9876543210 (optional)"
+              inputMode="tel"
+              value={driverPhone}
+              onChange={e => setDriverPhone(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-ink-muted">Notes</Label>
+            <Textarea
+              className="mt-1"
+              rows={2}
+              placeholder="Any extra info (optional)"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+          </div>
         </div>
 
-        {/* Partial dispatch warning */}
-        {isPartial && dispatchableLines.length > 0 && (
-          <p className="text-2xs text-warn text-center mb-2">
-            ⚠ Partial dispatch — some lines short. Order will be marked &ldquo;partly sent.&rdquo;
-          </p>
-        )}
+        {/* Items list */}
+        <div className="mt-5 pt-4 border-t border-paper-line">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
+              Items in this order
+            </h2>
+            {!editMode ? (
+              <button
+                type="button"
+                onClick={() => setEditMode(true)}
+                className="text-xs text-accent inline-flex items-center gap-1 hover:underline"
+              >
+                <Pencil size={10}/> Edit quantities
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  // Reset to full remaining when leaving edit mode
+                  const m = new Map<string, number>();
+                  for (const it of order.items) m.set(it.id, it.remaining);
+                  setQtys(m);
+                  setEditMode(false);
+                }}
+                className="text-xs text-ink-muted inline-flex items-center gap-1 hover:underline"
+              >
+                <X size={10}/> Reset all
+              </button>
+            )}
+          </div>
 
-        {/* Confirm */}
-        <Button
-          className="w-full"
-          size="lg"
-          onClick={handleConfirm}
-          disabled={!canDispatch || pending}
-        >
-          <Truck size={14}/> {pending ? "Dispatching…" : `Confirm dispatch · ${formatINR(totalAmt)}`}
-        </Button>
+          <div className="bg-paper-card border border-paper-line rounded divide-y divide-paper-line">
+            {order.items.map(it => {
+              const dispatching = qtys.get(it.id) ?? 0;
+              const max = it.remaining;
+              const noRemaining = max <= 0;
+
+              return (
+                <div key={it.id} className={`px-3 py-2.5 ${noRemaining ? "opacity-50" : ""}`}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="font-medium text-sm flex-1 min-w-0">{it.productName}</div>
+                    {!editMode && (
+                      <div className="text-sm font-semibold tabular shrink-0">
+                        {dispatching}
+                        {it.unit && <span className="text-2xs text-ink-muted ml-0.5">{it.unit}</span>}
+                      </div>
+                    )}
+                  </div>
+
+                  {!editMode && noRemaining && (
+                    <div className="text-2xs text-ok mt-0.5">Fully sent earlier</div>
+                  )}
+
+                  {editMode && !noRemaining && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => bumpQty(it.id, -1, max)}
+                        disabled={dispatching <= 0}
+                        className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
+                        aria-label="Decrease"
+                      >
+                        <Minus size={14}/>
+                      </button>
+                      <Input
+                        inputMode="decimal"
+                        className="text-center font-mono tabular flex-1 max-w-[100px]"
+                        value={dispatching}
+                        onChange={(e) => {
+                          const n = parseFloat(e.target.value);
+                          if (Number.isFinite(n)) setQty(it.id, Math.min(max, n));
+                          else if (e.target.value === "") setQty(it.id, 0);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => bumpQty(it.id, 1, max)}
+                        disabled={dispatching >= max}
+                        className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
+                        aria-label="Increase"
+                      >
+                        <Plus size={14}/>
+                      </button>
+                      <span className="text-2xs text-ink-muted whitespace-nowrap">
+                        / {max} max
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {order.items.length === 0 && (
+              <div className="px-3 py-6 text-center text-sm text-ink-muted">
+                This order has no line items.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Sticky footer: confirm button anchored to bottom */}
+      <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
+        <div className="max-w-md mx-auto">
+          {isPartial && dispatchableLines.length > 0 && (
+            <p className="text-2xs text-warn text-center mb-2">
+              ⚠ Some lines reduced — order will be marked &ldquo;partly sent&rdquo;
+            </p>
+          )}
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={handleConfirm}
+            disabled={!canDispatch || pending}
+          >
+            <Truck size={14}/>
+            {pending
+              ? "Dispatching…"
+              : isPartial
+                ? `Confirm partial dispatch · ${formatINR(totalAmt)}`
+                : `Dispatch full order · ${formatINR(totalAmt)}`}
+          </Button>
+        </div>
       </div>
     </div>
   );
