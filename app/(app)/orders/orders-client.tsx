@@ -168,12 +168,12 @@ export function OrdersClient({
   const [salesmanF, setSalesmanF] = useState<string>("all");
   const [beatF, setBeatF] = useState<string>("all");
   const [statusF, setStatusF] = useState<string>("all");
-  const [dateF, setDateF] = useState<string>("today");
+  const [dateF, setDateF] = useState<string>("all");
 
   // Filters are hidden by default — most days the tab pills do the job. Revealed
   // by clicking "Filters". When any advanced filter is non-default, the panel
   // auto-opens so users can see what's filtering their results.
-  const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "today";
+  const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "all";
   const [showAdvanced, setShowAdvanced] = useState(false);
   useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
 
