@@ -109,15 +109,20 @@ export function VanMobileBilling({
     [customers, preOrderCustomerIds],
   );
 
-  // Search within active tab
+  // Search within active tab.
+  // Pre-order tab is uncapped — every customer with a bill on this trip must
+  // be visible. Walk-in tab is capped to 50 unsearched (~1100 customers if
+  // cross-beat) so the page stays snappy; the lead types to search anyway.
   const filteredCustomers = useMemo(() => {
     const pool = tab === "preorder" ? preOrderCustomers : walkInCustomers;
     const q = search.trim().toLowerCase();
-    if (!q) return pool.slice(0, 50);
-    return pool.filter(c =>
-      c.name?.toLowerCase().includes(q) ||
-      (c.mobile && c.mobile.includes(q))
-    ).slice(0, 50);
+    const filtered = q
+      ? pool.filter(c =>
+          c.name?.toLowerCase().includes(q) ||
+          (c.mobile && c.mobile.includes(q))
+        )
+      : pool;
+    return tab === "preorder" ? filtered : filtered.slice(0, 50);
   }, [preOrderCustomers, walkInCustomers, tab, search]);
 
   // Counts for tab badges

@@ -30,14 +30,32 @@ export default async function VanMobilePage({ params }: { params: Promise<{ trip
   // shops they need to visit.
   const { data: extBills } = await supabase
     .from("trip_bills")
-    .select("customer:customers(beat_id)")
+    .select("customer_id, customer:customers(beat_id)")
     .eq("trip_id", tripId)
     .eq("is_cancelled", false);
-  const hasCrossBeat = ((extBills ?? []) as Array<{ customer: { beat_id: string | null } | { beat_id: string | null }[] | null }>)
-    .some(b => {
-      const c = Array.isArray(b.customer) ? b.customer[0] : b.customer;
-      return c?.beat_id && c.beat_id !== trip.beat_id;
-    });
+  const billRows = (extBills ?? []) as Array<{
+    customer_id: string;
+    customer: { beat_id: string | null } | { beat_id: string | null }[] | null;
+  }>;
+  const hasCrossBeat = billRows.some(b => {
+    const c = Array.isArray(b.customer) ? b.customer[0] : b.customer;
+    return c?.beat_id && c.beat_id !== trip.beat_id;
+  });
+
+  // EVERY customer that has a bill on this trip — regardless of beat or active
+  // status. The pre-order tab MUST include all of them, otherwise the lead
+  // sees fewer customers than bills attached. (We hit this when admin attaches
+  // bills for inactive customers or customers with null beat_id; the regular
+  // beat-filtered query silently drops them.)
+  const billCustomerIds = Array.from(new Set(billRows.map(b => b.customer_id)));
+  let billCustomers: Array<{ id: string; name: string; mobile: string | null; city: string | null; beat_id: string | null }> = [];
+  if (billCustomerIds.length > 0) {
+    const { data } = await supabase
+      .from("customers")
+      .select("id, name, mobile, city, beat_id")
+      .in("id", billCustomerIds);
+    billCustomers = (data ?? []) as typeof billCustomers;
+  }
 
   // Customer list: same-beat by default (small, fast). When cross-beat bills
   // exist, load all active customers so the lead can search/find the shops.
@@ -61,6 +79,15 @@ export default async function VanMobilePage({ params }: { params: Promise<{ trip
     customers = res.data;
   }
 
+  // Merge bill-customers into the main customer list so the pre-order tab can
+  // find them. Dedupe by id; preserve the order from the main query (which is
+  // sorted by name).
+  const seen = new Set((customers ?? []).map(c => c.id));
+  const mergedCustomers = [
+    ...(customers ?? []),
+    ...billCustomers.filter(c => !seen.has(c.id)),
+  ];
+
   const { data: products } = await supabase
     .from("products")
     .select("id, name, unit, base_price, mrp, gst_percent")
@@ -71,7 +98,7 @@ export default async function VanMobilePage({ params }: { params: Promise<{ trip
     <VanMobileBilling
       trip={trip as unknown as VanTrip}
       me={meTyped}
-      customers={(customers ?? []) as Pick<Customer, "id" | "name" | "mobile" | "city">[]}
+      customers={mergedCustomers as Pick<Customer, "id" | "name" | "mobile" | "city">[]}
       products={(products ?? []) as Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">[]}
       crossBeatMode={hasCrossBeat}
     />
