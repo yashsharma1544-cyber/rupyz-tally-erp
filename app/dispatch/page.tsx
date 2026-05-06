@@ -85,6 +85,16 @@ export default async function DispatchHomePage() {
           </div>
         </div>
 
+        {/* Cross-beat truck loading entry — visible whenever there are orders */}
+        {beatRows.length > 0 && (
+          <Link
+            href="/dispatch/load-truck"
+            className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-11 rounded-md bg-accent text-paper-card text-sm font-semibold hover:bg-accent/90 active:bg-accent/80 transition-colors"
+          >
+            <Truck size={14}/> Load a truck
+          </Link>
+        )}
+
         {/* Beat tiles */}
         {beatRows.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">

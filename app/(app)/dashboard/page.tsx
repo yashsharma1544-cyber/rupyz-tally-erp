@@ -149,7 +149,8 @@ export default async function DashboardPage() {
       icon: Truck,
       title: `${readyToSend.count} order${readyToSend.count === 1 ? "" : "s"} approved and ready to send`,
       detail: `Worth ${formatINR(readyToSend.amount)} · dispatch or add to a VAN trip`,
-      href: "/orders?tab=dispatch",
+      // Dispatch role uses the mobile dispatch app; admin/van_lead get the desktop orders flow
+      href: me.role === "dispatch" ? "/dispatch" : "/orders?tab=dispatch",
       accent: "accent",
     });
   }

@@ -1059,6 +1059,8 @@ export function TripDetail({
                   let statusEl;
                   if (b.is_cancelled) {
                     statusEl = <Badge variant="danger">cancelled</Badge>;
+                  } else if (b.undelivered_at) {
+                    statusEl = <Badge variant="danger">undelivered</Badge>;
                   } else if (orderStatus) {
                     const variant: "ok" | "warn" | "accent" | "neutral" =
                       orderStatus === "delivered" ? "ok"
@@ -1072,11 +1074,24 @@ export function TripDetail({
                     statusEl = <Badge variant="warn">pending</Badge>;
                   }
 
+                  // Reason text helper (mirrors REASON_OPTIONS in van-mobile.tsx)
+                  const reasonLabelMap: Record<string, string> = {
+                    shop_closed: "Shop closed",
+                    refused: "Customer refused",
+                    no_stock: "Out of stock on van",
+                    reschedule: "Will collect later",
+                    wrong_address: "Wrong address",
+                    other: "Other",
+                  };
+                  const reasonText = b.undelivered_reason
+                    ? (reasonLabelMap[b.undelivered_reason] ?? b.undelivered_reason)
+                    : null;
+
                   return (
                     <tr
                       key={b.id}
                       onClick={() => setViewingBillId(b.id)}
-                      className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : ""}`}
+                      className={`cursor-pointer hover:bg-paper-subtle/40 transition-colors ${b.is_cancelled ? "opacity-40 line-through" : b.undelivered_at ? "opacity-60" : ""}`}
                     >
                       <td className="px-2 py-1.5 font-mono text-2xs">{b.bill_number}{b.paper_bill_no && <span className="text-ink-subtle"> · {b.paper_bill_no}</span>}</td>
                       <td className="px-2 py-1.5">
@@ -1094,6 +1109,12 @@ export function TripDetail({
                             </span>
                           );
                         })()}
+                        {b.undelivered_at && reasonText && (
+                          <div className="text-2xs text-danger mt-0.5">
+                            {reasonText}
+                            {b.undelivered_note && ` — ${b.undelivered_note}`}
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-1.5"><Badge variant={b.bill_type === "pre_order" ? "neutral" : "accent"}>{b.bill_type === "pre_order" ? "Pre-order" : "Spot"}</Badge></td>
                       <td className="px-2 py-1.5 text-right tabular">{formatINR(b.total_amount)}</td>

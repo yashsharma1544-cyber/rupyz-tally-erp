@@ -99,7 +99,7 @@ export function BeatDispatchClient({
               <Truck size={13}/> Dispatch all {totalOrders} orders
             </Button>
             <Link
-              href={`/dispatch/${beat.id}/load-truck`}
+              href={`/dispatch/load-truck?beat=${beat.id}`}
               className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-accent/40 text-accent text-sm font-medium hover:bg-accent-soft active:bg-accent-soft/80 transition-colors"
             >
               <Truck size={13}/> Load a truck (pick orders)
