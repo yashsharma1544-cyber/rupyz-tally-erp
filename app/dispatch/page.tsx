@@ -71,6 +71,56 @@ export default async function DispatchHomePage() {
   const beatRows = (kpis ?? []) as BeatRow[];
   const truckRows = (trucks ?? []) as TruckRow[];
 
+  // Pull the actual orders inside each truck's dispatches so the panel can
+  // expand to show customer-level detail. One query, then bucket in JS.
+  const allDispatchIds = truckRows.flatMap(t => t.dispatch_ids);
+  const truckOrdersByKey = new Map<string, Array<{
+    orderId: string;
+    rupyzOrderId: string;
+    customerName: string;
+    beatName: string | null;
+    qty: number;
+    amount: number;
+  }>>();
+
+  if (allDispatchIds.length > 0) {
+    const { data: dispatches } = await supabase
+      .from("dispatches")
+      .select(`
+        id, vehicle_number, driver_name, total_qty, total_amount,
+        order:orders(
+          id, rupyz_order_id,
+          customer:customers(name, beat:beats(name))
+        )
+      `)
+      .in("id", allDispatchIds);
+
+    for (const d of (dispatches ?? []) as Array<{
+      id: string;
+      vehicle_number: string | null;
+      driver_name: string | null;
+      total_qty: number;
+      total_amount: number;
+      order: { id: string; rupyz_order_id: string; customer: { name: string; beat: { name: string } | { name: string }[] | null } | { name: string; beat: { name: string } | { name: string }[] | null }[] | null } | { id: string; rupyz_order_id: string; customer: { name: string; beat: { name: string } | { name: string }[] | null } | { name: string; beat: { name: string } | { name: string }[] | null }[] | null }[] | null;
+    }>) {
+      const key = `${d.vehicle_number ?? ""}::${d.driver_name ?? ""}`;
+      const order = Array.isArray(d.order) ? d.order[0] : d.order;
+      if (!order) continue;
+      const customer = Array.isArray(order.customer) ? order.customer[0] : order.customer;
+      const beatRel = customer?.beat;
+      const beat = Array.isArray(beatRel) ? beatRel[0] : beatRel;
+      if (!truckOrdersByKey.has(key)) truckOrdersByKey.set(key, []);
+      truckOrdersByKey.get(key)!.push({
+        orderId: order.id,
+        rupyzOrderId: order.rupyz_order_id,
+        customerName: customer?.name ?? "—",
+        beatName: beat?.name ?? null,
+        qty: Number(d.total_qty),
+        amount: Number(d.total_amount),
+      });
+    }
+  }
+
   const totalOrders = beatRows.reduce((s, b) => s + Number(b.order_count), 0);
   const totalKg     = beatRows.reduce((s, b) => s + Number(b.total_kg), 0);
   const totalAmount = beatRows.reduce((s, b) => s + Number(b.total_amount), 0);
@@ -115,16 +165,20 @@ export default async function DispatchHomePage() {
         {/* Trucks currently being loaded — needs "Mark dispatched" action */}
         {truckRows.length > 0 && (
           <TrucksLoadingPanel
-            trucks={truckRows.map(t => ({
-              vehicleNumber: t.vehicle_number,
-              driverName: t.driver_name,
-              driverPhone: t.driver_phone,
-              dispatchCount: Number(t.dispatch_count),
-              orderCount: Number(t.order_count),
-              totalQty: Number(t.total_qty),
-              totalAmount: Number(t.total_amount),
-              oldestLoadedAt: t.oldest_loaded_at,
-            }))}
+            trucks={truckRows.map(t => {
+              const key = `${t.vehicle_number ?? ""}::${t.driver_name ?? ""}`;
+              return {
+                vehicleNumber: t.vehicle_number,
+                driverName: t.driver_name,
+                driverPhone: t.driver_phone,
+                dispatchCount: Number(t.dispatch_count),
+                orderCount: Number(t.order_count),
+                totalQty: Number(t.total_qty),
+                totalAmount: Number(t.total_amount),
+                oldestLoadedAt: t.oldest_loaded_at,
+                orders: truckOrdersByKey.get(key) ?? [],
+              };
+            })}
           />
         )}
 
