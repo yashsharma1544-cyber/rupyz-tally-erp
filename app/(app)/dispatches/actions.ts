@@ -342,7 +342,7 @@ export async function cancelDispatch(dispatchId: string, reason: string) {
 // =============================================================================
 export async function getPhotoUploadUrl(dispatchId: string) {
   try {
-    await requireRoles(["admin", "dispatch", "delivery"]);
+    await requireRoles(["admin", "dispatch", "delivery", "driver"]);
     const admin = createAdminClient();
     const objectName = `dispatch-${dispatchId}/${Date.now()}.jpg`;
     const { data, error } = await admin.storage
