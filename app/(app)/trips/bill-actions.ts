@@ -404,3 +404,142 @@ export async function createQuickCustomer(input: {
     return { error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// =============================================================================
+// MARK BILL UNDELIVERED
+//
+// Lead can't deliver a pre-order — shop closed, customer refused, etc. We mark
+// the bill as undelivered (mutually exclusive with confirmed/cancelled) and
+// flag the source order as needing re-attach so admin can pick it up on the
+// next trip for that beat.
+//
+// Allowed states:
+//   - bill must be a pre_order (spot bills can't be undelivered — they'd just
+//     be cancelled if the lead didn't want to issue them)
+//   - bill must not already be confirmed, cancelled, or undelivered
+//   - trip must be in_progress (after that, admin reconciles, not the lead)
+// =============================================================================
+
+const ALLOWED_REASONS = ["shop_closed", "refused", "no_stock", "reschedule", "wrong_address", "other"];
+
+export async function markBillUndelivered(input: { billId: string; reason: string; note?: string }) {
+  try {
+    const actor = await requireRoles(VAN_ROLES);
+    const admin = createAdminClient();
+
+    if (!ALLOWED_REASONS.includes(input.reason)) {
+      return { error: `Invalid reason: ${input.reason}` };
+    }
+    if (input.reason === "other" && !input.note?.trim()) {
+      return { error: "A note is required when the reason is 'Other'" };
+    }
+
+    const { data: bill } = await admin
+      .from("trip_bills")
+      .select("id, bill_number, bill_type, trip_id, source_order_id, confirmed_at, undelivered_at, is_cancelled")
+      .eq("id", input.billId)
+      .single();
+    if (!bill) return { error: "Bill not found" };
+    if (bill.bill_type !== "pre_order") return { error: "Only pre-order bills can be marked undelivered" };
+    if (bill.is_cancelled) return { error: "This bill is already cancelled" };
+    if (bill.confirmed_at) return { error: "This bill has already been delivered" };
+    if (bill.undelivered_at) return { error: "This bill is already marked undelivered" };
+
+    const { data: trip } = await admin.from("van_trips").select("status, beat_id").eq("id", bill.trip_id).single();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status !== "in_progress") return { error: `Trip is "${trip.status}" — cannot mark undelivered now` };
+
+    // Update bill
+    const { error: upErr } = await admin
+      .from("trip_bills")
+      .update({
+        undelivered_at: new Date().toISOString(),
+        undelivered_reason: input.reason,
+        undelivered_note: input.note?.trim() || null,
+      })
+      .eq("id", input.billId);
+    if (upErr) return { error: upErr.message };
+
+    // Flag the source order for re-attach (only if there is one)
+    if (bill.source_order_id) {
+      await admin.from("orders").update({ needs_reattach: true }).eq("id", bill.source_order_id);
+      await admin.from("order_audit_events").insert({
+        order_id: bill.source_order_id,
+        event_type: "undelivered_on_van",
+        actor_id: actor.userId,
+        actor_name: actor.fullName,
+        comment: `Bill ${bill.bill_number} marked undelivered: ${input.reason}${input.note ? ` — ${input.note}` : ""}`,
+        details: { reason: input.reason, note: input.note ?? null, trip_bill_id: bill.id, bill_number: bill.bill_number },
+      });
+    }
+
+    revalidatePath(`/trips/${bill.trip_id}`);
+    revalidatePath(`/van/${bill.trip_id}`);
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// Revert: clears the undelivered state. Available while trip is in_progress.
+// If the bill had a source_order, we clear needs_reattach ONLY if no OTHER
+// undelivered bill on this trip points at the same order (defensive).
+export async function revertUndelivered(billId: string) {
+  try {
+    const actor = await requireRoles(VAN_ROLES);
+    const admin = createAdminClient();
+
+    const { data: bill } = await admin
+      .from("trip_bills")
+      .select("id, bill_number, trip_id, source_order_id, undelivered_at")
+      .eq("id", billId)
+      .single();
+    if (!bill) return { error: "Bill not found" };
+    if (!bill.undelivered_at) return { error: "This bill is not marked undelivered" };
+
+    const { data: trip } = await admin.from("van_trips").select("status").eq("id", bill.trip_id).single();
+    if (!trip) return { error: "Trip not found" };
+    if (trip.status !== "in_progress") return { error: `Trip is "${trip.status}" — cannot revert now` };
+
+    // Clear bill's undelivered fields
+    const { error: upErr } = await admin
+      .from("trip_bills")
+      .update({
+        undelivered_at: null,
+        undelivered_reason: null,
+        undelivered_note: null,
+      })
+      .eq("id", billId);
+    if (upErr) return { error: upErr.message };
+
+    // Clear needs_reattach on the source order, but only if there's no OTHER
+    // undelivered bill still pointing at it (paranoia for the unusual case
+    // where the same order was billed twice).
+    if (bill.source_order_id) {
+      const { data: otherUndelivered } = await admin
+        .from("trip_bills")
+        .select("id")
+        .eq("source_order_id", bill.source_order_id)
+        .not("undelivered_at", "is", null)
+        .neq("id", billId)
+        .limit(1);
+      if (!otherUndelivered || otherUndelivered.length === 0) {
+        await admin.from("orders").update({ needs_reattach: false }).eq("id", bill.source_order_id);
+        await admin.from("order_audit_events").insert({
+          order_id: bill.source_order_id,
+          event_type: "undelivered_reverted",
+          actor_id: actor.userId,
+          actor_name: actor.fullName,
+          comment: `Bill ${bill.bill_number} undelivered status reverted`,
+          details: { trip_bill_id: bill.id, bill_number: bill.bill_number },
+        });
+      }
+    }
+
+    revalidatePath(`/trips/${bill.trip_id}`);
+    revalidatePath(`/van/${bill.trip_id}`);
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
