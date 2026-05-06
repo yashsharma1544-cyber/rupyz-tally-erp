@@ -103,31 +103,67 @@ export function VanMobileBilling({
     return s;
   }, [bills]);
 
-  // Per-tab customer pools
+  // Per-tab customer pools.
+  // The pre-order tab sorts pending customers (bill not yet delivered) above
+  // delivered ones, so the lead always sees the work-to-do at the top.
   const preOrderCustomers = useMemo(
-    () => customers.filter(c => preOrderCustomerIds.has(c.id)),
-    [customers, preOrderCustomerIds],
+    () => {
+      const pool = customers.filter(c => preOrderCustomerIds.has(c.id));
+      return pool.sort((a, b) => {
+        const aPending = preOrderByCustomer.has(a.id) ? 0 : 1;
+        const bPending = preOrderByCustomer.has(b.id) ? 0 : 1;
+        if (aPending !== bPending) return aPending - bPending;
+        // Tie-break by name so order is stable
+        return (a.name ?? "").localeCompare(b.name ?? "");
+      });
+    },
+    [customers, preOrderCustomerIds, preOrderByCustomer],
   );
   const walkInCustomers = useMemo(
     () => customers.filter(c => !preOrderCustomerIds.has(c.id)),
     [customers, preOrderCustomerIds],
   );
 
+  // Pagination — 20 customers per page on the Orders tab. Walk-in stays
+  // capped-at-50-unsearched as before (search bypasses cap on walk-in too).
+  const ORDERS_PER_PAGE = 20;
+  const [ordersPage, setOrdersPage] = useState(0);
+
+  // Reset to first page when the source list changes (tab change, search,
+  // bills reload). Never strand the user on page 5 of 2.
+  useEffect(() => { setOrdersPage(0); }, [tab, search, preOrderCustomers.length]);
+
   // Search within active tab.
-  // Pre-order tab is uncapped — every customer with a bill on this trip must
-  // be visible. Walk-in tab is capped to 50 unsearched (~1100 customers if
-  // cross-beat) so the page stays snappy; the lead types to search anyway.
+  // Pre-order tab is paginated at 20/page (every customer reachable via paging).
+  // Walk-in tab is capped to 50 unsearched (~1100 customers if cross-beat) so
+  // the page stays snappy; the lead types to search anyway.
+  const searchedPreOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return preOrderCustomers;
+    return preOrderCustomers.filter(c =>
+      c.name?.toLowerCase().includes(q) ||
+      (c.mobile && c.mobile.includes(q))
+    );
+  }, [preOrderCustomers, search]);
+
+  const totalOrdersPages = Math.max(1, Math.ceil(searchedPreOrders.length / ORDERS_PER_PAGE));
+  const safeOrdersPage = Math.min(ordersPage, totalOrdersPages - 1);
+
   const filteredCustomers = useMemo(() => {
-    const pool = tab === "preorder" ? preOrderCustomers : walkInCustomers;
+    if (tab === "preorder") {
+      const start = safeOrdersPage * ORDERS_PER_PAGE;
+      return searchedPreOrders.slice(start, start + ORDERS_PER_PAGE);
+    }
+    // Walk-in tab unchanged
     const q = search.trim().toLowerCase();
     const filtered = q
-      ? pool.filter(c =>
+      ? walkInCustomers.filter(c =>
           c.name?.toLowerCase().includes(q) ||
           (c.mobile && c.mobile.includes(q))
         )
-      : pool;
-    return tab === "preorder" ? filtered : filtered.slice(0, 50);
-  }, [preOrderCustomers, walkInCustomers, tab, search]);
+      : walkInCustomers;
+    return filtered.slice(0, 50);
+  }, [searchedPreOrders, walkInCustomers, tab, search, safeOrdersPage]);
 
   // Counts for tab badges
   const preOrderPendingCount = preOrderByCustomer.size;
@@ -364,6 +400,34 @@ export function VanMobileBilling({
             </div>
           )}
         </div>
+
+        {/* Pager — Orders tab only, when there are >1 page. Big tap targets
+            for thumbs. */}
+        {tab === "preorder" && totalOrdersPages > 1 && (
+          <div className="flex items-center justify-between gap-2 mt-3 px-1">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safeOrdersPage === 0}
+              onClick={() => setOrdersPage(p => Math.max(0, p - 1))}
+            >
+              ← Prev
+            </Button>
+            <div className="text-2xs text-ink-muted tabular">
+              Page <strong className="text-ink">{safeOrdersPage + 1}</strong> of {totalOrdersPages}
+              {" "}<span className="text-ink-subtle">·</span>{" "}
+              {searchedPreOrders.length} customer{searchedPreOrders.length === 1 ? "" : "s"}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safeOrdersPage >= totalOrdersPages - 1}
+              onClick={() => setOrdersPage(p => Math.min(totalOrdersPages - 1, p + 1))}
+            >
+              Next →
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* End trip — only the lead (or admin) can end. Disabled if undelivered
