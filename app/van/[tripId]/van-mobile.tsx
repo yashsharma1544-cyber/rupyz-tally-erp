@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package, Layers, Flag,
+  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package, Layers, Flag, X, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -21,12 +21,28 @@ import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   confirmPreOrderBill, createSpotBill, createQuickCustomer,
+  markBillUndelivered, revertUndelivered,
 } from "@/app/(app)/trips/bill-actions";
 import { attachOrderToTrip, markTripReturned } from "@/app/(app)/trips/actions";
 
 type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
 type CustomerLite = Pick<Customer, "id" | "name" | "mobile" | "city">;
 type StockRow = { productId: string; productName: string; productUnit: string; loaded: number; sold: number; remaining: number };
+
+// Map enum-like reason codes to user-facing labels
+const REASON_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: "shop_closed",    label: "Shop closed" },
+  { code: "refused",        label: "Customer refused" },
+  { code: "no_stock",       label: "Out of stock on van" },
+  { code: "reschedule",     label: "Will collect later" },
+  { code: "wrong_address",  label: "Wrong address" },
+  { code: "other",          label: "Other" },
+];
+function reasonLabel(code: string | null | undefined): string {
+  if (!code) return "Undelivered";
+  const opt = REASON_OPTIONS.find(o => o.code === code);
+  return opt ? opt.label : code;
+}
 
 export function VanMobileBilling({
   trip, me, customers: initialCustomers, products, crossBeatMode,
@@ -50,6 +66,8 @@ export function VanMobileBilling({
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
   const [showEndTrip, setShowEndTrip] = useState(false);
   const [endingTrip, startEndTrip] = useTransition();
+  const [undeliverFor, setUndeliverFor] = useState<{ billId: string; customerName: string } | null>(null);
+  const [undeliverPending, startUndeliverTransition] = useTransition();
   const router = useRouter();
 
   async function reload() {
@@ -86,11 +104,22 @@ export function VanMobileBilling({
     return s;
   }, [bills]);
 
-  // Map: customerId → undelivered pre-order bill (one customer can have one open pre-order bill per trip in our model)
+  // Map: customerId → still-pending pre-order bill (not delivered, not undelivered, not cancelled)
   const preOrderByCustomer = useMemo(() => {
     const m = new Map<string, TripBill>();
     for (const b of bills) {
-      if (b.bill_type === "pre_order" && !b.is_cancelled && !b.confirmed_at) {
+      if (b.bill_type === "pre_order" && !b.is_cancelled && !b.confirmed_at && !b.undelivered_at) {
+        m.set(b.customer_id, b);
+      }
+    }
+    return m;
+  }, [bills]);
+
+  // Map: customerId → undelivered pre-order bill (lead marked it can't be delivered)
+  const undeliveredByCustomer = useMemo(() => {
+    const m = new Map<string, TripBill>();
+    for (const b of bills) {
+      if (b.bill_type === "pre_order" && !b.is_cancelled && b.undelivered_at) {
         m.set(b.customer_id, b);
       }
     }
@@ -104,20 +133,26 @@ export function VanMobileBilling({
   }, [bills]);
 
   // Per-tab customer pools.
-  // The pre-order tab sorts pending customers (bill not yet delivered) above
-  // delivered ones, so the lead always sees the work-to-do at the top.
+  // The pre-order tab sorts customers in three groups:
+  //   1. Pending (not yet attempted) — top
+  //   2. Delivered — middle
+  //   3. Undelivered (lead marked can't deliver) — bottom
   const preOrderCustomers = useMemo(
     () => {
       const pool = customers.filter(c => preOrderCustomerIds.has(c.id));
+      const groupOrder = (id: string) => {
+        if (preOrderByCustomer.has(id)) return 0;        // pending
+        if (undeliveredByCustomer.has(id)) return 2;     // undelivered (bottom)
+        return 1;                                         // delivered (middle)
+      };
       return pool.sort((a, b) => {
-        const aPending = preOrderByCustomer.has(a.id) ? 0 : 1;
-        const bPending = preOrderByCustomer.has(b.id) ? 0 : 1;
-        if (aPending !== bPending) return aPending - bPending;
-        // Tie-break by name so order is stable
+        const ga = groupOrder(a.id);
+        const gb = groupOrder(b.id);
+        if (ga !== gb) return ga - gb;
         return (a.name ?? "").localeCompare(b.name ?? "");
       });
     },
-    [customers, preOrderCustomerIds, preOrderByCustomer],
+    [customers, preOrderCustomerIds, preOrderByCustomer, undeliveredByCustomer],
   );
   const walkInCustomers = useMemo(
     () => customers.filter(c => !preOrderCustomerIds.has(c.id)),
@@ -360,32 +395,80 @@ export function VanMobileBilling({
             }
 
             // Pre-order customers: rich card with badge + amount.
+            const undelivered = undeliveredByCustomer.get(c.id);
+            const isUndelivered = !!undelivered;
             return (
-              <button
+              <div
                 key={c.id}
-                onClick={() => {
-                  if (preOrder) { setActiveBillId(preOrder.id); setActiveView("preorder"); }
-                  else { setActiveCustomerId(c.id); setActiveView("spot"); }
-                }}
-                className={`w-full text-left bg-paper-card border rounded p-3 flex items-center justify-between ${billed ? "border-ok bg-ok-soft/30" : "border-paper-line"}`}
+                className={`bg-paper-card border rounded p-3 ${billed ? "border-ok bg-ok-soft/30" : isUndelivered ? "border-paper-line opacity-60" : "border-paper-line"}`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-sm truncate">{c.name}</span>
-                    {billed && <CheckCircle2 size={12} className="text-ok shrink-0"/>}
-                    {preOrder && !billed && <Badge variant="warn">Pre-order</Badge>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isUndelivered) return;  // Greyed out: don't open bill
+                    if (preOrder) { setActiveBillId(preOrder.id); setActiveView("preorder"); }
+                    else { setActiveCustomerId(c.id); setActiveView("spot"); }
+                  }}
+                  disabled={isUndelivered}
+                  className="w-full text-left flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`font-medium text-sm truncate ${isUndelivered ? "line-through text-ink-muted" : ""}`}>{c.name}</span>
+                      {billed && <CheckCircle2 size={12} className="text-ok shrink-0"/>}
+                      {preOrder && !billed && !isUndelivered && <Badge variant="warn">Pre-order</Badge>}
+                      {isUndelivered && <Badge variant="danger">Undelivered</Badge>}
+                    </div>
+                    <div className="text-2xs text-ink-muted">{c.mobile} · {c.city}</div>
+                    {out && !billed && !isUndelivered && (
+                      <div className="text-2xs text-warn">Old o/s: {formatINR(out.amount)}</div>
+                    )}
+                    {isUndelivered && (
+                      <div className="text-2xs text-danger mt-0.5">
+                        {reasonLabel(undelivered.undelivered_reason)}
+                        {undelivered.undelivered_note && ` — ${undelivered.undelivered_note}`}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-2xs text-ink-muted">{c.mobile} · {c.city}</div>
-                  {out && !billed && (
-                    <div className="text-2xs text-warn">Old o/s: {formatINR(out.amount)}</div>
-                  )}
-                </div>
-                <div className="text-right">
-                  {preOrder && !billed && (
-                    <div className="text-xs tabular font-medium">{formatINR(preOrder.total_amount)}</div>
-                  )}
-                </div>
-              </button>
+                  <div className="text-right shrink-0">
+                    {preOrder && !billed && !isUndelivered && (
+                      <div className="text-xs tabular font-medium">{formatINR(preOrder.total_amount)}</div>
+                    )}
+                  </div>
+                </button>
+
+                {/* Action footer: Can't deliver (when pending) OR Undo (when undelivered) */}
+                {preOrder && !billed && !isUndelivered && (
+                  <div className="mt-2 pt-2 border-t border-paper-line/70 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setUndeliverFor({ billId: preOrder.id, customerName: c.name })}
+                      className="text-2xs text-ink-muted hover:text-danger inline-flex items-center gap-1 px-1 py-0.5"
+                    >
+                      <X size={10}/> Can&apos;t deliver
+                    </button>
+                  </div>
+                )}
+                {isUndelivered && undelivered && (
+                  <div className="mt-2 pt-2 border-t border-paper-line/70 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!confirm(`Undo undelivered status for ${c.name}? You can deliver again.`)) return;
+                        startUndeliverTransition(async () => {
+                          const res = await revertUndelivered(undelivered.id);
+                          if (res.error) toast.error(res.error);
+                          else { toast.success("Reverted — you can deliver this order"); reload(); }
+                        });
+                      }}
+                      className="text-2xs text-ink-muted hover:text-accent inline-flex items-center gap-1 px-1 py-0.5"
+                      disabled={undeliverPending}
+                    >
+                      <RotateCcw size={10}/> Undo
+                    </button>
+                  </div>
+                )}
+              </div>
             );
           })}
           {filteredCustomers.length === 0 && (
@@ -479,13 +562,23 @@ export function VanMobileBilling({
               )}
             </div>
 
-            {/* Warn if there are unbilled pre-orders */}
+            {/* Warn if there are pre-orders neither delivered nor marked undelivered */}
             {preOrderPendingCount > 0 && (
               <div className="bg-warn-soft border border-warn/30 rounded p-2.5 mb-3 text-2xs text-warn flex items-start gap-1.5">
                 <AlertCircle size={11} className="shrink-0 mt-0.5"/>
                 <div>
-                  <strong>{preOrderPendingCount} pre-order{preOrderPendingCount === 1 ? "" : "s"} not delivered.</strong>
-                  {" "}If shops were closed, that&apos;s OK — office will follow up. Otherwise, deliver them before ending.
+                  <strong>{preOrderPendingCount} pre-order{preOrderPendingCount === 1 ? "" : "s"} not yet handled.</strong>
+                  {" "}Either deliver them or tap &ldquo;Can&apos;t deliver&rdquo; to mark a reason — otherwise office won&apos;t know what happened.
+                </div>
+              </div>
+            )}
+
+            {/* Show undelivered count separately (informational, no warning) */}
+            {undeliveredByCustomer.size > 0 && (
+              <div className="bg-paper-subtle border border-paper-line rounded p-2.5 mb-3 text-2xs text-ink-muted flex items-start gap-1.5">
+                <X size={11} className="shrink-0 mt-0.5"/>
+                <div>
+                  {undeliveredByCustomer.size} marked undelivered. Office will pick these up on the next trip.
                 </div>
               </div>
             )}
@@ -521,6 +614,117 @@ export function VanMobileBilling({
           </div>
         </div>
       )}
+      {/* Undeliver sheet — pick a reason, write a note if Other */}
+      {undeliverFor && (
+        <UndeliverSheet
+          billId={undeliverFor.billId}
+          customerName={undeliverFor.customerName}
+          onClose={() => setUndeliverFor(null)}
+          onDone={() => { setUndeliverFor(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// UNDELIVER SHEET — bottom sheet to pick a reason and submit
+// =============================================================================
+function UndeliverSheet({
+  billId, customerName, onClose, onDone,
+}: {
+  billId: string;
+  customerName: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState<string>("");
+  const [note, setNote] = useState<string>("");
+  const [pending, startTransition] = useTransition();
+
+  const requiresNote = reason === "other";
+  const canSubmit = !!reason && (!requiresNote || note.trim().length > 0);
+
+  function submit() {
+    if (!canSubmit) return;
+    startTransition(async () => {
+      const res = await markBillUndelivered({
+        billId,
+        reason,
+        note: note.trim() || undefined,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${customerName} marked undelivered`);
+      onDone();
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
+      onClick={() => !pending && onClose()}
+    >
+      <div
+        className="bg-paper-card border border-paper-line rounded-t-lg sm:rounded-lg shadow-xl w-full sm:max-w-sm p-4 max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <X size={16} className="text-danger"/>
+          <h2 className="font-semibold">Can&apos;t deliver?</h2>
+        </div>
+        <p className="text-xs text-ink-muted mb-3">
+          Marking <strong>{customerName}</strong> as undelivered. Office will re-attach to next trip.
+        </p>
+
+        <Label className="text-2xs uppercase tracking-wide text-ink-muted">Why?</Label>
+        <div className="space-y-1.5 mt-1.5 mb-3">
+          {REASON_OPTIONS.map(opt => (
+            <button
+              key={opt.code}
+              type="button"
+              onClick={() => setReason(opt.code)}
+              className={`w-full text-left text-sm px-3 py-2 rounded border transition-colors ${
+                reason === opt.code
+                  ? "bg-danger-soft border-danger text-danger font-medium"
+                  : "bg-paper-card border-paper-line hover:border-ink-subtle"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {requiresNote && (
+          <div className="mb-3">
+            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Note (required for &ldquo;Other&rdquo;)</Label>
+            <Textarea
+              className="w-full mt-1"
+              rows={2}
+              placeholder="Briefly explain…"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              autoFocus
+            />
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={pending} className="sm:flex-1">
+            Cancel
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!canSubmit || pending}
+            onClick={submit}
+            className="sm:flex-1 border-danger/40 text-danger hover:bg-danger-soft"
+          >
+            <X size={11}/> {pending ? "Marking…" : "Mark undelivered"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
