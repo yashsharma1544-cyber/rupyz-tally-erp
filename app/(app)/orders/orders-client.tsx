@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, ChevronDown, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -153,9 +154,17 @@ export function OrdersClient({
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const searchParams = useSearchParams();
+
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
-  const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
+  const [tab, setTab] = useState<TabKey>(() => {
+    // If ?tab= is in the URL (e.g., from dashboard task links), use it.
+    const urlTab = searchParams?.get("tab");
+    const validKeys: TabKey[] = ["approval", "dispatch", "van", "transit", "delivered", "rejected", "all"];
+    if (urlTab && (validKeys as string[]).includes(urlTab)) return urlTab as TabKey;
+    return defaultTabForRole(me.role);
+  });
   const [salesmanF, setSalesmanF] = useState<string>("all");
   const [beatF, setBeatF] = useState<string>("all");
   const [statusF, setStatusF] = useState<string>("all");
