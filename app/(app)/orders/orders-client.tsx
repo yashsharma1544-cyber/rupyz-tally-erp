@@ -28,7 +28,7 @@ interface KpiRow {
 }
 
 // Status tabs — each maps a list of underlying app_status values
-type TabKey = "approval" | "dispatch" | "van" | "transit" | "delivered" | "rejected" | "all";
+type TabKey = "approval" | "dispatch" | "loading" | "van" | "transit" | "delivered" | "rejected" | "all";
 
 interface TabDef {
   key: TabKey;
@@ -43,9 +43,12 @@ const TABS: TabDef[] = [
   { key: "approval",  label: "Waiting for approval",   statuses: ["received"],
     emptyHint: "Nothing waiting for your approval. Nice work.",
     icon: AlertCircle,   accent: "warn" },
-  { key: "dispatch",  label: "Approved",  statuses: ["approved", "loading", "partially_dispatched"],
+  { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
     emptyHint: "Nothing to send out right now.",
     icon: PackageCheck,  accent: "accent" },
+  { key: "loading",   label: "Loading",  statuses: ["loading"],
+    emptyHint: "No trucks currently loading.",
+    icon: Truck,         accent: "warn" },
   { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
     emptyHint: "No orders on a VAN trip right now.",
     icon: Route,         accent: "accent" },
@@ -68,6 +71,7 @@ const TABS: TabDef[] = [
 function tabForStatus(s: OrderAppStatus): TabKey | null {
   if (s === "received") return "approval";
   if (s === "approved" || s === "partially_dispatched") return "dispatch";
+  if (s === "loading") return "loading";
   if (s === "on_van_trip") return "van";
   if (s === "dispatched") return "transit";
   if (s === "delivered") return "delivered";
