@@ -106,20 +106,34 @@ LEDGER_REQUEST_XML = """\
 """
 
 
-# Pattern that matches XML-illegal control characters. XML 1.0 allows:
-#   #x9, #xA, #xD, #x20-#xD7FF, #xE000-#xFFFD, #x10000-#x10FFFF
-# Anything else (e.g. \x00-\x08, \x0B, \x0C, \x0E-\x1F) breaks parsing.
-ILLEGAL_XML_RE = re.compile(
+# Patterns for XML-illegal characters.
+#
+# (1) Raw control characters in the byte stream. XML 1.0 allows:
+#       #x9, #xA, #xD, #x20-#xD7FF, #xE000-#xFFFD, #x10000-#x10FFFF
+#     Anything else (e.g. \x00-\x08, \x0B, \x0C, \x0E-\x1F) breaks parsing.
+ILLEGAL_XML_RAW_RE = re.compile(
     r"[\x00-\x08\x0B\x0C\x0E-\x1F]",
+)
+
+# (2) Numeric character references that *encode* an illegal character.
+#     Tally sometimes emits these (e.g. `&#4;`, `&#x4;`, `&#11;`) in narration
+#     or address fields. They pass through the raw scrubber but blow up the
+#     XML parser later. We strip them entirely.
+ILLEGAL_XML_REF_RE = re.compile(
+    r"&#(?:"
+    r"0*(?:[0-8]|1[1-2]|1[4-9]|2[0-9]|3[01])"           # decimal 0-8, 11, 12, 14-31
+    r"|[xX]0*(?:[0-8]|[bBcC]|[eEfF]|1[0-9a-fA-F])"       # hex 0-8, B, C, E, F, 10-1F
+    r");",
 )
 
 
 def scrub_xml(raw: bytes) -> str:
-    """Decode bytes to str and remove XML-illegal control characters.
+    """Decode bytes to str and remove XML-illegal control characters and refs.
 
     Tally occasionally embeds stray control characters (like \\x04) in ledger
-    names, addresses, or narration fields, breaking strict XML parsers. We strip
-    them silently.
+    names, addresses, or narration fields, breaking strict XML parsers. It
+    also sometimes emits numeric character references for those same illegal
+    codepoints (e.g. `&#4;`). We strip both forms silently.
     """
     # Decode as UTF-8 with fallback to latin-1 (Tally is loose about encoding)
     try:
@@ -128,10 +142,17 @@ def scrub_xml(raw: bytes) -> str:
         text = raw.decode("latin-1", errors="replace")
         log.warning("Tally response was not valid UTF-8; fell back to latin-1.")
 
-    cleaned = ILLEGAL_XML_RE.sub("", text)
-    if cleaned != text:
-        log.info("Stripped illegal control characters from Tally response.")
-    return cleaned
+    raw_count = len(ILLEGAL_XML_RAW_RE.findall(text))
+    if raw_count:
+        text = ILLEGAL_XML_RAW_RE.sub("", text)
+        log.info("Stripped %d raw illegal control character(s) from Tally response.", raw_count)
+
+    ref_count = len(ILLEGAL_XML_REF_RE.findall(text))
+    if ref_count:
+        text = ILLEGAL_XML_REF_RE.sub("", text)
+        log.info("Stripped %d illegal numeric character reference(s) from Tally response.", ref_count)
+
+    return text
 
 
 def query_tally(tally_url: str, body_xml: str, timeout: int = 60) -> str:
@@ -184,14 +205,21 @@ def extract_ledgers(xml_text: str) -> list[dict]:
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
-        # Save the malformed response for debugging
-        debug_path = Path(__file__).parent / "tally_response_debug.xml"
-        debug_path.write_text(xml_text, encoding="utf-8")
-        raise SystemExit(
-            f"Tally returned malformed XML: {e}\n"
-            f"Response saved to {debug_path} for inspection. "
-            f"Sometimes a ledger has special chars that need cleaning."
-        )
+        # Last-resort cleanup: nuke any remaining unparseable numeric refs
+        # (e.g. weird codepoints we didn't account for) and try one more time.
+        salvaged = re.sub(r"&#(?:[xX][0-9a-fA-F]+|\d+);", "", xml_text)
+        try:
+            root = ET.fromstring(salvaged)
+            log.warning("Strict parse failed; salvaged by stripping ALL numeric refs. Some narration text may be missing.")
+        except ET.ParseError:
+            # Save the malformed response for debugging
+            debug_path = Path(__file__).parent / "tally_response_debug.xml"
+            debug_path.write_text(xml_text, encoding="utf-8")
+            raise SystemExit(
+                f"Tally returned malformed XML: {e}\n"
+                f"Response saved to {debug_path} for inspection. "
+                f"Sometimes a ledger has special chars that need cleaning."
+            )
 
     ledgers = []
     for ledger in root.iter("LEDGER"):
