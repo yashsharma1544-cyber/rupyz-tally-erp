@@ -157,6 +157,8 @@ export interface Order {
   is_edited: boolean;
   edited_at: string | null;
   edited_by: string | null;
+  /** Set when a pre-order bill failed delivery on a trip; admin will see this as a re-attach suggestion when creating the next trip on the order's beat. */
+  needs_reattach: boolean;
   created_at: string;
   updated_at: string;
   // Joined
@@ -395,6 +397,11 @@ export interface TripBill {
   notes: string | null;
   is_cancelled: boolean;
   confirmed_at: string | null;
+  /** Lead marked the pre-order undelivered. Mutually exclusive with confirmed_at and is_cancelled. */
+  undelivered_at: string | null;
+  /** Reason: shop_closed | refused | no_stock | reschedule | wrong_address | other */
+  undelivered_reason: string | null;
+  undelivered_note: string | null;
   created_by: string | null;
   created_at: string;
   // Joined
