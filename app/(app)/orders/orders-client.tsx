@@ -153,13 +153,6 @@ export function OrdersClient({
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Filters are hidden by default — most days the tab pills do the job. Revealed
-  // by clicking "Filters". When any advanced filter is non-default, the panel
-  // auto-opens so users can see what's filtering their results.
-  const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "today";
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
-
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [tab, setTab] = useState<TabKey>(defaultTabForRole(me.role));
@@ -167,6 +160,13 @@ export function OrdersClient({
   const [beatF, setBeatF] = useState<string>("all");
   const [statusF, setStatusF] = useState<string>("all");
   const [dateF, setDateF] = useState<string>("today");
+
+  // Filters are hidden by default — most days the tab pills do the job. Revealed
+  // by clicking "Filters". When any advanced filter is non-default, the panel
+  // auto-opens so users can see what's filtering their results.
+  const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "today";
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
 
   // KPIs per status group (count + kg + amount)
   type KpiAgg = { count: number; kg: number; amount: number };
