@@ -32,6 +32,7 @@ import { updateCustomerBeat } from "../customers/actions";
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
     case "received": return "warn";
+    case "loading":  return "warn";
     case "approved":
     case "on_van_trip":
     case "partially_dispatched":
@@ -40,6 +41,22 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
     case "rejected":
     case "cancelled": return "danger";
     case "closed": return "neutral";
+  }
+}
+
+// Plain-language labels — keep in sync with orders-client.tsx
+function statusLabel(s: OrderAppStatus): string {
+  switch (s) {
+    case "received":              return "Waiting";
+    case "approved":              return "Approved";
+    case "loading":               return "Loading";
+    case "on_van_trip":           return "On VAN";
+    case "partially_dispatched":  return "Partly sent";
+    case "dispatched":            return "Sent";
+    case "delivered":             return "Done";
+    case "rejected":              return "Rejected";
+    case "cancelled":             return "Cancelled";
+    case "closed":                return "Closed";
   }
 }
 
@@ -284,7 +301,7 @@ function OrderDrawerInner({
             <div className="flex items-center gap-2">
               <SheetTitle className="font-mono">#{order.rupyz_order_id}</SheetTitle>
               {order.is_edited && <Badge variant="warn">edited</Badge>}
-              <Badge variant={statusBadgeVariant(order.app_status)}>{order.app_status.replace(/_/g, " ")}</Badge>
+              <Badge variant={statusBadgeVariant(order.app_status)}>{statusLabel(order.app_status)}</Badge>
             </div>
             <SheetDescription>
               Placed {new Date(order.rupyz_created_at).toLocaleString("en-IN")} · {order.source}
@@ -546,7 +563,7 @@ function CurrentTab({
         <div className="flex items-center gap-3">
           <div>
             <div className="text-2xs uppercase tracking-wide text-ink-subtle">App status</div>
-            <div className="text-sm font-medium mt-0.5">{order.app_status.replace(/_/g, " ")}</div>
+            <div className="text-sm font-medium mt-0.5">{statusLabel(order.app_status)}</div>
           </div>
           <div className="border-l border-paper-line pl-3">
             <div className="text-2xs uppercase tracking-wide text-ink-subtle">Rupyz status</div>
