@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, type LucideIcon } from "lucide-react";
+import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, ChevronDown, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import type { Order, Salesman, Beat, OrderAppStatus, AppUser } from "@/lib/types
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { OrderDrawer } from "./order-drawer";
-import { bulkApproveOrders } from "./actions";
+import { bulkApproveOrders, approveOrder, rejectOrder, cancelOrder } from "./actions";
 import { bulkAttachOrdersToTrip, listAllActiveTrips } from "../trips/actions";
 
 const PAGE_SIZE = 50;
@@ -39,19 +39,19 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { key: "approval",  label: "Pending Approval",   statuses: ["received"],
-    emptyHint: "No orders waiting for approval. Nice work.",
+  { key: "approval",  label: "Waiting for approval",   statuses: ["received"],
+    emptyHint: "Nothing waiting for your approval. Nice work.",
     icon: AlertCircle,   accent: "warn" },
-  { key: "dispatch",  label: "Ready to Dispatch",  statuses: ["approved", "partially_dispatched"],
-    emptyHint: "Nothing to dispatch right now.",
+  { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
+    emptyHint: "Nothing to send out right now.",
     icon: PackageCheck,  accent: "accent" },
-  { key: "van",       label: "On VAN Trip",        statuses: ["on_van_trip"],
+  { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
     emptyHint: "No orders on a VAN trip right now.",
     icon: Route,         accent: "accent" },
-  { key: "transit",   label: "In Transit",         statuses: ["dispatched"],
+  { key: "transit",   label: "Dispatched",         statuses: ["dispatched"],
     emptyHint: "No deliveries on the road right now.",
     icon: Truck,         accent: "accent" },
-  { key: "delivered", label: "Delivered",          statuses: ["delivered"],
+  { key: "delivered", label: "Done",          statuses: ["delivered"],
     emptyHint: "No completed orders match your filters.",
     icon: CheckCircle2,  accent: "ok" },
   { key: "rejected",  label: "Rejected",           statuses: ["rejected", "cancelled"],
@@ -103,8 +103,19 @@ function statusOptionsForTab(tab: TabKey): OrderAppStatus[] {
   return def.statuses.length > 1 ? def.statuses : [];
 }
 
+// Plain-language labels — everywhere we show a status to a user, route through here.
 function statusLabel(s: OrderAppStatus): string {
-  return s.replace(/_/g, " ");
+  switch (s) {
+    case "received":              return "Waiting";
+    case "approved":              return "Approved";
+    case "on_van_trip":           return "On VAN";
+    case "partially_dispatched":  return "Partly sent";
+    case "dispatched":            return "Sent";
+    case "delivered":             return "Done";
+    case "rejected":              return "Rejected";
+    case "cancelled":             return "Cancelled";
+    case "closed":                return "Closed";
+  }
 }
 
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
@@ -141,6 +152,13 @@ export function OrdersClient({
   // selectionMode flips on when user enters bulk mode, off when they leave or clear.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Filters are hidden by default — most days the tab pills do the job. Revealed
+  // by clicking "Filters". When any advanced filter is non-default, the panel
+  // auto-opens so users can see what's filtering their results.
+  const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "today";
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
 
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -500,68 +518,120 @@ export function OrdersClient({
         ))}
       </div>
 
-      {/* Filter bar */}
-      <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-full sm:min-w-[220px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order # or customer name…" className="pl-8" />
+      {/* Big primary action callout — surfaces the most likely action for the
+          current tab so new users don't have to discover bulk select. */}
+      <PrimaryActionCallout
+        tab={tab}
+        kpis={kpis}
+        meRole={me.role}
+        onApproveAll={async () => {
+          // Switch to bulk mode + approve all matching the current filter
+          setSelectionMode(true);
+          // tiny delay so selection mode UI settles
+          await new Promise(r => setTimeout(r, 40));
+          await selectAllMatchingFilter();
+          // small delay for state propagation
+          await new Promise(r => setTimeout(r, 40));
+          handleBulkApprove();
+        }}
+        onAttachAll={async () => {
+          setSelectionMode(true);
+          await new Promise(r => setTimeout(r, 40));
+          await selectAllMatchingFilter();
+          await new Promise(r => setTimeout(r, 40));
+          startBulkAttach();
+        }}
+      />
+
+      {/* Filter bar — basic by default, advanced revealed on click */}
+      <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-full sm:min-w-[220px]">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by order # or customer name…" className="pl-8" />
+          </div>
+
+          <Button
+            variant={showAdvanced || advFilterActive ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowAdvanced(s => !s)}
+          >
+            <SlidersHorizontal size={11}/> Filters
+            {advFilterActive && <span className="ml-1 bg-paper-card text-accent rounded-full text-2xs px-1.5">●</span>}
+          </Button>
+
+          <Button
+            variant={tab === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTab(tab === "all" ? defaultTabForRole(me.role) : "all")}
+          >
+            {tab === "all" ? "Showing all" : `All (${kpis.all.count})`}
+          </Button>
+
+          {(["admin", "approver", "van_lead", "dispatch"].includes(me.role)) && (
+            <Button
+              variant={selectionMode ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                if (selectionMode) exitSelectionMode();
+                else setSelectionMode(true);
+              }}
+            >
+              {selectionMode ? <><X size={11}/> Exit bulk mode</> : <><CheckSquare size={11}/> Bulk select</>}
+            </Button>
+          )}
         </div>
 
-        <Select value={salesmanF} onValueChange={setSalesmanF}>
-          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Salesman" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All salesmen</SelectItem>
-            {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {showAdvanced && (
+          <div className="mt-3 pt-3 border-t border-paper-line flex flex-wrap items-center gap-2">
+            <Select value={salesmanF} onValueChange={setSalesmanF}>
+              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Salesman" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All salesmen</SelectItem>
+                {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
 
-        <Select value={beatF} onValueChange={setBeatF}>
-          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Beat" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All beats</SelectItem>
-            {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+            <Select value={beatF} onValueChange={setBeatF}>
+              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Beat" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All beats</SelectItem>
+                {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
 
-        <Select value={statusF} onValueChange={setStatusF}>
-          <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            {statusOptionsForTab(tab).map(s => (
-              <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Select value={statusF} onValueChange={setStatusF}>
+              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {statusOptionsForTab(tab).map(s => (
+                  <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select value={dateF} onValueChange={setDateF}>
-          <SelectTrigger className="flex-1 min-w-[120px] sm:flex-none sm:w-[140px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="today">Today</SelectItem>
-            <SelectItem value="7d">Last 7 days</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-            <SelectItem value="all">All time</SelectItem>
-          </SelectContent>
-        </Select>
+            <Select value={dateF} onValueChange={setDateF}>
+              <SelectTrigger className="flex-1 min-w-[120px] sm:flex-none sm:w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="all">All time</SelectItem>
+              </SelectContent>
+            </Select>
 
-        <Button
-          variant={tab === "all" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTab(tab === "all" ? defaultTabForRole(me.role) : "all")}
-        >
-          {tab === "all" ? "Showing all" : `View all (${kpis.all.count})`}
-        </Button>
-
-        {(["admin", "approver", "van_lead", "dispatch"].includes(me.role)) && (
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              if (selectionMode) exitSelectionMode();
-              else setSelectionMode(true);
-            }}
-          >
-            {selectionMode ? <><X size={11}/> Exit bulk mode</> : <><CheckSquare size={11}/> Bulk select</>}
-          </Button>
+            {advFilterActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSalesmanF("all"); setBeatF("all"); setStatusF("all"); setDateF("today");
+                }}
+              >
+                <X size={11}/> Clear filters
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -583,23 +653,21 @@ export function OrdersClient({
                     />
                   </th>
                 )}
-                <th className="px-3 py-2 font-medium">Order #</th>
-                <th className="px-3 py-2 font-medium">Date</th>
-                <th className="px-3 py-2 font-medium">Customer</th>
-                <th className="px-3 py-2 font-medium">Beat</th>
-                <th className="px-3 py-2 font-medium">Salesman</th>
-                <th className="px-3 py-2 font-medium text-right">Total</th>
-                <th className="px-3 py-2 font-medium">Payment</th>
-                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2.5 font-medium">Order #</th>
+                <th className="px-3 py-2.5 font-medium">Date</th>
+                <th className="px-3 py-2.5 font-medium">Customer</th>
+                <th className="px-3 py-2.5 font-medium">Salesman</th>
+                <th className="px-3 py-2.5 font-medium text-right">Total</th>
+                <th className="px-3 py-2.5 font-medium">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}><td colSpan={selectionMode ? 9 : 8} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={selectionMode ? 7 : 6} className="px-3 py-3"><div className="h-4 bg-paper-subtle rounded animate-pulse" /></td></tr>
                 ))
               ) : rows.length === 0 ? (
-                <tr><td colSpan={selectionMode ? 9 : 8} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
+                <tr><td colSpan={selectionMode ? 7 : 6} className="px-3 py-12 text-center text-ink-muted">{activeTabDef.emptyHint}</td></tr>
               ) : (
                 rows.map((o) => {
                   const isSelected = selectedIds.has(o.id);
@@ -628,42 +696,24 @@ export function OrdersClient({
                           />
                         </td>
                       )}
-                      <td className="px-3 py-2 font-mono text-xs">{o.rupyz_order_id}{o.is_edited && <Badge variant="warn" className="ml-1.5">edited</Badge>}</td>
-                    <td className="px-3 py-2 tabular text-ink-muted">
+                      <td className="px-3 py-3 font-mono text-xs">{o.rupyz_order_id}{o.is_edited && <Badge variant="warn" className="ml-1.5">edited</Badge>}</td>
+                    <td className="px-3 py-3 tabular text-ink-muted">
                       {new Date(o.rupyz_created_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-3">
                       <div className="font-medium">{o.customer?.name ?? <span className="italic text-ink-subtle">unknown</span>}</div>
                       <div className="text-2xs text-ink-subtle">{o.customer?.city ?? ""}</div>
                     </td>
-                    <td className="px-3 py-2">
-                      {o.customer?.beat?.name ? (
-                        <span className="text-ink">
-                          {o.customer.beat.name}
-                          {o.customer.beat_overridden_at && (
-                            <span
-                              className="text-warn ml-0.5 cursor-help"
-                              title={`Beat manually set on ${new Date(o.customer.beat_overridden_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
-                            >
-                              *
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="italic text-ink-subtle">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-ink-muted">
+                    <td className="px-3 py-3 text-ink-muted">
                       {o.salesman?.name ?? <span className="italic text-ink-subtle">{o.rupyz_created_by_name ?? "—"}</span>}
                     </td>
-                    <td className="px-3 py-2 text-right tabular font-medium">{formatINR(o.total_amount)}</td>
-                    <td className="px-3 py-2 text-2xs text-ink-muted">
-                      {o.payment_option_check === "CREDIT_DAYS" ? `${o.remaining_payment_days ?? "?"}d credit`
-                        : o.payment_option_check === "PAY_ON_DELIVERY" ? "COD"
-                        : (o.payment_option_check ?? "—")}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge variant={statusBadgeVariant(o.app_status)}>{o.app_status.replace(/_/g, " ")}</Badge>
+                    <td className="px-3 py-3 text-right tabular font-medium">{formatINR(o.total_amount)}</td>
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <StatusBadgeAction
+                        order={o}
+                        meRole={me.role}
+                        onChanged={() => setReloadKey(k => k + 1)}
+                      />
                     </td>
                   </tr>
                   );
@@ -853,4 +903,245 @@ function formatINRcompact(amt: number): string {
   if (amt >= 100000)   return `₹${(amt / 100000).toFixed(1)}L`;
   if (amt >= 1000)     return `₹${(amt / 1000).toFixed(1)}k`;
   return `₹${Math.round(amt)}`;
+}
+
+// =============================================================================
+// INLINE STATUS BADGE
+//
+// Click the status pill in a row to change it without opening the drawer.
+//
+// Behavior depends on the order's current status and the user's role:
+//   - received: Approve / Reject (admin, approver) — confirm dialog
+//   - approved: Cancel order (admin, approver) — confirm with reason
+//   - everything else: badge is read-only; user opens the drawer for changes
+//
+// Reject/Cancel collect a reason inline (small textarea below the buttons).
+// =============================================================================
+
+interface StatusBadgeActionProps {
+  order: Order;
+  meRole: string;
+  onChanged: () => void;
+}
+
+function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState<null | "approve" | "reject" | "cancel">(null);
+  const [reason, setReason] = useState("");
+
+  const isApprover = ["admin", "approver"].includes(meRole);
+
+  // Compute available actions for this row's status
+  const canApprove = isApprover && order.app_status === "received";
+  const canReject  = isApprover && order.app_status === "received";
+  const canCancel  = isApprover && order.app_status === "approved";
+
+  const hasActions = canApprove || canReject || canCancel;
+
+  function close() {
+    setOpen(false);
+    setConfirming(null);
+    setReason("");
+  }
+
+  function doApprove() {
+    startTransition(async () => {
+      const res = await approveOrder(order.id);
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Order #${order.rupyz_order_id} approved`); close(); onChanged(); }
+    });
+  }
+  function doReject() {
+    if (!reason.trim()) { toast.error("A reason is required to reject."); return; }
+    startTransition(async () => {
+      const res = await rejectOrder(order.id, reason.trim());
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Order #${order.rupyz_order_id} rejected`); close(); onChanged(); }
+    });
+  }
+  function doCancel() {
+    if (!reason.trim()) { toast.error("A reason is required to cancel."); return; }
+    startTransition(async () => {
+      const res = await cancelOrder(order.id, reason.trim());
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Order #${order.rupyz_order_id} cancelled`); close(); onChanged(); }
+    });
+  }
+
+  // Read-only badge — no actions available
+  if (!hasActions) {
+    return <Badge variant={statusBadgeVariant(order.app_status)}>{statusLabel(order.app_status)}</Badge>;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        className="inline-flex items-center gap-1 group"
+        aria-label={`Change status of order ${order.rupyz_order_id}`}
+      >
+        <Badge variant={statusBadgeVariant(order.app_status)} className="cursor-pointer group-hover:opacity-80 transition-opacity">
+          {statusLabel(order.app_status)}
+        </Badge>
+        <ChevronDown size={11} className="text-ink-subtle group-hover:text-ink-muted transition-colors" />
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-[2px] flex items-center justify-center px-4"
+          onClick={(e) => { e.stopPropagation(); close(); }}
+        >
+          <div
+            className="bg-paper-card border border-paper-line rounded-md shadow-xl max-w-sm w-full p-4"
+            onClick={e => e.stopPropagation()}
+          >
+            {!confirming && (
+              <>
+                <div className="mb-1 text-2xs uppercase tracking-wide text-ink-muted">
+                  Order #{order.rupyz_order_id}
+                </div>
+                <div className="font-semibold mb-3">{order.customer?.name ?? "—"}</div>
+
+                <div className="text-xs text-ink-muted mb-2">Change status to:</div>
+                <div className="flex flex-col gap-2">
+                  {canApprove && (
+                    <Button onClick={() => setConfirming("approve")} disabled={pending} className="w-full justify-start">
+                      <CheckCircle2 size={13}/> Approve
+                    </Button>
+                  )}
+                  {canReject && (
+                    <Button variant="outline" onClick={() => setConfirming("reject")} disabled={pending} className="w-full justify-start">
+                      <XCircle size={13}/> Reject
+                    </Button>
+                  )}
+                  {canCancel && (
+                    <Button variant="outline" onClick={() => setConfirming("cancel")} disabled={pending} className="w-full justify-start">
+                      <XCircle size={13}/> Cancel order
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={close} disabled={pending} className="w-full">
+                    Close
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {confirming === "approve" && (
+              <>
+                <div className="font-semibold mb-2">Approve this order?</div>
+                <p className="text-xs text-ink-muted mb-3">
+                  Order #{order.rupyz_order_id} for <strong>{order.customer?.name ?? "—"}</strong> ({formatINR(order.total_amount)}) will be marked approved and ready to send out.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
+                  <Button onClick={doApprove} disabled={pending}>
+                    <CheckCircle2 size={13}/> {pending ? "Approving…" : "Yes, approve"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {(confirming === "reject" || confirming === "cancel") && (
+              <>
+                <div className="font-semibold mb-2">
+                  {confirming === "reject" ? "Reject this order?" : "Cancel this order?"}
+                </div>
+                <p className="text-xs text-ink-muted mb-3">
+                  Order #{order.rupyz_order_id} for <strong>{order.customer?.name ?? "—"}</strong>.
+                  {" "}
+                  {confirming === "cancel" && "If this order is on a trip, that trip's bills will be cancelled too."}
+                </p>
+                <label className="text-2xs uppercase tracking-wide text-ink-muted">Reason</label>
+                <textarea
+                  className="w-full mt-1 mb-3 border border-paper-line rounded p-2 text-sm bg-paper resize-none"
+                  rows={3}
+                  placeholder={confirming === "reject" ? "e.g. Wrong rate, customer asked to amend" : "e.g. Customer cancelled by phone"}
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
+                  <Button
+                    variant={confirming === "reject" ? "outline" : "outline"}
+                    onClick={confirming === "reject" ? doReject : doCancel}
+                    disabled={pending || !reason.trim()}
+                  >
+                    <XCircle size={13}/> {pending ? "Working…" : (confirming === "reject" ? "Yes, reject" : "Yes, cancel")}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// =============================================================================
+// PRIMARY ACTION CALLOUT
+// Surfaces the most likely action for the current tab, so basic users don't
+// have to discover bulk select. Only shows when there's actually work to do.
+// =============================================================================
+
+function PrimaryActionCallout({
+  tab, kpis, meRole, onApproveAll, onAttachAll,
+}: {
+  tab: TabKey;
+  kpis: Record<TabKey, { count: number; kg: number; amount: number }>;
+  meRole: string;
+  onApproveAll: () => void;
+  onAttachAll: () => void;
+}) {
+  const isApprover = ["admin", "approver"].includes(meRole);
+  const isVanLead = ["admin", "van_lead"].includes(meRole);
+
+  // Approve all — only on the approval tab when there's pending work
+  if (tab === "approval" && isApprover && kpis.approval.count > 0) {
+    return (
+      <div className="bg-warn-soft border border-warn/40 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <AlertCircle size={18} className="text-warn shrink-0"/>
+          <div>
+            <div className="font-semibold text-sm">
+              {kpis.approval.count} order{kpis.approval.count === 1 ? "" : "s"} waiting for your approval
+            </div>
+            <div className="text-2xs text-ink-muted">
+              Click below to approve them all in one go, or click any row to handle one at a time.
+            </div>
+          </div>
+        </div>
+        <Button onClick={onApproveAll} size="sm" className="shrink-0">
+          <CheckCircle2 size={13}/> Approve all
+        </Button>
+      </div>
+    );
+  }
+
+  // Add to active trip — on the dispatch tab for VAN leads/admin
+  if (tab === "dispatch" && isVanLead && kpis.dispatch.count > 0) {
+    return (
+      <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <PackageCheck size={18} className="text-accent shrink-0"/>
+          <div>
+            <div className="font-semibold text-sm">
+              {kpis.dispatch.count} order{kpis.dispatch.count === 1 ? "" : "s"} approved and ready to send
+            </div>
+            <div className="text-2xs text-ink-muted">
+              Add them all to an active VAN trip, or click any row for other options.
+            </div>
+          </div>
+        </div>
+        <Button onClick={onAttachAll} size="sm" variant="outline" className="shrink-0">
+          <Truck size={13}/> Add all to VAN trip
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
 }
