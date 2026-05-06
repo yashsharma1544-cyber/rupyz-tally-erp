@@ -106,12 +106,18 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           toast.error(`Upload prep failed: ${uploadInfo.error}`);
           return;
         }
+        // After the guard, narrow to success branch
+        if (!("ok" in uploadInfo) || !uploadInfo.objectName || !uploadInfo.token) {
+          toast.error("Upload prep returned an unexpected response");
+          return;
+        }
+        const { objectName, token } = uploadInfo;
 
         // 3. Upload photo to Supabase storage via signed URL
         const supabase = createClient();
         const { error: upErr } = await supabase.storage
           .from("pod-photos")
-          .uploadToSignedUrl(uploadInfo.objectName, uploadInfo.token, photoFile, {
+          .uploadToSignedUrl(objectName, token, photoFile, {
             contentType: photoFile.type || "image/jpeg",
           });
         if (upErr) {
@@ -120,7 +126,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         }
 
         // 4. Build public URL for the uploaded photo
-        const { data: urlData } = supabase.storage.from("pod-photos").getPublicUrl(uploadInfo.objectName);
+        const { data: urlData } = supabase.storage.from("pod-photos").getPublicUrl(objectName);
         const photoUrl = urlData.publicUrl;
 
         // 5. Mark dispatch delivered
