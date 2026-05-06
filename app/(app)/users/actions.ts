@@ -64,13 +64,9 @@ export async function setUserRole(userId: string, role: UserRole) {
 
 const DRIVER_EMAIL_DOMAIN = "drivers.sushil.local";
 
-export function driverPhoneToEmail(phone: string): string {
+function driverPhoneToEmail(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return `${digits}@${DRIVER_EMAIL_DOMAIN}`;
-}
-
-export function isDriverEmail(email: string): boolean {
-  return email.toLowerCase().endsWith(`@${DRIVER_EMAIL_DOMAIN}`);
 }
 
 export async function createDriver(formData: FormData) {
