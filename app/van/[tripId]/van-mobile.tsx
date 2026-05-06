@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package, Layers,
+  Search, ArrowLeft, Plus, Trash2, AlertCircle, CheckCircle2, IndianRupee, Receipt, Package, Layers, Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -21,7 +22,7 @@ import { toast } from "sonner";
 import {
   confirmPreOrderBill, createSpotBill, createQuickCustomer,
 } from "@/app/(app)/trips/bill-actions";
-import { attachOrderToTrip } from "@/app/(app)/trips/actions";
+import { attachOrderToTrip, markTripReturned } from "@/app/(app)/trips/actions";
 
 type ProductLite = Pick<Product, "id" | "name" | "unit" | "base_price" | "mrp" | "gst_percent">;
 type CustomerLite = Pick<Customer, "id" | "name" | "mobile" | "city">;
@@ -47,6 +48,9 @@ export function VanMobileBilling({
   const [activeView, setActiveView] = useState<"list" | "preorder" | "spot" | "newcustomer" | "stock" | "attachorder">("list");
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
+  const [showEndTrip, setShowEndTrip] = useState(false);
+  const [endingTrip, startEndTrip] = useTransition();
+  const router = useRouter();
 
   async function reload() {
     const [{ data: bl }, { data: li }, { data: kp }, { data: out }] = await Promise.all([
@@ -362,9 +366,97 @@ export function VanMobileBilling({
         </div>
       </div>
 
+      {/* End trip — only the lead (or admin) can end. Disabled if undelivered
+          pre-orders remain, but with a warning rather than a hard block since
+          customers occasionally skip days. */}
+      {(me.id === trip.lead_id || me.role === "admin") && (
+        <div className="px-1 pt-2 pb-1">
+          <Button
+            variant="outline"
+            className="w-full border-warn/40 text-warn hover:bg-warn-soft"
+            onClick={() => setShowEndTrip(true)}
+          >
+            <Flag size={12}/> End trip
+          </Button>
+        </div>
+      )}
+
       <div className="text-2xs text-center text-ink-subtle py-3">
         {me.full_name} · {bills.length} bill{bills.length !== 1 ? "s" : ""} captured
       </div>
+
+      {/* End-trip confirmation sheet */}
+      {showEndTrip && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
+          onClick={() => !endingTrip && setShowEndTrip(false)}
+        >
+          <div
+            className="bg-paper-card border border-paper-line rounded-t-lg sm:rounded-lg shadow-xl w-full sm:max-w-sm p-4 max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Flag size={16} className="text-warn"/>
+              <h2 className="font-semibold">End this trip?</h2>
+            </div>
+
+            <p className="text-sm text-ink-muted mb-3">
+              Once ended, you can&apos;t add more bills. Office will reconcile your cash and stock from the desktop.
+            </p>
+
+            {/* Summary */}
+            <div className="bg-paper-subtle/50 border border-paper-line rounded p-2.5 text-xs space-y-1 mb-3">
+              <div className="flex justify-between"><span className="text-ink-muted">Bills captured</span><strong className="tabular">{bills.filter(b => !b.is_cancelled && b.confirmed_at).length}</strong></div>
+              {kpis && (
+                <>
+                  <div className="flex justify-between"><span className="text-ink-muted">Cash collected</span><strong className="tabular">{formatINR(kpis.cash_bills_total + kpis.outstanding_collected)}</strong></div>
+                  <div className="flex justify-between"><span className="text-ink-muted">Stock left on van</span><strong className="tabular">{totalRemainingQty.toFixed(0)}</strong></div>
+                </>
+              )}
+            </div>
+
+            {/* Warn if there are unbilled pre-orders */}
+            {preOrderPendingCount > 0 && (
+              <div className="bg-warn-soft border border-warn/30 rounded p-2.5 mb-3 text-2xs text-warn flex items-start gap-1.5">
+                <AlertCircle size={11} className="shrink-0 mt-0.5"/>
+                <div>
+                  <strong>{preOrderPendingCount} pre-order{preOrderPendingCount === 1 ? "" : "s"} not delivered.</strong>
+                  {" "}If shops were closed, that&apos;s OK — office will follow up. Otherwise, deliver them before ending.
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setShowEndTrip(false)}
+                disabled={endingTrip}
+                className="sm:flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                className="sm:flex-1 border-warn/40 text-warn hover:bg-warn-soft"
+                disabled={endingTrip}
+                onClick={() => {
+                  startEndTrip(async () => {
+                    const res = await markTripReturned(trip.id);
+                    if (res.error) {
+                      toast.error(res.error);
+                      return;
+                    }
+                    toast.success("Trip ended. Office will reconcile.");
+                    router.push("/van");
+                  });
+                }}
+              >
+                <Flag size={11}/> {endingTrip ? "Ending…" : "Yes, end trip"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
