@@ -21,7 +21,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const fromPath = searchParams.get("from") || "/dashboard";
 
-  const [email, setEmail] = useState("");
+  const [emailOrPhone, setEmailOrPhone] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -29,6 +29,12 @@ function LoginForm() {
     e.preventDefault();
     setBusy(true);
     const supabase = createClient();
+    // If input looks like a phone number (digits only, 10+), treat as driver login
+    // and convert to synthetic email under the hood. Otherwise sign in with email as-is.
+    const trimmed = emailOrPhone.trim();
+    const digits = trimmed.replace(/\D/g, "");
+    const looksLikePhone = digits.length >= 10 && !trimmed.includes("@");
+    const email = looksLikePhone ? `${digits}@drivers.sushil.local` : trimmed.toLowerCase();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) {
@@ -55,17 +61,19 @@ function LoginForm() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="emailOrPhone">Email or phone</Label>
               <Input
-                id="email"
-                type="email"
-                autoComplete="email"
+                id="emailOrPhone"
+                type="text"
+                autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={emailOrPhone}
+                onChange={(e) => setEmailOrPhone(e.target.value)}
                 className="mt-1.5"
                 disabled={busy}
+                placeholder="email@example.com or 9876543210"
               />
+              <p className="text-2xs text-ink-muted mt-1">Drivers: enter your phone number.</p>
             </div>
             <div>
               <Label htmlFor="password">Password</Label>

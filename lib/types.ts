@@ -1,6 +1,6 @@
 // Manual types matching the Supabase schema. Generate with `supabase gen types` later if you want to auto-sync.
 
-export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman" | "van_lead" | "van_helper";
+export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman" | "van_lead" | "van_helper" | "driver";
 
 export interface Salesman {
   id: string;

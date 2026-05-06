@@ -108,6 +108,8 @@ export async function createDispatch(
     vehicleNumber?: string;
     driverName?: string;
     driverPhone?: string;
+    /** FK to app_users.id when a registered driver is picked. */
+    driverUserId?: string;
     notes?: string;
   } = {},
 ) {
@@ -182,6 +184,7 @@ export async function createDispatch(
       vehicle_number: meta.vehicleNumber || null,
       driver_name: meta.driverName || null,
       driver_phone: meta.driverPhone || null,
+      driver_user_id: meta.driverUserId || null,
       notes: meta.notes || null,
       total_qty: totalQty,
       total_amount: totalAmount,
@@ -260,7 +263,7 @@ export async function markDelivered(
   },
 ) {
   try {
-    const actor = await requireRoles(["admin", "dispatch", "delivery"]);
+    const actor = await requireRoles(["admin", "dispatch", "delivery", "driver"]);
     const admin = createAdminClient();
 
     const { data: d } = await admin.from("dispatches")
@@ -374,6 +377,7 @@ export async function bulkDispatchByBeat(input: {
   vehicleNumber: string;
   driverName: string;
   driverPhone?: string;
+  driverUserId?: string;
   notes?: string;
 }) {
   try {
@@ -419,6 +423,7 @@ export async function bulkDispatchByBeat(input: {
         vehicleNumber: input.vehicleNumber.trim(),
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
+        driverUserId: input.driverUserId,
         notes: input.notes?.trim() || undefined,
       });
 
@@ -463,6 +468,7 @@ export async function dispatchSelectedOrders(input: {
   vehicleNumber: string;
   driverName: string;
   driverPhone?: string;
+  driverUserId?: string;
   notes?: string;
 }) {
   try {
@@ -513,6 +519,7 @@ export async function dispatchSelectedOrders(input: {
         vehicleNumber: input.vehicleNumber.trim(),
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
+        driverUserId: input.driverUserId,
         notes: input.notes?.trim() || undefined,
       });
 

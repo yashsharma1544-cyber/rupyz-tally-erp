@@ -38,11 +38,18 @@ function formatKg(n: number): string {
 
 type Step = "pick" | "details";
 
+interface DriverOption {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
 export function LoadTruckWizard({
-  beatGroups, focusBeatId,
+  beatGroups, focusBeatId, drivers,
 }: {
   beatGroups: BeatGroup[];
   focusBeatId: string | null;
+  drivers: DriverOption[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("pick");
@@ -58,10 +65,26 @@ export function LoadTruckWizard({
   });
 
   const [vehicle, setVehicle] = useState("");
+  // Driver mode: "registered" → picked from dropdown; "adhoc" → typed text
+  const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
+    drivers.length > 0 ? "registered" : "adhoc"
+  );
+  const [driverId, setDriverId] = useState<string>(""); // app_users.id when registered
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
+
+  // When a registered driver is picked, keep the legacy text fields synced
+  // so the server gets a coherent view either way.
+  function pickRegisteredDriver(id: string) {
+    setDriverId(id);
+    const d = drivers.find(x => x.id === id);
+    if (d) {
+      setDriver(d.name);
+      setDriverPhone(d.phone ?? "");
+    }
+  }
 
   // Flat lookup: orderId -> {beatName, order}
   const allOrdersFlat = useMemo(() => {
@@ -115,8 +138,16 @@ export function LoadTruckWizard({
   function clearAll() { setSelected(new Set()); }
 
   function handleConfirm() {
-    if (!vehicle.trim() || !driver.trim()) {
-      toast.error("Vehicle # and driver name are required");
+    if (!vehicle.trim()) {
+      toast.error("Vehicle # is required");
+      return;
+    }
+    if (driverMode === "registered" && !driverId) {
+      toast.error("Pick a driver from the list, or use 'Other driver'");
+      return;
+    }
+    if (!driver.trim()) {
+      toast.error("Driver name is required");
       return;
     }
     startTransition(async () => {
@@ -125,14 +156,28 @@ export function LoadTruckWizard({
         vehicleNumber: vehicle.trim(),
         driverName: driver.trim(),
         driverPhone: driverPhone.trim() || undefined,
+        driverUserId: driverMode === "registered" ? driverId : undefined,
         notes: notes.trim() || undefined,
       });
       if ("error" in res && res.error) {
         toast.error(res.error);
         return;
       }
+      // Pull a representative error message if anything failed
+      const firstFailureErr = res.results?.find(r => !r.ok)?.error;
+      if (res.succeeded === 0) {
+        // Total failure — keep the dispatcher on this screen with the error
+        toast.error(firstFailureErr ?? `All ${res.total} dispatches failed`, {
+          duration: 12000,
+          description: firstFailureErr ? `${res.failed} of ${res.total} orders failed` : undefined,
+        });
+        return;
+      }
       if (res.failed && res.failed > 0) {
-        toast.warning(`${res.succeeded} of ${res.total} dispatched · ${res.failed} failed`);
+        toast.warning(
+          `${res.succeeded} of ${res.total} dispatched · ${res.failed} failed`,
+          { description: firstFailureErr, duration: 10000 },
+        );
       } else {
         toast.success(`${res.succeeded} order${res.succeeded === 1 ? "" : "s"} dispatched`);
       }
@@ -362,22 +407,65 @@ export function LoadTruckWizard({
             />
           </div>
           <div>
-            <Label className="text-xs">Driver name <span className="text-danger">*</span></Label>
-            <Input
-              className="mt-1"
-              placeholder="e.g. Ramesh"
-              value={driver}
-              onChange={e => setDriver(e.target.value)}
-            />
+            <Label className="text-xs">Driver <span className="text-danger">*</span></Label>
+            {drivers.length > 0 && (
+              <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
+                <button
+                  type="button"
+                  onClick={() => setDriverMode("registered")}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "registered"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Pick driver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDriverMode("adhoc"); setDriverId(""); setDriver(""); setDriverPhone(""); }}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "adhoc"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Other driver
+                </button>
+              </div>
+            )}
+
+            {driverMode === "registered" && drivers.length > 0 ? (
+              <select
+                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                value={driverId}
+                onChange={(e) => pickRegisteredDriver(e.target.value)}
+              >
+                <option value="">— Select a driver —</option>
+                {drivers.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}{d.phone ? ` · ${d.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                className="mt-1"
+                placeholder="e.g. Ramesh"
+                value={driver}
+                onChange={e => setDriver(e.target.value)}
+              />
+            )}
           </div>
           <div>
             <Label className="text-xs text-ink-muted">Driver phone</Label>
             <Input
               className="mt-1"
-              placeholder="9876543210 (optional)"
+              placeholder={driverMode === "registered" && driverId ? "" : "9876543210 (optional)"}
               inputMode="tel"
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
+              disabled={driverMode === "registered" && !!driverId}
             />
           </div>
           <div>

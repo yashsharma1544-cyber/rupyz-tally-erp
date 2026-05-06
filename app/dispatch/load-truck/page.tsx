@@ -112,10 +112,18 @@ export default async function LoadTruckPage({
 
   const beatGroups = Array.from(byBeat.values()).sort((a, b) => a.beatName.localeCompare(b.beatName));
 
+  // Active registered drivers — for the dropdown in step 2
+  const { data: drivers } = await supabase
+    .from("active_drivers")
+    .select("id, full_name, phone")
+    .order("full_name");
+  const driverList = (drivers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
+
   return (
     <LoadTruckWizard
       beatGroups={beatGroups}
       focusBeatId={focusBeatId ?? null}
+      drivers={driverList.map(d => ({ id: d.id, name: d.full_name, phone: d.phone }))}
     />
   );
 }

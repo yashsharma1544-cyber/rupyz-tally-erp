@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, UserCheck, UserX } from "lucide-react";
+import { Plus, UserCheck, UserX, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody, SheetFooter } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import type { AppUser, Salesman, UserRole } from "@/lib/types";
-import { inviteUser, setUserActive, setUserRole } from "./actions";
+import { inviteUser, setUserActive, setUserRole, createDriver } from "./actions";
 import { toast } from "sonner";
 
-const roles: UserRole[] = ["admin", "approver", "accounts", "dispatch", "delivery", "salesman", "van_lead", "van_helper"];
+const roles: UserRole[] = ["admin", "approver", "accounts", "dispatch", "delivery", "salesman", "van_lead", "van_helper", "driver"];
 
 export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: Pick<Salesman, "id" | "name">[] }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
+  const [addingDriver, setAddingDriver] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function handleToggleActive(u: AppUser) {
@@ -38,7 +39,10 @@ export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: P
 
   return (
     <div className="p-3 sm:p-6">
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
+        <Button variant="outline" onClick={() => setAddingDriver(true)}>
+          <Truck size={14}/> Create driver
+        </Button>
         <Button onClick={() => setAdding(true)}><Plus size={14} /> Invite User</Button>
       </div>
 
@@ -95,6 +99,18 @@ export function UsersClient({ users, salesmen }: { users: AppUser[]; salesmen: P
           <InviteForm salesmen={salesmen} onDone={() => { setAdding(false); router.refresh(); }} onCancel={() => setAdding(false)} />
         </SheetContent>
       </Sheet>
+
+      <Sheet open={addingDriver} onOpenChange={(o) => { if (!o) setAddingDriver(false); }}>
+        <SheetContent>
+          <SheetHeader>
+            <div>
+              <SheetTitle>Create driver</SheetTitle>
+              <SheetDescription>For truck drivers who don&apos;t have email. Set their phone &amp; password directly. Driver logs in with phone number.</SheetDescription>
+            </div>
+          </SheetHeader>
+          <DriverForm onDone={() => { setAddingDriver(false); router.refresh(); }} onCancel={() => setAddingDriver(false)} />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -142,6 +158,65 @@ function InviteForm({ salesmen, onDone, onCancel }: { salesmen: Pick<Salesman, "
       <SheetFooter>
         <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>Cancel</Button>
         <Button type="submit" disabled={pending}>{pending ? "Sending…" : "Send invite"}</Button>
+      </SheetFooter>
+    </form>
+  );
+}
+
+function DriverForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [pending, startTransition] = useTransition();
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      const res = await createDriver(fd);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Driver created — login with phone ${res.phone}`);
+      onDone();
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="contents">
+      <SheetBody>
+        <div className="space-y-4">
+          <div>
+            <Label className="block mb-1">Driver name</Label>
+            <Input name="full_name" required disabled={pending} placeholder="e.g. Ramesh Kumar" />
+          </div>
+          <div>
+            <Label className="block mb-1">Phone number</Label>
+            <Input
+              name="phone"
+              required
+              inputMode="tel"
+              disabled={pending}
+              placeholder="9876543210"
+              className="tabular"
+            />
+            <p className="text-2xs text-ink-muted mt-1">Driver will use this number to log in.</p>
+          </div>
+          <div>
+            <Label className="block mb-1">Password</Label>
+            <Input
+              name="password"
+              type="text"
+              required
+              disabled={pending}
+              placeholder="At least 6 characters"
+              minLength={6}
+            />
+            <p className="text-2xs text-ink-muted mt-1">Hand this to the driver. They&apos;ll use it to log in.</p>
+          </div>
+        </div>
+      </SheetBody>
+      <SheetFooter>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>Cancel</Button>
+        <Button type="submit" disabled={pending}>{pending ? "Creating…" : "Create driver"}</Button>
       </SheetFooter>
     </form>
   );
