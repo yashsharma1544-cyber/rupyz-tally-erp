@@ -95,7 +95,15 @@ async function recomputeOrderStatus(
 export async function createDispatch(
   orderId: string,
   items: { orderItemId: string; qty: number }[],
-  meta: { vehicleNumber?: string; driverName?: string; driverPhone?: string; notes?: string } = {},
+  meta: {
+    vehicleNumber?: string;
+    driverName?: string;
+    driverPhone?: string;
+    notes?: string;
+    /** Mark dispatch as shipped immediately (skip the desktop 'ship' step).
+     *  Used by the dispatch PWA where the godown act of dispatching IS shipping. */
+    shipImmediately?: boolean;
+  } = {},
 ) {
   try {
     const actor = await requireRoles(["admin", "dispatch", "approver"]);
@@ -159,11 +167,15 @@ export async function createDispatch(
     const { data: numRow } = await admin.rpc("next_dispatch_number");
     const dispatchNumber = numRow as unknown as string;
 
-    // Insert dispatch
+    // Insert dispatch — PWA dispatchers want shipImmediately (the act of
+    // dispatching IS the act of shipping in the godown). Desktop callers leave
+    // it false so they can ship/cancel later.
+    const dispatchStatus = meta.shipImmediately ? "shipped" : "pending";
     const { data: dispatch, error: dErr } = await admin.from("dispatches").insert({
       order_id: orderId,
       dispatch_number: dispatchNumber,
-      status: "pending",
+      status: dispatchStatus,
+      shipped_at: meta.shipImmediately ? new Date().toISOString() : null,
       vehicle_number: meta.vehicleNumber || null,
       driver_name: meta.driverName || null,
       driver_phone: meta.driverPhone || null,
@@ -184,10 +196,18 @@ export async function createDispatch(
       dispatch_number: dispatch.dispatch_number,
       total_qty: totalQty,
       total_amount: totalAmount,
+      ship_immediately: meta.shipImmediately ?? false,
     });
+
+    // If shipped immediately, advance the order's app_status accordingly so
+    // it disappears from the dispatch list on next refresh.
+    if (meta.shipImmediately) {
+      await recomputeOrderStatus(admin, orderId);
+    }
 
     revalidatePath("/orders");
     revalidatePath("/dispatches");
+    revalidatePath("/dispatch");
     return { ok: true, dispatchId: dispatch.id, dispatchNumber: dispatch.dispatch_number };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
@@ -400,6 +420,7 @@ export async function bulkDispatchByBeat(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         notes: input.notes?.trim() || undefined,
+        shipImmediately: true,
       });
 
       if (res.error) {
@@ -494,6 +515,7 @@ export async function dispatchSelectedOrders(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         notes: input.notes?.trim() || undefined,
+        shipImmediately: true,
       });
 
       if (res.error) {
