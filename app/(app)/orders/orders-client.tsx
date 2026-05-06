@@ -167,7 +167,7 @@ export function OrdersClient({
   const [tab, setTab] = useState<TabKey>(() => {
     // If ?tab= is in the URL (e.g., from dashboard task links), use it.
     const urlTab = searchParams?.get("tab");
-    const validKeys: TabKey[] = ["approval", "dispatch", "van", "transit", "delivered", "rejected", "all"];
+    const validKeys: TabKey[] = ["approval", "dispatch", "loading", "van", "transit", "delivered", "rejected", "all"];
     if (urlTab && (validKeys as string[]).includes(urlTab)) return urlTab as TabKey;
     return defaultTabForRole(me.role);
   });
@@ -188,6 +188,7 @@ export function OrdersClient({
   const emptyKpi: Record<TabKey, KpiAgg> = {
     approval:  { count: 0, kg: 0, amount: 0 },
     dispatch:  { count: 0, kg: 0, amount: 0 },
+    loading:   { count: 0, kg: 0, amount: 0 },
     van:       { count: 0, kg: 0, amount: 0 },
     transit:   { count: 0, kg: 0, amount: 0 },
     delivered: { count: 0, kg: 0, amount: 0 },
@@ -404,6 +405,7 @@ export function OrdersClient({
       const next: Record<TabKey, KpiAgg> = {
         approval:  { count: 0, kg: 0, amount: 0 },
         dispatch:  { count: 0, kg: 0, amount: 0 },
+        loading:   { count: 0, kg: 0, amount: 0 },
         van:       { count: 0, kg: 0, amount: 0 },
         transit:   { count: 0, kg: 0, amount: 0 },
         delivered: { count: 0, kg: 0, amount: 0 },
