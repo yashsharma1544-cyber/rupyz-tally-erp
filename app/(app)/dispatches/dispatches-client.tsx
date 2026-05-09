@@ -13,6 +13,7 @@ import type { Dispatch, AppUser, DispatchStatus } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { shipDispatch } from "./actions";
+import { DriversActivePanel } from "./drivers-active-panel";
 
 function statusBadge(s: DispatchStatus): { variant: "neutral" | "ok" | "warn" | "danger" | "accent"; label: string } {
   return {
@@ -58,6 +59,9 @@ export function DispatchesClient({ me }: { me: AppUser }) {
 
   return (
     <div className="p-3 sm:p-6">
+      {/* Drivers active now — panel auto-hides when nobody's active */}
+      <DriversActivePanel />
+
       <div className="flex items-center gap-2 mb-4">
         <Select value={statusF} onValueChange={setStatusF}>
           <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
@@ -154,21 +158,38 @@ function DispatchRow({
         <Badge variant={sb.variant}>{sb.label}</Badge>
       </td>
       <td className="px-3 py-2 text-right">
-        {canAct && d.status === "pending" && (
-          <Button size="sm" onClick={handleShip} disabled={pending}>
-            <Truck size={11}/> {pending ? "..." : "Ship"}
-          </Button>
-        )}
-        {d.status === "shipped" && (
-          <a href={`/pod/${d.id}`} target="_blank" rel="noopener noreferrer">
-            <Button size="sm"><MapPin size={11}/> POD</Button>
-          </a>
-        )}
-        {d.status === "delivered" && d.pod?.photo_url && (
-          <a href={d.pod.photo_url} target="_blank" rel="noopener noreferrer">
-            <Button size="sm" variant="outline"><Eye size={11}/> Receipt</Button>
-          </a>
-        )}
+        <div className="inline-flex items-center gap-1 flex-wrap justify-end">
+          {canAct && d.status === "pending" && (
+            <Button size="sm" onClick={handleShip} disabled={pending}>
+              <Truck size={11}/> {pending ? "..." : "Ship"}
+            </Button>
+          )}
+          {d.status === "shipped" && (
+            <a href={`/pod/${d.id}`} target="_blank" rel="noopener noreferrer">
+              <Button size="sm"><MapPin size={11}/> POD</Button>
+            </a>
+          )}
+          {d.status === "delivered" && d.pod?.photo_url && (
+            <a href={d.pod.photo_url} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" variant="outline"><Eye size={11}/> Receipt</Button>
+            </a>
+          )}
+          {d.status === "delivered" && d.pod?.latitude != null && d.pod?.longitude != null && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${d.pod.latitude},${d.pod.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Delivered at ${d.pod.latitude.toFixed(5)}, ${d.pod.longitude.toFixed(5)}${d.pod.accuracy_m != null ? ` (±${Math.round(d.pod.accuracy_m)}m)` : ""}`}
+            >
+              <Button size="sm" variant="outline"><MapPin size={11}/> Map</Button>
+            </a>
+          )}
+          {d.status === "delivered" && d.driver_user_id && (
+            <Link href={`/trucks?driver=${d.driver_user_id}`}>
+              <Button size="sm" variant="outline"><Truck size={11}/> Trip</Button>
+            </Link>
+          )}
+        </div>
       </td>
     </tr>
   );

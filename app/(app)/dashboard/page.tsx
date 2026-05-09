@@ -8,16 +8,17 @@
 // Sections (top to bottom):
 //   1. Greeting + headline counters
 //   2. Action items — things to do RIGHT NOW (with prominent buttons)
-//   3. Today snapshot — quick stats with no buttons (just for awareness)
-//   4. Stale items — only shown when there's something genuinely overdue
-//   5. System status (Rupyz token, sync) — only shown if there's a problem
+//   3. Admin nav (admin only) — quick links to /drivers, /trucks, /users
+//   4. Today snapshot — quick stats with no buttons (just for awareness)
+//   5. Stale items — only shown when there's something genuinely overdue
+//   6. System status (Rupyz token, sync) — only shown if there's a problem
 // =============================================================================
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   CheckSquare, Truck, Route, AlertTriangle, ChevronRight, ShoppingBag,
-  CheckCircle2, IndianRupee, Receipt, Clock, AlertCircle,
+  CheckCircle2, IndianRupee, Receipt, Clock, AlertCircle, MapPin, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
@@ -250,6 +251,18 @@ export default async function DashboardPage() {
           )}
         </section>
 
+        {/* ADMIN NAV — quick jumps to admin-only areas. Only for admin role. */}
+        {me.role === "admin" && (
+          <section>
+            <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Manage</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+              <NavTile icon={Truck}    title="Drivers"   subtitle="Truck driver accounts" href="/drivers" />
+              <NavTile icon={MapPin}   title="Trucks"    subtitle="Trip routes &amp; maps"     href="/trucks" />
+              <NavTile icon={Users}    title="Users"     subtitle="ERP staff accounts"    href="/users" />
+            </div>
+          </section>
+        )}
+
         {/* STALE — only when there's something to nudge about */}
         {stale.length > 0 && (
           <section>
@@ -323,6 +336,33 @@ function TaskCard({
           <p className="text-xs sm:text-sm text-ink-muted mt-0.5">{detail}</p>
         </div>
         <ChevronRight size={16} className={`shrink-0 mt-1 ${a.chevColor} group-hover:translate-x-0.5 transition-transform`}/>
+      </div>
+    </Link>
+  );
+}
+
+function NavTile({
+  icon: Icon, title, subtitle, href,
+}: {
+  icon: typeof CheckSquare;
+  title: string;
+  subtitle: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="bg-paper-card border border-paper-line rounded-md p-3 hover:bg-paper-subtle/40 transition-colors block group"
+    >
+      <div className="flex items-center gap-2.5">
+        <div className="w-9 h-9 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
+          <Icon size={15}/>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">{title}</div>
+          <div className="text-2xs text-ink-muted truncate">{subtitle}</div>
+        </div>
+        <ChevronRight size={13} className="text-ink-subtle shrink-0 group-hover:translate-x-0.5 transition-transform"/>
       </div>
     </Link>
   );
