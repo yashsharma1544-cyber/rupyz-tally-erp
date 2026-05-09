@@ -1,9 +1,5 @@
 // =============================================================================
 // /dispatch/[beatId]/[orderId] — per-order dispatch screen
-//
-// Loads the order with its items and remaining quantities, hands off to the
-// client component which renders the line-by-line qty editor + vehicle/driver
-// inputs + Confirm dispatch button.
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";

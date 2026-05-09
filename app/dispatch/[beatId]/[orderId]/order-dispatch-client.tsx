@@ -43,9 +43,6 @@ export function OrderDispatchClient({
 }) {
   const router = useRouter();
 
-  // Per-line dispatch quantities. Default: full remaining (so "Confirm" sends
-  // everything as ordered). Edit mode reveals controls so dispatcher can
-  // reduce specific lines.
   const [qtys, setQtys] = useState<Map<string, number>>(() => {
     const m = new Map<string, number>();
     for (const it of order.items) m.set(it.id, it.remaining);
@@ -75,7 +72,6 @@ export function OrderDispatchClient({
     });
   }
 
-  // Lines actually being dispatched (qty > 0)
   const dispatchableLines = useMemo(
     () => order.items
       .map(it => ({ orderItemId: it.id, qty: qtys.get(it.id) ?? 0, line: it }))
@@ -88,7 +84,6 @@ export function OrderDispatchClient({
     [dispatchableLines],
   );
 
-  // Will the dispatch be partial? (any line short of remaining)
   const isPartial = useMemo(() => {
     return order.items.some(it => {
       if (it.remaining <= 0) return false;
@@ -112,7 +107,7 @@ export function OrderDispatchClient({
           driverName: driver.trim(),
           driverPhone: driverPhone.trim() || undefined,
           notes: notes.trim() || undefined,
-          },
+        },
       );
       if (res.error) {
         toast.error(res.error);
@@ -132,14 +127,12 @@ export function OrderDispatchClient({
           <ArrowLeft size={11}/> Back
         </Link>
 
-        {/* Customer header */}
         <h1 className="text-lg font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
         <div className="text-xs text-ink-muted mt-0.5">
           {[order.customer?.city, order.customer?.mobile].filter(Boolean).join(" · ")}
         </div>
         <div className="text-2xs font-mono text-ink-subtle mt-0.5">{order.rupyzOrderId}</div>
 
-        {/* Single-line summary */}
         <div className="mt-3 pb-3 border-b border-paper-line text-sm">
           <span className="font-semibold tabular">{itemCount}</span>
           <span className="text-ink-muted"> item{itemCount === 1 ? "" : "s"} · </span>
@@ -149,7 +142,6 @@ export function OrderDispatchClient({
           )}
         </div>
 
-        {/* Items list — comes first now (vehicle/driver moved below) */}
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
@@ -167,7 +159,6 @@ export function OrderDispatchClient({
               <button
                 type="button"
                 onClick={() => {
-                  // Reset to full remaining when leaving edit mode
                   const m = new Map<string, number>();
                   for (const it of order.items) m.set(it.id, it.remaining);
                   setQtys(m);
@@ -248,7 +239,6 @@ export function OrderDispatchClient({
           </div>
         </div>
 
-        {/* Vehicle + driver — now BELOW items */}
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
             Truck details
@@ -294,7 +284,6 @@ export function OrderDispatchClient({
         </div>
       </div>
 
-      {/* Sticky footer: confirm button anchored to bottom */}
       <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto">
           {isPartial && dispatchableLines.length > 0 && (

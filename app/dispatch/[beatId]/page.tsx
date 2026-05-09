@@ -2,10 +2,9 @@
 // /dispatch/[beatId] — orders list for one beat
 //
 // Shows every approved/partially-dispatched order in this beat. Each order is
-// tappable and goes to the per-order dispatch screen.
-//
-// At the top there's a "Dispatch all" button that opens a modal to capture
-// vehicle/driver and dispatches every order in this beat at remaining qty.
+// tappable and goes to the per-order dispatch screen. Top has "Dispatch all"
+// for one-tap full-beat dispatch and "Load a truck" for the cross-beat wizard
+// pre-selecting this beat.
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";

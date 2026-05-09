@@ -66,8 +66,19 @@ export function BeatDispatchClient({
         toast.error(res.error);
         return;
       }
+      const firstFailureErr = res.results?.find(r => !r.ok)?.error;
+      if (res.succeeded === 0) {
+        toast.error(firstFailureErr ?? `All ${res.total} dispatches failed`, {
+          duration: 12000,
+          description: firstFailureErr ? `${res.failed} of ${res.total} orders failed` : undefined,
+        });
+        return;
+      }
       if (res.failed && res.failed > 0) {
-        toast.warning(`${res.succeeded} of ${res.total} dispatched · ${res.failed} failed (see logs)`);
+        toast.warning(
+          `${res.succeeded} of ${res.total} dispatched · ${res.failed} failed`,
+          { description: firstFailureErr, duration: 10000 },
+        );
       } else {
         toast.success(`${res.succeeded} orders dispatched`);
       }
@@ -88,7 +99,6 @@ export function BeatDispatchClient({
           {totalOrders} order{totalOrders === 1 ? "" : "s"} · {formatKg(totalKg)} · {formatINR(totalAmount)}
         </p>
 
-        {/* Dispatch-all button — top, prominent */}
         {totalOrders > 0 && (
           <>
             <Button
@@ -107,7 +117,6 @@ export function BeatDispatchClient({
           </>
         )}
 
-        {/* Order rows */}
         {orders.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Package size={28} className="mx-auto text-ink-subtle mb-2"/>
@@ -149,7 +158,6 @@ export function BeatDispatchClient({
         )}
       </div>
 
-      {/* Bulk dispatch sheet */}
       {showBulk && (
         <div
           className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
