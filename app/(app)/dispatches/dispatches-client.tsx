@@ -184,8 +184,8 @@ function DispatchRow({
               <Button size="sm" variant="outline"><MapPin size={11}/> Map</Button>
             </a>
           )}
-          {d.status === "delivered" && d.driver_user_id && (
-            <Link href={`/trucks?driver=${d.driver_user_id}`}>
+          {d.status === "delivered" && (d as Dispatch & { driver_user_id?: string | null }).driver_user_id && (
+            <Link href={`/trucks?driver=${(d as Dispatch & { driver_user_id?: string | null }).driver_user_id}`}>
               <Button size="sm" variant="outline"><Truck size={11}/> Trip</Button>
             </Link>
           )}
