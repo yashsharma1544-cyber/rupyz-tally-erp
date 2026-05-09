@@ -73,7 +73,13 @@ function buildMapUrl(points: Array<{ lat: number; lng: number }>): string {
   return `https://www.google.com/maps/dir/${path}`;
 }
 
-export default async function TrucksPage() {
+export default async function TrucksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ driver?: string }>;
+}) {
+  const { driver: filterDriverId } = await searchParams;
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login?from=/trucks");
@@ -88,6 +94,17 @@ export default async function TrucksPage() {
     );
   }
 
+  // If filtering by driver, look up their name for the header
+  let filterDriverName: string | null = null;
+  if (filterDriverId) {
+    const { data: drv } = await supabase
+      .from("app_users")
+      .select("full_name")
+      .eq("id", filterDriverId)
+      .maybeSingle();
+    filterDriverName = drv?.full_name ?? "(unknown driver)";
+  }
+
   const { data: trips, error } = await supabase.rpc("truck_trips");
   if (error) {
     return (
@@ -97,7 +114,10 @@ export default async function TrucksPage() {
       </div>
     );
   }
-  const tripRows = (trips ?? []) as TruckTrip[];
+  const allTripRows = (trips ?? []) as TruckTrip[];
+  const tripRows = filterDriverId
+    ? allTripRows.filter(t => t.driver_user_id === filterDriverId)
+    : allTripRows;
 
   // For each trip, fetch the dispatches + POD points in chronological order
   // so we can build a route URL. We do one query for all dispatches with GPS
@@ -133,6 +153,17 @@ export default async function TrucksPage() {
         <p className="text-sm text-ink-muted mb-5">
           Each card is a (truck, driver, day). View the delivery route on a map.
         </p>
+
+        {filterDriverId && filterDriverName && (
+          <div className="bg-accent-soft border border-accent/30 rounded-md px-3 py-2 mb-4 flex items-baseline justify-between gap-2 flex-wrap">
+            <p className="text-xs">
+              Showing trips for <strong className="text-accent">{filterDriverName}</strong>
+            </p>
+            <Link href="/trucks" className="text-2xs text-accent hover:underline">
+              Clear filter
+            </Link>
+          </div>
+        )}
 
         {tripRows.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
