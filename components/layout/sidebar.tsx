@@ -18,24 +18,26 @@ import {
   Menu,
   X,
   TrendingUp,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { AppUser } from "@/lib/types";
 
 const navItems = [
-  { href: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
-  { href: "/orders",     label: "Orders",     icon: ShoppingBag,     roles: "all" },
-  { href: "/dispatches", label: "Dispatches", icon: Truck,           roles: "all" },
-  { href: "/trips",      label: "VAN Trips",  icon: Route,           roles: "all" },
-  { href: "/insights",   label: "Insights",   icon: TrendingUp,      roles: "all" },
-  { href: "/customers",  label: "Customers",  icon: Users2,          roles: "all" },
-  { href: "/products",   label: "Products",   icon: Package,         roles: "all" },
-  { href: "/salesmen",   label: "Salesmen",   icon: UserCircle2,     roles: "all" },
-  { href: "/beats",      label: "Beats",      icon: MapPin,          roles: "all" },
-  { href: "/drivers",    label: "Drivers",    icon: Truck,           roles: "admin" },
-  { href: "/users",      label: "Users",      icon: Shield,          roles: "admin" },
-  { href: "/settings",   label: "Settings",   icon: Settings,        roles: "admin" },
+  { href: "/dashboard",          label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
+  { href: "/orders",             label: "Orders",     icon: ShoppingBag,     roles: "all" },
+  { href: "/dispatches",         label: "Dispatches", icon: Truck,           roles: "all" },
+  { href: "/trips",              label: "VAN Trips",  icon: Route,           roles: "all" },
+  { href: "/insights",           label: "Insights",   icon: TrendingUp,      roles: "all" },
+  { href: "/insights/call-list", label: "Call List",  icon: ListChecks,      roles: "all" },
+  { href: "/customers",          label: "Customers",  icon: Users2,          roles: "all" },
+  { href: "/products",           label: "Products",   icon: Package,         roles: "all" },
+  { href: "/salesmen",           label: "Salesmen",   icon: UserCircle2,     roles: "all" },
+  { href: "/beats",              label: "Beats",      icon: MapPin,          roles: "all" },
+  { href: "/drivers",            label: "Drivers",    icon: Truck,           roles: "admin" },
+  { href: "/users",              label: "Users",      icon: Shield,          roles: "admin" },
+  { href: "/settings",           label: "Settings",   icon: Settings,        roles: "admin" },
 ] as const;
 
 export function Sidebar({ user }: { user: AppUser }) {
@@ -49,6 +51,19 @@ export function Sidebar({ user }: { user: AppUser }) {
     const supabase = createClient();
     await supabase.auth.signOut();
     window.location.href = "/login";
+  }
+
+  // Active match — prefer the more-specific item when nested paths exist
+  // (so /insights/call-list highlights Call List, not Insights).
+  function isActive(href: string): boolean {
+    if (pathname === href) return true;
+    if (!pathname.startsWith(href + "/")) return false;
+    const moreSpecific = navItems.some(n =>
+      n.href !== href &&
+      n.href.startsWith(href + "/") &&
+      (pathname === n.href || pathname.startsWith(n.href + "/"))
+    );
+    return !moreSpecific;
   }
 
   const navContent = (
@@ -78,7 +93,7 @@ export function Sidebar({ user }: { user: AppUser }) {
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           if (item.roles === "admin" && user.role !== "admin") return null;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const active = isActive(item.href);
           const Icon = item.icon;
           return (
             <Link
