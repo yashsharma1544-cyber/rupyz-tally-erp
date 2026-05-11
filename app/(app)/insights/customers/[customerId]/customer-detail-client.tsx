@@ -16,11 +16,6 @@ function fmtKg(n: number): string {
   return `${n.toFixed(1)} kg`;
 }
 
-function fmtINR(n: number | null): string {
-  if (n == null) return "—";
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
-}
-
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -231,7 +226,6 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="tabular font-medium">{o.kg != null ? fmtKg(Number(o.kg)) : "—"}</div>
-                      <div className="text-2xs text-ink-subtle tabular">{fmtINR(o.amount)}</div>
                     </div>
                   </div>
                 ))}

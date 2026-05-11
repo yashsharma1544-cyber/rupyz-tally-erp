@@ -68,7 +68,6 @@ export interface CustomerDetailData {
     order_id: string;
     order_created_at: string;
     kg: number | null;
-    amount: number | null;
     line_count: number;
     app_status: string | null;
   }>;
