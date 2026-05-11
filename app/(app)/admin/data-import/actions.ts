@@ -196,6 +196,14 @@ function parseTallyExcel(buffer: ArrayBuffer): { vouchers: TallyVoucher[]; skipp
   const sheet = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
 
+  // SheetJS sometimes emits "" for cells that pandas would treat as NaN.
+  // Coerce empty strings to null for consistent presence checks.
+  const isPresent = (v: unknown): boolean => {
+    if (v == null) return false;
+    if (typeof v === "string" && v.trim() === "") return false;
+    return true;
+  };
+
   const vouchers: TallyVoucher[] = [];
   let current: TallyVoucher | null = null;
   let skippedNonProduct = 0;
@@ -205,12 +213,14 @@ function parseTallyExcel(buffer: ArrayBuffer): { vouchers: TallyVoucher[]; skipp
     const col0 = row[0]; const col1 = row[1]; const col2 = row[2];
     const col3 = row[3]; const col4 = row[4]; const col5 = row[5]; const col6 = row[6];
 
-    if (col0 != null && col4 != null) {
+    // Voucher header: col 0 has a real date, col 4 has voucher type
+    // The date must parse — this guards against header rows like "Date" in col 0.
+    if (isPresent(col0) && isPresent(col4)) {
       const dateISO = excelDateToISO(col0);
-      if (!dateISO) { current = null; continue; }
-      const party = col1 ? String(col1).trim() : "";
-      const vchNum = col5 ? String(col5).trim() : "";
-      const total = col6 != null ? Number(col6) : 0;
+      if (!dateISO) { /* not a real date — skip (e.g. column header row) */ continue; }
+      const party = isPresent(col1) ? String(col1).trim() : "";
+      const vchNum = isPresent(col5) ? String(col5).trim() : "";
+      const total = isPresent(col6) ? Number(col6) : 0;
       if (!party || !vchNum) { current = null; continue; }
       current = {
         date: dateISO,
@@ -224,10 +234,12 @@ function parseTallyExcel(buffer: ArrayBuffer): { vouchers: TallyVoucher[]; skipp
       continue;
     }
 
-    if (col0 == null && col1 != null && current) {
+    // Item line: col 0 absent (null or ""), col 1 has name
+    if (!isPresent(col0) && isPresent(col1) && current) {
       const lineName = String(col1).trim();
       if (isNonProduct(lineName)) { skippedNonProduct++; continue; }
-      if (col2 == null || col3 == null || col4 == null) continue;
+      // Must have numeric qty, rate, amount
+      if (!isPresent(col2) || !isPresent(col3) || !isPresent(col4)) continue;
       const { qty, unit } = parseQtyField(col2);
       if (qty <= 0) continue;
       const rate = Number(col3);
