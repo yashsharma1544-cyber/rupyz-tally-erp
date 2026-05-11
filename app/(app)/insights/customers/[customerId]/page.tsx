@@ -45,7 +45,7 @@ export default async function CustomerDetailPage({ params }: PageProps) {
 export interface CustomerDetailData {
   id: string;
   name: string;
-  phone: string | null;
+  mobile: string | null;
   city: string | null;
   beat_id: string | null;
   beat_name: string | null;

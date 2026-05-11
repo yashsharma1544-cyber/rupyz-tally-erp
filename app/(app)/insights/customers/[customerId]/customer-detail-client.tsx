@@ -92,8 +92,8 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
 
             {/* Action buttons — sticky-ish on mobile via grouping */}
             <div className="flex gap-1.5 shrink-0">
-              {data.phone && (
-                <a href={`tel:${data.phone}`}>
+              {data.mobile && (
+                <a href={`tel:${data.mobile}`}>
                   <Button size="sm" variant="outline">
                     <Phone size={13}/> Call
                   </Button>
