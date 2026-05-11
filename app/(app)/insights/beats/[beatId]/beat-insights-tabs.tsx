@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ArrowUpRight, ArrowDownRight, Minus, Phone, Clock } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, ArrowDownRight, Minus, Phone, Clock, ChevronRight } from "lucide-react";
 import type { CustomerHealth } from "./page";
 
 type TabKey = "all" | "growing" | "shrinking" | "sleeping";
@@ -125,12 +126,13 @@ export function BeatInsightsTabs({ customers }: { customers: CustomerHealth[] })
                 <th className="px-3 py-2 font-medium text-right">90d kg</th>
                 <th className="px-3 py-2 font-medium text-right">Orders 30d</th>
                 <th className="px-3 py-2 font-medium text-right">Last order</th>
+                <th className="px-3 py-2 w-6"/>
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-ink-muted text-sm">
+                  <td colSpan={7} className="px-3 py-8 text-center text-ink-muted text-sm">
                     {tab === "all"
                       ? "No customers in this beat."
                       : tab === "growing"
@@ -144,9 +146,14 @@ export function BeatInsightsTabs({ customers }: { customers: CustomerHealth[] })
                 const days = c.days_since_last;
                 const isSleeping = c.last_order_at == null || (days ?? 0) >= 30;
                 return (
-                  <tr key={c.customer_id} className="hover:bg-paper-subtle/30">
+                  <tr key={c.customer_id} className="hover:bg-paper-subtle/30 group">
                     <td className="px-3 py-2.5">
-                      <div className="font-medium">{c.customer_name}</div>
+                      <Link
+                        href={`/insights/customers/${c.customer_id}`}
+                        className="font-medium hover:text-accent hover:underline"
+                      >
+                        {c.customer_name}
+                      </Link>
                       <div className="text-2xs text-ink-muted flex items-center gap-2 flex-wrap mt-0.5">
                         {c.customer_city && <span>{c.customer_city}</span>}
                         {c.customer_mobile && (
@@ -160,20 +167,43 @@ export function BeatInsightsTabs({ customers }: { customers: CustomerHealth[] })
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular font-semibold">
-                      {Number(c.this_30d_kg) > 0 ? formatKg(Number(c.this_30d_kg)) : <span className="text-ink-subtle">0</span>}
+                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                        {Number(c.this_30d_kg) > 0 ? formatKg(Number(c.this_30d_kg)) : <span className="text-ink-subtle">0</span>}
+                      </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <GrowthCell pct={c.growth_pct} />
+                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                        <GrowthCell pct={c.growth_pct} />
+                      </Link>
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">{formatKg(Number(c.this_90d_kg))}</td>
-                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">{Number(c.this_30d_order_count)}</td>
+                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">
+                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                        {formatKg(Number(c.this_90d_kg))}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">
+                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                        {Number(c.this_30d_order_count)}
+                      </Link>
+                    </td>
                     <td className="px-3 py-2.5 text-right">
-                      <span className={`text-2xs inline-flex items-center gap-0.5 tabular ${
-                        isSleeping ? "text-warn font-semibold" : "text-ink-muted"
-                      }`}>
-                        {isSleeping && <Clock size={9}/>}
-                        {formatDays(days, c.last_order_at)}
-                      </span>
+                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                        <span className={`text-2xs inline-flex items-center gap-0.5 tabular ${
+                          isSleeping ? "text-warn font-semibold" : "text-ink-muted"
+                        }`}>
+                          {isSleeping && <Clock size={9}/>}
+                          {formatDays(days, c.last_order_at)}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <Link
+                        href={`/insights/customers/${c.customer_id}`}
+                        className="text-ink-subtle group-hover:text-accent inline-flex"
+                        aria-label="Open customer detail"
+                      >
+                        <ChevronRight size={14}/>
+                      </Link>
                     </td>
                   </tr>
                 );
