@@ -3,7 +3,8 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import {
-  Clock, TrendingDown, Sparkles, Phone, MapPin, ChevronRight, AlertTriangle, ListChecks,
+  Clock, TrendingDown, Sparkles, Phone, MapPin, ChevronRight, ListChecks,
+  type LucideIcon,
 } from "lucide-react";
 import type { CallListData, CallListRow } from "./page";
 
@@ -32,7 +33,7 @@ export function CallListClient({ data }: { data: CallListData }) {
     return "new_stuck";
   });
 
-  const tabs: Array<{ key: TabKey; label: string; icon: React.ComponentType<{size?:number;className?:string}>; total: number; description: string }> = [
+  const tabs: Array<{ key: TabKey; label: string; icon: LucideIcon; total: number; description: string }> = [
     { key: "sleeping",  label: "Sleeping",  icon: Clock,         total: data.sleeping_total,  description: "30+ days since last order — ranked by 90-day kg" },
     { key: "shrinking", label: "Shrinking", icon: TrendingDown,  total: data.shrinking_total, description: "Last 30 days down ≥10% vs previous 30 days" },
     { key: "new_stuck", label: "New stuck", icon: Sparkles,      total: data.new_stuck_total, description: "Onboarded in last 90 days, ≤2 orders, no recent activity" },
