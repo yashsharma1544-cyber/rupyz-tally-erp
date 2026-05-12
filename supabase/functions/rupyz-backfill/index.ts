@@ -488,21 +488,20 @@ async function runBackfill(): Promise<{ ok: boolean; finalStatus: string; counte
 // HTTP entry
 // ============================================================================
 
-// Self-invoke for auto-resume. Fire-and-forget — don't await.
-async function selfInvoke(): Promise<void> {
+// Self-invoke for auto-resume. Sends a fetch to /functions/v1/rupyz-backfill
+// and intentionally does NOT await the response (we want this run to return
+// immediately so the chained call starts in a fresh context).
+function selfInvoke(): Promise<void> {
   const url = `${SUPABASE_URL}/functions/v1/rupyz-backfill`;
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "authorization": `Bearer ${SERVICE_ROLE}`,
+    "x-trigger": "auto-resume",
   };
   if (SYNC_SECRET) headers["x-rupyz-sync-secret"] = SYNC_SECRET;
-  // Mark this as a chained call (so we can distinguish in logs if needed)
-  headers["x-trigger"] = "auto-resume";
-  try {
-    await fetch(url, { method: "POST", headers, body: "{}" });
-  } catch (_e) {
-    // Best effort — if the chain breaks, user can click Resume manually
-  }
+  return fetch(url, { method: "POST", headers, body: "{}" })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 Deno.serve(async (req) => {
@@ -514,26 +513,25 @@ Deno.serve(async (req) => {
   }
 
   const result = await runBackfill();
-  
-  // Auto-resume: if we paused (not completed or failed), trigger another run.
-  // We do this AFTER computing the result but BEFORE responding, so the response
-  // doesn't wait for the chained call to finish. Using EdgeRuntime.waitUntil
-  // when available, otherwise plain promise.
+
+  // Auto-resume: if we paused, kick off the next run. We use EdgeRuntime.waitUntil
+  // so Supabase keeps the function context alive long enough for the outbound
+  // fetch to be initiated, even after we return the response below.
   if (result.ok && result.finalStatus === "paused") {
+    const invocation = selfInvoke();
     try {
-      // @ts-expect-error: EdgeRuntime is available in Supabase Edge Functions
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-expect-error: EdgeRuntime is provided by the Supabase runtime
+      if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
         // @ts-expect-error
-        EdgeRuntime.waitUntil(selfInvoke());
-      } else {
-        // Fallback: fire-and-forget without waiting
-        selfInvoke();
+        EdgeRuntime.waitUntil(invocation);
       }
+      // Whether or not waitUntil is supported, the fetch has already been
+      // initiated — even without await, the request will complete.
     } catch (_e) {
       // ignore
     }
   }
-  
+
   return new Response(JSON.stringify(result, null, 2), {
     status: result.ok ? 200 : 500,
     headers: { "content-type": "application/json" },

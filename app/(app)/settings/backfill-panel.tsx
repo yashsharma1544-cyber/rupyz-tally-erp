@@ -268,7 +268,7 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
 
       {state.status === "paused" && (
         <div className="px-4 pb-3 text-xs text-ink-muted">
-          Paused after {state.last_completed_page} pages — click Resume to continue.
+          Auto-resuming after {state.last_completed_page} pages — should restart in a few seconds. (Click Resume if it stays paused for &gt;30s.)
         </div>
       )}
 
