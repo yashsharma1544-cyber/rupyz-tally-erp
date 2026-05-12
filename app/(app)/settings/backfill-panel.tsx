@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   History, Play, RotateCcw, Settings, CheckCircle2, XCircle, Clock, Pause, AlertTriangle,
@@ -49,6 +49,10 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
   const [showConfig, setShowConfig] = useState(false);
   const [cutoffDate, setCutoffDate] = useState(state.cutoff_date?.slice(0, 10) ?? "");
   const [maxPages, setMaxPages] = useState(state.max_pages);
+  // Hydration guard: only render locale-dependent date strings after mount,
+  // so server and client agree on the initial HTML.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   function handleStart() {
     startTransition(async () => {
@@ -218,7 +222,7 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
         <div>
           <div className="text-2xs uppercase tracking-wide text-ink-subtle">Oldest seen</div>
           <div className="tabular text-xs mt-0.5">
-            {state.last_page_oldest_at
+            {mounted && state.last_page_oldest_at
               ? new Date(state.last_page_oldest_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
               : "—"}
           </div>
@@ -227,7 +231,7 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
 
       {state.cutoff_date && (
         <div className="px-4 pb-3 text-xs text-ink-muted">
-          Cutoff: stop at orders older than {new Date(state.cutoff_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+          Cutoff: stop at orders older than {mounted ? new Date(state.cutoff_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "…"}
         </div>
       )}
 
@@ -246,7 +250,7 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
         </div>
       )}
 
-      {state.last_run_at && (
+      {mounted && state.last_run_at && (
         <div className="px-4 pb-3 text-2xs text-ink-subtle tabular">
           Last run: {new Date(state.last_run_at).toLocaleString("en-IN")}
           {state.finished_at && <> · Finished: {new Date(state.finished_at).toLocaleString("en-IN")}</>}
