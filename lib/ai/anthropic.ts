@@ -59,9 +59,22 @@ class AnthropicError extends Error {
   }
 }
 
+// Retry config
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 /**
- * Call Claude. Throws AnthropicError on non-2xx, network failures, or
- * malformed responses.
+ * Call Claude. Throws AnthropicError on non-retryable errors or after
+ * MAX_RETRIES on retryable ones (429, 5xx, 529 overloaded).
+ *
+ * Retries with exponential backoff: 1s, 2s, 4s. After ~7 seconds total
+ * we give up and surface the error. The Vercel function timeout (10s on
+ * hobby, 60s on pro) will cap us anyway.
  */
 export async function callClaude(params: ClaudeCallParams): Promise<ClaudeResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -77,29 +90,60 @@ export async function callClaude(params: ClaudeCallParams): Promise<ClaudeRespon
     messages: params.messages,
   };
 
-  let res: Response;
-  try {
-    res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e: any) {
-    throw new AnthropicError(`Network error calling Anthropic: ${e?.message ?? e}`);
-  }
+  let res!: Response;
+  let lastError: AnthropicError | null = null;
 
-  if (!res.ok) {
-    let bodyText = await res.text().catch(() => "");
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e: any) {
+      // Network failure — also retry
+      lastError = new AnthropicError(`Network error calling Anthropic: ${e?.message ?? e}`);
+      if (attempt < MAX_RETRIES) {
+        await sleep(BASE_DELAY_MS * Math.pow(2, attempt));
+        continue;
+      }
+      throw lastError;
+    }
+
+    if (res.ok) break;  // Success — exit retry loop
+
+    // Failure — read body for error detail
+    const bodyText = await res.text().catch(() => "");
     let detail = bodyText;
     try {
       const parsed = JSON.parse(bodyText);
       detail = parsed?.error?.message ?? bodyText;
     } catch { /* keep as text */ }
-    throw new AnthropicError(`Anthropic API ${res.status}: ${detail.slice(0, 500)}`, res.status);
+
+    lastError = new AnthropicError(
+      `Anthropic API ${res.status}: ${detail.slice(0, 500)}`,
+      res.status,
+    );
+
+    // Retryable error? Wait and try again.
+    if (RETRY_STATUS.has(res.status) && attempt < MAX_RETRIES) {
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+      console.warn(`Anthropic ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(delay);
+      continue;
+    }
+
+    // Non-retryable, or out of retries
+    throw lastError;
+  }
+
+  // Guard — should not reach here without res.ok being true
+  if (!res.ok) {
+    throw lastError ?? new AnthropicError("Unknown error after retries");
   }
 
   const data = await res.json();
