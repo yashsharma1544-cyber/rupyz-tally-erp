@@ -125,21 +125,27 @@ async function ensureCustomer(detail: RupyzOrderDetail): Promise<string | null> 
     return byCode.id;
   }
 
-  const { data: created, error } = await supabase.from("customers").insert({
-    rupyz_id: rid,
-    rupyz_code: String(rid),
-    name: detail.customer.name,
-    mobile: detail.customer.mobile?.replace(/[^0-9]/g, "") || null,
-    customer_type: detail.customer.customer_type || null,
-    customer_level: detail.customer.customer_level || null,
-    gstin: detail.customer.gstin || null,
-    city: detail.address?.city || null,
-    pincode: detail.address?.pincode || null,
-    address: detail.address?.address_line_1 || null,
-    is_stub: true,
-    active: true,
-  }).select("id").single();
-  if (error) throw new Error(`Customer stub insert failed for ${rid}: ${error.message}`);
+  // Upsert by rupyz_id — handles the race where another concurrent run
+  // inserted the same customer between our existence check and our insert.
+  const { data: created, error } = await supabase
+    .from("customers")
+    .upsert({
+      rupyz_id: rid,
+      rupyz_code: String(rid),
+      name: detail.customer.name,
+      mobile: detail.customer.mobile?.replace(/[^0-9]/g, "") || null,
+      customer_type: detail.customer.customer_type || null,
+      customer_level: detail.customer.customer_level || null,
+      gstin: detail.customer.gstin || null,
+      city: detail.address?.city || null,
+      pincode: detail.address?.pincode || null,
+      address: detail.address?.address_line_1 || null,
+      is_stub: true,
+      active: true,
+    }, { onConflict: "rupyz_id" })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Customer upsert failed for ${rid}: ${error.message}`);
   return created.id;
 }
 
@@ -176,19 +182,24 @@ async function ensureProduct(item: any): Promise<string | null> {
     return byCode.id;
   }
 
-  const { data: created, error } = await supabase.from("products").insert({
-    rupyz_id:       rid,
-    rupyz_code:     String(rid),
-    name:           item.name,
-    mrp:            item.mrp_price ?? 0,
-    base_price:     item.original_price ?? item.price ?? 0,
-    unit:           item.unit || "Kg",
-    gst_percent:    item.gst ?? 0,
-    hsn_code:       item.hsn_code || null,
-    is_stub:        true,
-    active:         true,
-  }).select("id").single();
-  if (error) throw new Error(`Product stub insert failed for ${rid}: ${error.message}`);
+  // Upsert by rupyz_id — concurrent-safe.
+  const { data: created, error } = await supabase
+    .from("products")
+    .upsert({
+      rupyz_id:       rid,
+      rupyz_code:     String(rid),
+      name:           item.name,
+      mrp:            item.mrp_price ?? 0,
+      base_price:     item.original_price ?? item.price ?? 0,
+      unit:           item.unit || "Kg",
+      gst_percent:    item.gst ?? 0,
+      hsn_code:       item.hsn_code || null,
+      is_stub:        true,
+      active:         true,
+    }, { onConflict: "rupyz_id" })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Product upsert failed for ${rid}: ${error.message}`);
   return created.id;
 }
 
@@ -243,20 +254,23 @@ async function upsertOrder(
     last_synced_at:          new Date().toISOString(),
   };
 
+  // Upsert by rupyz_id. Atomic and concurrent-safe.
+  // If the row exists, we DON'T overwrite app_status (the app may have
+  // moved it forward; the sync only sets app_status on first insert).
   const { data: existing } = await supabase
-    .from("orders").select("id").eq("rupyz_id", detail.id).maybeSingle();
+    .from("orders").select("id, app_status").eq("rupyz_id", detail.id).maybeSingle();
 
-  if (existing) {
-    const { error } = await supabase.from("orders").update(orderRow).eq("id", existing.id);
-    if (error) throw new Error(`Order update failed (${detail.order_id}): ${error.message}`);
-    return { id: existing.id, isNew: false };
-  } else {
-    const { data: created, error } = await supabase
-      .from("orders").insert({ ...orderRow, app_status: "received" })
-      .select("id").single();
-    if (error) throw new Error(`Order insert failed (${detail.order_id}): ${error.message}`);
-    return { id: created.id, isNew: true };
-  }
+  const rowToWrite = existing
+    ? orderRow  // existing row → don't touch app_status
+    : { ...orderRow, app_status: "received" };  // new row → set initial app_status
+
+  const { data: upserted, error } = await supabase
+    .from("orders")
+    .upsert(rowToWrite, { onConflict: "rupyz_id" })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Order upsert failed (${detail.order_id}): ${error.message}`);
+  return { id: upserted.id, isNew: !existing };
 }
 
 async function upsertItems(orderId: string, detail: RupyzOrderDetail) {
