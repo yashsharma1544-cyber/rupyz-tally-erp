@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { SyncPanel } from "./sync-panel";
+import { BackfillPanel, type BackfillState } from "./backfill-panel";
 import { OutstandingPanel } from "./outstanding-panel";
 import { TokenPanel } from "./token-panel";
 import { TallyPanel } from "./tally-panel";
@@ -16,7 +17,13 @@ export default async function SettingsPage() {
   const { data: me } = await supabase.from("app_users").select("role").eq("id", user.id).single();
   if (!me || me.role !== "admin") redirect("/dashboard");
 
-  const [{ data: session }, { data: logs }, { data: outAgg }, { data: tallyLogs }] = await Promise.all([
+  const [
+    { data: session },
+    { data: logs },
+    { data: outAgg },
+    { data: tallyLogs },
+    { data: backfillState },
+  ] = await Promise.all([
     supabase.from("rupyz_session").select("org_id, username, expires_at, last_refreshed_at").maybeSingle(),
     supabase.from("rupyz_sync_log")
       .select("*")
@@ -27,6 +34,7 @@ export default async function SettingsPage() {
       .select("*")
       .order("started_at", { ascending: false })
       .limit(15),
+    supabase.from("rupyz_backfill_state").select("*").eq("id", 1).maybeSingle(),
   ]);
 
   const totalRows = outAgg?.length ?? 0;
@@ -44,6 +52,10 @@ export default async function SettingsPage() {
           session={session as { org_id: number; username: string; expires_at: string; last_refreshed_at: string } | null}
           logs={(logs ?? []) as RupyzSyncLog[]}
         />
+
+        {backfillState && (
+          <BackfillPanel state={backfillState as BackfillState} />
+        )}
 
         <OutstandingPanel totalRows={totalRows} totalAmount={totalAmount} />
 
