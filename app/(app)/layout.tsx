@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ChatWidget } from "@/components/ai/chat-widget";
 import type { AppUser } from "@/lib/types";
 
 // Admin pages get the desktop/admin manifest. The /van route group has its own
@@ -44,10 +45,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const isAdmin = appUser.role === "admin";
+
   return (
     <div className="lg:flex min-h-screen">
       <Sidebar user={appUser as AppUser} />
       <main className="flex-1 min-w-0 overflow-x-hidden">{children}</main>
+      {/* AI chat widget — floats on every admin page. Only admins for now. */}
+      {isAdmin && <ChatWidget />}
     </div>
   );
 }

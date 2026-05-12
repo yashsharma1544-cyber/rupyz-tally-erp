@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, Minus, Phone, Clock, ChevronRight } from "lucide-react";
+import { NarrativeSection } from "@/components/ai/narrative-section";
 import type { CustomerHealth } from "./page";
 
 type TabKey = "all" | "growing" | "shrinking" | "sleeping";
@@ -15,9 +16,8 @@ const TABS: Array<{ key: TabKey; label: string; description: string }> = [
 ];
 
 function formatKg(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "0";
-  if (n >= 1000) return `${(n / 1000).toFixed(2).replace(/\.00$/, "")}t`;
-  return n.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+  if (!Number.isFinite(n) || n === 0) return "0 kg";
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
 function formatDays(d: number | null, lastOrderAt: string | null): string {
@@ -53,7 +53,7 @@ function GrowthCell({ pct }: { pct: number | null }) {
   );
 }
 
-export function BeatInsightsTabs({ customers }: { customers: CustomerHealth[] }) {
+export function BeatInsightsTabs({ customers, beatId }: { customers: CustomerHealth[]; beatId?: string }) {
   const [tab, setTab] = useState<TabKey>("all");
 
   const filtered = useMemo(() => {
@@ -87,6 +87,16 @@ export function BeatInsightsTabs({ customers }: { customers: CustomerHealth[] })
 
   return (
     <>
+      {/* AI INSIGHTS — beat-level narrative, only renders if beatId is provided */}
+      {beatId && (
+        <div className="mb-4">
+          <NarrativeSection
+            endpoint={`/api/ai/narrative/beat/${beatId}`}
+            title="AI insights"
+          />
+        </div>
+      )}
+
       <div className="flex items-center gap-1 mb-3 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map(t => {
           const active = t.key === tab;

@@ -36,8 +36,7 @@ export interface CustomerHealth {
 
 function formatKg(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "0 kg";
-  if (n >= 1000) return `${(n / 1000).toFixed(2).replace(/\.00$/, "")} t`;
-  return `${n.toLocaleString("en-IN", { maximumFractionDigits: 1 })} kg`;
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
 export default async function BeatInsightsPage({
@@ -138,7 +137,7 @@ export default async function BeatInsightsPage({
           </div>
         </div>
 
-        <BeatInsightsTabs customers={customers} />
+        <BeatInsightsTabs customers={customers} beatId={beatId} />
       </div>
     </div>
   );

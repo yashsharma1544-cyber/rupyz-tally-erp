@@ -6,12 +6,13 @@
 // me?" or "what's stuck?".
 //
 // Sections (top to bottom):
-//   1. Greeting + headline counters
-//   2. Action items — things to do RIGHT NOW (with prominent buttons)
-//   3. Admin nav (admin only) — quick links to /drivers, /trucks, /users
-//   4. Today snapshot — quick stats with no buttons (just for awareness)
-//   5. Stale items — only shown when there's something genuinely overdue
-//   6. System status (Rupyz token, sync) — only shown if there's a problem
+//   1. AI daily briefing (admin only) — what's notable, what to watch
+//   2. Greeting + headline counters
+//   3. Action items — things to do RIGHT NOW (with prominent buttons)
+//   4. Admin nav (admin only) — quick links to /drivers, /trucks, /users
+//   5. Today snapshot — quick stats with no buttons (just for awareness)
+//   6. Stale items — only shown when there's something genuinely overdue
+//   7. System status (Rupyz token, sync) — only shown if there's a problem
 // =============================================================================
 
 import Link from "next/link";
@@ -23,6 +24,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { BriefingCard } from "@/components/ai/briefing-card";
 
 export const dynamic = "force-dynamic";  // Never cache; always show fresh
 export const revalidate = 0;
@@ -215,7 +217,12 @@ export default async function DashboardPage() {
 
       <div className="p-3 sm:p-6 max-w-5xl space-y-5 sm:space-y-6">
 
-        {/* SYSTEM ISSUES — only when there are problems. Sits at top to grab attention. */}
+        {/* AI DAILY BRIEFING — admin only. First thing they see. */}
+        {me.role === "admin" && (
+          <BriefingCard />
+        )}
+
+        {/* SYSTEM ISSUES — only when there are problems. Sits near top to grab attention. */}
         {systemIssues.length > 0 && (
           <div className="bg-danger-soft border border-danger/30 rounded-md p-3 sm:p-4 space-y-1.5">
             <div className="flex items-center gap-2 text-sm font-semibold text-danger">

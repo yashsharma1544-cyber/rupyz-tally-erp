@@ -8,12 +8,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { NarrativeSection } from "@/components/ai/narrative-section";
 import { markVisited } from "./actions";
 import type { CustomerDetailData } from "./page";
 
 function fmtKg(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)} t`;
-  return `${n.toFixed(1)} kg`;
+  if (!Number.isFinite(n) || n === 0) return "0 kg";
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
 function fmtDate(d: string | null): string {
@@ -126,6 +127,14 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
             </div>
           </div>
         )}
+
+        {/* AI INSIGHTS — above the KPI tiles so it's the first analytical content */}
+        <div className="mb-4">
+          <NarrativeSection
+            endpoint={`/api/ai/narrative/customer/${data.id}`}
+            title="AI insights"
+          />
+        </div>
 
         {/* KPI tiles — wraps gracefully on mobile */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3 mb-4">

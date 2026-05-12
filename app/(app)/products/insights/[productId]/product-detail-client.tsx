@@ -5,6 +5,7 @@ import {
   ArrowLeft, Package, MapPin, Phone, Users, TrendingUp, TrendingDown, Minus,
   AlertCircle, ChevronRight,
 } from "lucide-react";
+import { NarrativeSection } from "@/components/ai/narrative-section";
 import type { ProductDetailData, BuyerRow } from "./page";
 
 function fmtKg(n: number): string {
@@ -53,6 +54,14 @@ export function ProductDetailClient({ data }: { data: ProductDetailData }) {
             </span>
           )}
         </div>
+      </div>
+
+      {/* AI INSIGHTS — top of analytical content */}
+      <div className="mb-4">
+        <NarrativeSection
+          endpoint={`/api/ai/narrative/product/${data.id}`}
+          title="AI insights"
+        />
       </div>
 
       {/* KPI tiles */}
