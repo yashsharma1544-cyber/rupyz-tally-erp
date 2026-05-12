@@ -54,6 +54,17 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  // Live progress polling: while status is running or paused, refresh the
+  // page state every 3 seconds so user sees Last completed page / Orders
+  // processed / Oldest seen increasing in real time.
+  useEffect(() => {
+    if (state.status !== "running" && state.status !== "paused") return;
+    const intervalId = setInterval(() => {
+      router.refresh();
+    }, 3000);
+    return () => clearInterval(intervalId);
+  }, [state.status, router]);
+
   function handleStart() {
     startTransition(async () => {
       const res = await triggerBackfill();
@@ -206,7 +217,12 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
       <div className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
         <div>
           <div className="text-2xs uppercase tracking-wide text-ink-subtle">Status</div>
-          <div className="mt-1"><StatusBadge status={state.status}/></div>
+          <div className="mt-1 flex items-center gap-2">
+            <StatusBadge status={state.status}/>
+            {(state.status === "running" || state.status === "paused") && (
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent animate-pulse" aria-hidden/>
+            )}
+          </div>
         </div>
         <div>
           <div className="text-2xs uppercase tracking-wide text-ink-subtle">Last completed page</div>
@@ -214,9 +230,9 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
         </div>
         <div>
           <div className="text-2xs uppercase tracking-wide text-ink-subtle">Orders processed</div>
-          <div className="tabular font-semibold mt-0.5">{state.total_orders_processed}</div>
+          <div className="tabular font-semibold mt-0.5">{state.total_orders_processed.toLocaleString("en-IN")}</div>
           <div className="text-2xs text-ink-subtle">
-            {state.total_orders_inserted} new · {state.total_orders_updated} updated
+            {state.total_orders_inserted.toLocaleString("en-IN")} new · {state.total_orders_updated.toLocaleString("en-IN")} updated · {state.total_orders_skipped.toLocaleString("en-IN")} skipped
           </div>
         </div>
         <div>
@@ -226,6 +242,12 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
               ? new Date(state.last_page_oldest_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
               : "—"}
           </div>
+          {mounted && state.last_page_oldest_at && state.cutoff_date && (
+            <ProgressEstimate
+              oldestSeen={state.last_page_oldest_at}
+              cutoff={state.cutoff_date}
+            />
+          )}
         </div>
       </div>
 
@@ -256,6 +278,22 @@ export function BackfillPanel({ state }: { state: BackfillState }) {
           {state.finished_at && <> · Finished: {new Date(state.finished_at).toLocaleString("en-IN")}</>}
         </div>
       )}
+    </div>
+  );
+}
+
+// Helper: show "~N days to go" estimate based on oldest seen vs cutoff.
+function ProgressEstimate({ oldestSeen, cutoff }: { oldestSeen: string; cutoff: string }) {
+  const oldestMs = new Date(oldestSeen).getTime();
+  const cutoffMs = new Date(cutoff).getTime();
+  if (!Number.isFinite(oldestMs) || !Number.isFinite(cutoffMs)) return null;
+  const daysLeft = Math.max(0, Math.round((oldestMs - cutoffMs) / 86400000));
+  const totalSpan = Math.max(1, Math.round((Date.now() - cutoffMs) / 86400000));
+  const daysDone = Math.max(0, totalSpan - daysLeft);
+  const pct = Math.min(100, Math.round((daysDone / totalSpan) * 100));
+  return (
+    <div className="text-2xs text-ink-subtle mt-1">
+      ~{daysLeft}d to cutoff · {pct}% done
     </div>
   );
 }

@@ -29,8 +29,8 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SYNC_SECRET  = Deno.env.get("RUPYZ_SYNC_SECRET") ?? "";
 
 // Time budget in milliseconds. Edge Functions free-tier limit is 60s; leave
-// headroom for the final state update + response.
-const TIME_BUDGET_MS = 45_000;
+// headroom for the final state update + auto-resume invocation.
+const TIME_BUDGET_MS = 50_000;
 
 function db() {
   return createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
@@ -391,14 +391,19 @@ async function runBackfill(): Promise<{ ok: boolean; finalStatus: string; counte
       }
       const oldestAt = new Date(oldestAtMs).toISOString();
 
+      // Bulk check for existing orders on this page (1 query instead of 30)
+      const rupyzIds = orders.map((o: any) => o.id);
+      const { data: existingRows } = await db()
+        .from("orders")
+        .select("rupyz_id, last_synced_at, app_status")
+        .in("rupyz_id", rupyzIds);
+      const existingMap = new Map(
+        (existingRows ?? []).map((r: any) => [r.rupyz_id, r])
+      );
+
       // Process each order
       for (const summary of orders) {
-        // Check existing — skip if already up-to-date
-        const { data: existing } = await db()
-          .from("orders")
-          .select("id, last_synced_at, app_status")
-          .eq("rupyz_id", summary.id)
-          .maybeSingle();
+        const existing = existingMap.get(summary.id);
 
         if (existing) {
           // Skip if already terminal — don't re-pull
@@ -483,6 +488,23 @@ async function runBackfill(): Promise<{ ok: boolean; finalStatus: string; counte
 // HTTP entry
 // ============================================================================
 
+// Self-invoke for auto-resume. Fire-and-forget — don't await.
+async function selfInvoke(): Promise<void> {
+  const url = `${SUPABASE_URL}/functions/v1/rupyz-backfill`;
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "authorization": `Bearer ${SERVICE_ROLE}`,
+  };
+  if (SYNC_SECRET) headers["x-rupyz-sync-secret"] = SYNC_SECRET;
+  // Mark this as a chained call (so we can distinguish in logs if needed)
+  headers["x-trigger"] = "auto-resume";
+  try {
+    await fetch(url, { method: "POST", headers, body: "{}" });
+  } catch (_e) {
+    // Best effort — if the chain breaks, user can click Resume manually
+  }
+}
+
 Deno.serve(async (req) => {
   if (SYNC_SECRET) {
     const header = req.headers.get("x-rupyz-sync-secret");
@@ -492,6 +514,26 @@ Deno.serve(async (req) => {
   }
 
   const result = await runBackfill();
+  
+  // Auto-resume: if we paused (not completed or failed), trigger another run.
+  // We do this AFTER computing the result but BEFORE responding, so the response
+  // doesn't wait for the chained call to finish. Using EdgeRuntime.waitUntil
+  // when available, otherwise plain promise.
+  if (result.ok && result.finalStatus === "paused") {
+    try {
+      // @ts-expect-error: EdgeRuntime is available in Supabase Edge Functions
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        // @ts-expect-error
+        EdgeRuntime.waitUntil(selfInvoke());
+      } else {
+        // Fallback: fire-and-forget without waiting
+        selfInvoke();
+      }
+    } catch (_e) {
+      // ignore
+    }
+  }
+  
   return new Response(JSON.stringify(result, null, 2), {
     status: result.ok ? 200 : 500,
     headers: { "content-type": "application/json" },
