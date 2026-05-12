@@ -261,11 +261,21 @@ async function upsertOrder(
 
 async function upsertItems(orderId: string, detail: RupyzOrderDetail) {
   const supabase = db();
-  await supabase.from("order_items").delete().eq("order_id", orderId);
+  // Upsert by (order_id, rupyz_product_id) — handles concurrent runs and
+  // true Rupyz-side duplicates idempotently. Last writer wins.
 
+  // Dedupe items by rupyz_product_id within the same Rupyz payload (defensive)
+  const seen = new Set<number>();
+  const uniqueItems = [];
   for (const item of detail.items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    uniqueItems.push(item);
+  }
+
+  for (const item of uniqueItems) {
     const productId = await ensureProduct(item);
-    const { error } = await supabase.from("order_items").insert({
+    const { error } = await supabase.from("order_items").upsert({
       order_id:                  orderId,
       product_id:                productId,
       rupyz_product_id:          item.id,
@@ -291,8 +301,10 @@ async function upsertItems(orderId: string, detail: RupyzOrderDetail) {
       dispatch_qty:              item.dispatch_qty ?? 0,
       total_dispatched_qty:      item.total_dispatched_qty ?? 0,
       rupyz_raw:                 item,
+    }, {
+      onConflict: "order_id,rupyz_product_id",
     });
-    if (error) throw new Error(`Item insert failed (order ${orderId}, product ${item.id}): ${error.message}`);
+    if (error) throw new Error(`Item upsert failed (order ${orderId}, product ${item.id}): ${error.message}`);
   }
 }
 
