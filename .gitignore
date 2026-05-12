@@ -11,3 +11,15 @@ next-env.d.ts
 .vercel
 .idea
 .vscode/
+
+# Environment files (never commit)
+.env.local
+.env*.local
+
+# Environment files (never commit)
+.env.local
+.env*.local
+
+# Environment files (never commit)
+.env.local
+.env*.local
