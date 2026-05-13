@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   X,
+  Kanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -24,6 +25,7 @@ import type { AppUser } from "@/lib/types";
 
 const navItems = [
   { href: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
+  { href: "/pipeline",     label: "Pipeline",   icon: Kanban,          roles: "all" },
   { href: "/orders",       label: "Orders",     icon: ShoppingBag,     roles: "all" },
   { href: "/dispatches",   label: "Dispatches", icon: Truck,           roles: "all" },
   { href: "/trips",        label: "VAN Trips",  icon: Route,           roles: "all" },
