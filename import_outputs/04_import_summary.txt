@@ -1,0 +1,25 @@
+============================================================
+TALLY BACKFILL IMPORT SUMMARY
+============================================================
+
+Vouchers parsed:           3273
+Line items parsed:         12658
+Date range:                2025-04-04 to 2026-03-31
+Total amount:              ₹124,640,206.60
+
+--- Customer matching ---
+Unique Tally parties:      329
+  Auto-matched (≥95%):     24
+  Review (80-95%):         69
+  New historical-only:     236
+
+--- Product matching ---
+Unique Tally items:        39
+  Matched:                 29
+  Unmatched (kg=NULL):     10
+Line items with no match:  573 / 12658
+
+--- Next steps ---
+  1. Review 02_new_historical_customers.csv
+  2. Review 03_unmatched_products.csv
+  3. If happy, run 01_import_orders.sql in Supabase SQL editor

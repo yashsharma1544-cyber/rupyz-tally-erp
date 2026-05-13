@@ -1,169 +1,144 @@
-# Rupyz · Tally ERP
+# Helper feature — Phase 1
 
-Order management & Tally bridge for **Sushil Agencies**.
-Built on Next.js 14 + Supabase (Mumbai). Phase 1.5 — masters, auth, sidebar.
+Adds an optional "helper" to the per-order dispatch screen. Helpers are app_users with role `van_helper`. When assigned, they can open `/driver` and POD the delivery same as the driver.
 
----
-
-## What this codebase contains (Phase 1.5)
-
-- **Auth** — email + password, invite-only, role-based (admin / approver / accounts / dispatch / delivery / salesman)
-- **Masters UI** — Customers (1,096) · Products (43) · Salesmen (5) · Beats (23)
-- **Users page** — admin-only invite + role/active management
-- **RLS** — everyone authenticated reads masters, only admin writes
-- **Dashboard** — counts, system status placeholders for upcoming phases
-
-Phases ahead: Rupyz scraper (2) · Order management (3) · Tally bridge (4) · WATi WhatsApp (5).
-
----
-
-## One-time setup
-
-### 1. Push to GitHub
-
-```bash
-cd rupyz-tally-erp
-git init
-git add .
-git commit -m "Phase 1.5 — masters, auth, sidebar"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/rupyz-tally-erp.git
-git push -u origin main
-```
-
-### 2. Run the SQL files (in order) in Supabase → SQL Editor
-
-If you already ran `01` and `02`, just run `03`:
-
-| File | What it does |
-|---|---|
-| `sql/01_schema_phase1.sql` | Tables, enums, indexes, seeded salesmen |
-| `sql/02_import_phase1.sql` | 1 category, 10 brands, 23 beats, 43 products, 1,096 customers |
-| `sql/03_phase1_5_auth_and_rls.sql` | Signup trigger + RLS policies |
-
-### 3. Get Supabase keys
-
-Supabase → Project Settings → **API**:
-
-- **Project URL** → goes into `NEXT_PUBLIC_SUPABASE_URL`
-- **Project API keys → anon public** → goes into `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- **Project API keys → service_role secret** → goes into `SUPABASE_SERVICE_ROLE_KEY`
-
-### 4. Deploy on Vercel
-
-1. Vercel → **Add New Project** → import the GitHub repo
-2. Framework: **Next.js** (auto-detected)
-3. Add environment variables (Settings → Environment Variables):
-
-   | Key | Value |
-   |---|---|
-   | `NEXT_PUBLIC_SUPABASE_URL` | from step 3 |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | from step 3 |
-   | `SUPABASE_SERVICE_ROLE_KEY` | from step 3 (mark as **Sensitive**) |
-   | `NEXT_PUBLIC_APP_URL` | your Vercel URL, e.g. `https://rupyz-tally-erp.vercel.app` |
-
-4. Click **Deploy**.
-
-### 5. Configure Supabase auth redirect
-
-Supabase → **Authentication → URL Configuration**:
-
-- **Site URL** = your Vercel URL
-- **Redirect URLs** = add `https://YOUR-APP.vercel.app/auth/callback` and `http://localhost:3000/auth/callback`
-
-### 6. Create the first admin
-
-The very first user has to be created via the Supabase dashboard, because the in-app invite flow needs an existing admin to authorize it.
-
-1. Supabase → **Authentication → Users → Add user → Create new user**
-2. Email = your email, Password = strong password, **Auto-confirm email** = ON
-3. SQL Editor:
-   ```sql
-   update public.app_users set role = 'admin' where email = 'YOUR-EMAIL@example.com';
-   ```
-4. Visit your Vercel URL, sign in, you're admin.
-5. From now on, invite users from **Users** page in the app.
-
----
-
-## Local development
-
-```bash
-cp .env.example .env.local
-# fill in keys from Supabase
-npm install
-npm run dev
-# open http://localhost:3000
-```
-
----
-
-## Project structure
+## What's in this zip
 
 ```
-app/
-├── (app)/              ← Protected layout group (sidebar)
-│   ├── dashboard/
-│   ├── customers/      ← server page + customers-client.tsx
-│   ├── products/
-│   ├── salesmen/
-│   ├── beats/
-│   ├── users/          ← admin only; uses server actions
-│   └── settings/
-├── login/              ← Public login screen
-└── auth/callback/      ← Supabase OAuth/PKCE callback
+sql/47_dispatch_helper.sql                                NEW migration — helper_user_id column
 
-components/
-├── layout/             ← Sidebar, page header
-└── ui/                 ← Button, Input, Sheet, Select, Badge
+app/(app)/dispatches/actions.ts                           UPDATED — createDispatch accepts helperUserId,
+                                                                    markDelivered allows van_helper role
+                                                                    (also accepts 'loaded' orders, matching prev fix)
+app/dispatch/[beatId]/[orderId]/page.tsx                  UPDATED — fetch helpers list
+app/dispatch/[beatId]/[orderId]/order-dispatch-client.tsx UPDATED — helper dropdown in truck details
 
-lib/
-├── supabase/           ← client / server / middleware / admin helpers
-├── types.ts            ← TypeScript types matching DB
-└── utils.ts            ← cn(), formatINR(), formatNumber()
-
-sql/
-├── 01_schema_phase1.sql
-├── 02_import_phase1.sql
-└── 03_phase1_5_auth_and_rls.sql
-
-middleware.ts           ← Auth gate — redirects to /login if not signed in
+app/driver/page.tsx                                       UPDATED — show dispatches where you're driver OR helper
+app/driver/[dispatchId]/page.tsx                          UPDATED — authz check allows helper
 ```
 
----
+## What's NOT in this phase
 
-## Stack
+- Bulk dispatch screen (`bulkDispatchByBeat`) — no helper
+- Load-truck wizard (`/dispatch/load-truck`, `/dispatch/[beatId]/load-truck`) — no helper
+- Beat-level "Dispatch all orders" — no helper
+- Admin can add helpers via existing Users page (role dropdown already has `van_helper`)
 
-- **Next.js 14** (App Router, Server Components)
-- **Supabase** — Postgres, Auth, RLS
-- **TypeScript** — strict mode
-- **Tailwind CSS** — refined utilitarian theme (paper/ink/teal)
-- **Radix UI primitives** — accessible Sheet, Select, Label
-- **Lucide icons**, **sonner** toasts
+If you use bulk or wizard paths, `helper_user_id` stays NULL. No data corruption — just no helper assigned. Per-order dispatch is the only path that gets helper UI for now.
 
-Design tokens live in `tailwind.config.ts`. Fonts are IBM Plex Sans + JetBrains Mono.
-
----
-
-## Known limitations (intentional, addressed later)
-
-- **Pricing rules** — only base price exists. Customer-specific rates come in Phase 3.
-- **Salesman ↔ customer mapping** — empty on import; populated from order data in Phase 2/3.
-- **GSTINs** — empty on import; synced from Tally in Phase 4.
-
----
-
-## Troubleshooting
-
-**"Account not provisioned"** after sign-in — your auth row exists but the trigger didn't create your `app_users` row. Run:
+## Step 1 — Run SQL #47 in Supabase
 
 ```sql
-insert into public.app_users (id, full_name, email, role)
-select id, email, email, 'admin'::user_role
-from auth.users where email = 'YOUR-EMAIL@example.com'
-on conflict (id) do nothing;
+alter table dispatches
+  add column if not exists helper_user_id uuid references app_users(id);
+
+comment on column dispatches.helper_user_id is
+  'Optional helper app_user (typically van_helper role) accompanying the driver. NULL = no helper.';
 ```
 
-**RLS denying writes for admin** — confirm `select public.is_admin();` returns `true` while logged in. If false, your role isn't 'admin' or your row isn't active.
+Verify:
+```sql
+select column_name, data_type
+from information_schema.columns
+where table_name = 'dispatches' and column_name = 'helper_user_id';
+```
+Should return one row.
 
-**Invite emails not arriving** — check Supabase → Authentication → Logs. The default email provider has rate limits; for production, configure a custom SMTP under Auth → Email Templates → SMTP Settings.
+## Step 2 — Copy files
+
+```powershell
+cd C:\Users\Yash\Downloads\rupyz-tally-erp
+
+$src = "C:\Users\Yash\Downloads\helper-phase1"
+
+Copy-Item -LiteralPath "$src\sql\47_dispatch_helper.sql" -Destination "sql\47_dispatch_helper.sql" -Force
+Copy-Item -LiteralPath "$src\app\(app)\dispatches\actions.ts" -Destination "app\(app)\dispatches\actions.ts" -Force
+Copy-Item -LiteralPath "$src\app\dispatch\[beatId]\[orderId]\page.tsx" -Destination "app\dispatch\[beatId]\[orderId]\page.tsx" -Force
+Copy-Item -LiteralPath "$src\app\dispatch\[beatId]\[orderId]\order-dispatch-client.tsx" -Destination "app\dispatch\[beatId]\[orderId]\order-dispatch-client.tsx" -Force
+Copy-Item -LiteralPath "$src\app\driver\page.tsx" -Destination "app\driver\page.tsx" -Force
+Copy-Item -LiteralPath "$src\app\driver\[dispatchId]\page.tsx" -Destination "app\driver\[dispatchId]\page.tsx" -Force
+```
+
+## Step 3 — Create helpers in the Users page
+
+Open `/users` in your admin app. Click "Invite User" or "Create driver" (whichever fits — the existing form has a role dropdown that includes `van_helper`).
+
+For helpers without email, use "Create driver" path — it lets you set phone + password directly. Set role to `van_helper` after creation (via the role dropdown on the users table row), OR if Invite form's role dropdown lets you pick van_helper, use that.
+
+You said you'd provide helper info ahead of time — when you're ready, paste names + phone numbers and I can SQL-insert them directly if the UI isn't working for some reason.
+
+## Step 4 — Commit + push
+
+```powershell
+git add -A app sql
+git status
+```
+
+Expected: 1 new SQL, 5 modified TS files. Paste status before committing.
+
+```powershell
+git commit -m "Helper feature phase 1: per-order dispatch + driver app authz"
+git push
+```
+
+## Step 5 — Test after deploy
+
+### Test 1: Helper dropdown shows in dispatch screen
+1. Open `/dispatch` → pick a beat → pick an order
+2. Scroll to "Truck details"
+3. Below "Driver phone" you should see "Helper (optional)" dropdown
+4. If no helpers exist, you'll see the message about adding van_helper users
+
+### Test 2: Assign a helper
+1. Create a van_helper user (Step 3 above)
+2. Reload the order dispatch page → helper should appear in dropdown
+3. Select a helper, fill vehicle/driver, tap Dispatch
+4. Should succeed normally
+
+### Test 3: Helper sees the delivery in /driver
+1. Log out, log in as the helper (phone + password)
+2. Open `/driver`
+3. Should see the dispatch under the truck. Shows "as helper" badge.
+4. Pending dispatches show as preview-only. Once dispatcher taps "Mark dispatched (truck left)", it moves to "Ready to deliver."
+
+### Test 4: Helper can POD
+1. As helper, tap the delivery card
+2. Should land on the same POD screen as driver
+3. Take photo, optional GPS, optional receiver name/notes
+4. Tap "Mark delivered"
+5. Should succeed — POD photo uploads, dispatch status moves to delivered
+
+### Verify in SQL
+```sql
+select 
+  d.id, d.status, d.vehicle_number,
+  driver.full_name as driver,
+  helper.full_name as helper,
+  d.delivered_at, d.delivered_by
+from dispatches d
+left join app_users driver on driver.id = d.driver_user_id
+left join app_users helper on helper.id = d.helper_user_id
+where d.helper_user_id is not null
+order by d.created_at desc
+limit 10;
+```
+
+## What about admin auditing?
+
+The `markDelivered` action now logs `captured_by_role` in `order_audit_events.details`. So you can see in audit:
+- Who delivered (actor_name)
+- Their role at the time (driver vs van_helper)
+
+## Rollback
+
+```powershell
+git revert HEAD --no-edit
+git push
+```
+
+DB rollback (only if no dispatches use helper yet):
+```sql
+alter table dispatches drop column if exists helper_user_id;
+```
+
+Harmless to leave the column if any rows reference it — NULL is the default.

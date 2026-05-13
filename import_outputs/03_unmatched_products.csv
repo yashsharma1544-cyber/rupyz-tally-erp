@@ -1,0 +1,40 @@
+item_raw,occurrences,matched_to,product_id,weight_kg,similarity_score,status
+LION 1 KG (ZOLA BAG FREE ),167,,,,0.735,UNMATCHED — kg will be NULL for these lines
+Vikram Dust 20 Rs,148,,,,0.732,UNMATCHED — kg will be NULL for these lines
+Vikram Lion 1 Kg 435 RS (Container),109,,,,0.635,UNMATCHED — kg will be NULL for these lines
+Vikram Elachi  10 Rs  ( New Pack ),55,,,,0.632,UNMATCHED — kg will be NULL for these lines
+Vikram Dust 10 Rs,44,,,,0.732,UNMATCHED — kg will be NULL for these lines
+Vikram Gold 1 Kg (Standy Pouch),21,,,,0.746,UNMATCHED — kg will be NULL for these lines
+LION 1 KG (BUCKET FREE ) 411 RS,20,,,,0.593,UNMATCHED — kg will be NULL for these lines
+Vikram Lion 500 Gm Jar Dust,6,,,,0.735,UNMATCHED — kg will be NULL for these lines
+Titli Rs 10,2,,,,0.615,UNMATCHED — kg will be NULL for these lines
+RUPA SECOND FLUSH CTC 500 GM BOX,1,,,,0.552,UNMATCHED — kg will be NULL for these lines
+Lion No 5 - 250 Gm,2265,Lion no.05 250 Gm,d3ab0acf-8970-45f2-a2ec-97fd613bafdf,1.0000,0.938,MATCHED
+Lion No 5  10 Rs,1452,Lion no.05 100 Gm,ccfc13bb-54f2-4753-8b8f-5d398c3f751d,1.0000,0.774,MATCHED
+Lion No 5 Rs 20 (New),1415,Lion no.05 Rs 20,f37fcb6f-c5fa-4f2c-9d3c-c8af6983f82f,0.9600,0.778,MATCHED
+Lion No 5 -100 Gm,1358,Lion no.05 100 Gm,ccfc13bb-54f2-4753-8b8f-5d398c3f751d,1.0000,0.938,MATCHED
+Lion No  5 - 500 Gm,1280,Lion no.05 500 Gm,78567323-f38d-4f75-99f2-9ea0566be58d,1.0000,0.938,MATCHED
+Vikram Dust - 250 Gm,1053,Vikram Kadak Dust 250 Gm,06b830ff-a4c3-4dcf-9a52-6edea81adadc,1.0000,0.857,MATCHED
+Vikram Dust - 500 Gm,576,Vikram Kadak Dust 500 Gm,37ffd74d-2798-4add-a8ba-8b70d3ada2a8,1.0000,0.857,MATCHED
+Vikram Dust 1 Kg.,529,Vikram Kadak Dust 1 Kg,3c175f6a-b9fb-421d-889f-dcac3465a247,1.0000,0.842,MATCHED
+Vikram Elaichi  250 Gm,496,Vikram Elaichi Dust 250 Gm,6a9d16d0-88e2-450e-88d9-e01b9a6e5c35,1.0000,0.894,MATCHED
+Lion No.5 1 Kg.,471,Lion no.05 100 Gm,ccfc13bb-54f2-4753-8b8f-5d398c3f751d,1.0000,0.828,MATCHED
+Lion 5 Rs,309,Lion no.05 Rs 5,dd840222-f599-4b72-b36c-6e7f32fdd2f4,0.6000,0.783,MATCHED
+Vikram Elaichi Dust 500 Gm Jar,222,Vikram Elaichi Dust 250 Gm Jar,94c63c84-170b-4917-937a-ae434080e42b,1.0000,0.967,MATCHED
+Vikram Dust - 100 Gm,108,Vikram Kadak Dust 100 Gm,b2006bf8-2b16-425c-b0b3-686f51628160,1.0000,0.857,MATCHED
+Vikram Gold Mix 250 Gm.,103,Vikram Gold Mix 250 Gm,c7cff2ae-8200-45d9-b906-65a71075adea,1.0000,1.000,MATCHED
+Vikram Masala Tea 250gm Box,83,Vikram Masala 250 Gm,49d77708-d8c0-418c-aee3-28f4d028863c,1.0000,0.809,MATCHED
+Vikram Elachi Dust  20 Rs,64,Vikram Elaichi Dust 250 Gm,6a9d16d0-88e2-450e-88d9-e01b9a6e5c35,1.0000,0.880,MATCHED
+Vikram Elaichi 100gm,58,Vikram Elaichi Dust 100 Gm,1c6ca539-df2b-444f-88c1-53e7c10ff5b9,1.0000,0.870,MATCHED
+Janta Dust,47,Janta Dust 5 Kg,e7b270a7-2c25-4f90-8d69-568b120b963b,1.0000,0.800,MATCHED
+Vikram Green Tea 100 Gm Box,45,Vikram Green Tea 100 Gm,d776e4d6-e347-4157-9085-445f8789e4cd,1.0000,0.920,MATCHED
+Vikram Elachi Dust  20 Rs (NEW),33,Vikram Elaichi Dust Rs 10,fbc8ac31-e5ea-4ca8-982b-c775a83910b4,0.5280,0.800,MATCHED
+Vikram Elachi Dust 1 Kg Standee,25,Vikram Elaichi Dust 1 Kg,f0fb6951-f441-4b6d-90c7-cf693ee10516,1.0000,0.836,MATCHED
+Vikram Elachi 10 Rs,23,Vikram Elaichi Dust Rs 10,fbc8ac31-e5ea-4ca8-982b-c775a83910b4,0.5280,0.773,MATCHED
+Vikram Green Tea Ddep Dip Tea,18,Vikram Green Tea Dip Dip 50gm,f39baaa3-f184-4630-b428-89872efe5ee6,1.0000,0.828,MATCHED
+Vikram Gold Mix 500 Gm,14,Vikram Gold Mix 500 Gm,afe7c731-4e3a-421a-9029-3b7b4436dbe7,1.0000,1.000,MATCHED
+Vikram Lion 1 Kg (P),11,Vikram Lion (N) 1 Kg,8d1cdbe3-2003-4780-927b-c4432d64dafe,1.0000,0.800,MATCHED
+Vikram Elaichi 250gm Jar,10,Vikram Elaichi Dust 250 Gm Jar,94c63c84-170b-4917-937a-ae434080e42b,1.0000,0.889,MATCHED
+VIKRAM LION ( N ) 250GM,9,Vikram Lion (N) 250 Gm,ae7d4a4a-e95c-49af-9cf5-37b905626bac,1.0000,0.933,MATCHED
+New Sagar Mix 5 Kg Bag,7,New Sagar 5 Kg,a585468d-7c92-44a5-b631-b721cfe54400,1.0000,0.778,MATCHED
+Vikram Kadak Dust 5 Rs ( New ),1,Vikram Kadak Dust Rs 10,09e2552a-8b88-4364-993f-862707cb71a3,0.5980,0.792,MATCHED

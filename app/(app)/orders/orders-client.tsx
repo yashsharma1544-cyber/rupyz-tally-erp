@@ -46,7 +46,7 @@ const TABS: TabDef[] = [
   { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
     emptyHint: "Nothing to send out right now.",
     icon: PackageCheck,  accent: "accent" },
-  { key: "loading",   label: "Loading",  statuses: ["loading"],
+ { key: "loading",   label: "Loading",  statuses: ["loading", "loaded"],
     emptyHint: "No trucks currently loading.",
     icon: Truck,         accent: "warn" },
   { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
@@ -93,10 +93,10 @@ function defaultTabForRole(role: string): TabKey {
 
 // All statuses, in workflow order — used when tab='all'
 const ALL_STATUSES: OrderAppStatus[] = [
-  "received", "approved", "loading", "on_van_trip",
-  "partially_dispatched", "dispatched", "delivered",
-  "rejected", "cancelled", "closed",
-];
+    "received", "approved", "loading", "loaded", "on_van_trip",
+    "partially_dispatched", "dispatched", "delivered",
+    "rejected", "cancelled", "closed",
+  ];
 
 // What status options does the dropdown show for a given tab?
 // For specific tabs: only the statuses that belong to that tab (if >1).
@@ -113,8 +113,9 @@ function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
     case "approved":              return "Approved";
-    case "loading":               return "Loading";
-    case "on_van_trip":           return "On VAN";
+ case "loading":               return "Loading";
+      case "loaded":                return "Loaded";
+      case "on_van_trip":           return "On VAN";
     case "partially_dispatched":  return "Partly sent";
     case "dispatched":            return "Sent";
     case "delivered":             return "Done";
@@ -127,8 +128,9 @@ function statusLabel(s: OrderAppStatus): string {
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
     case "received": return "warn";
-    case "loading":  return "warn";
-    case "approved":
+      case "loading":  return "warn";
+      case "loaded":   return "accent";
+      case "approved":
     case "on_van_trip":
     case "partially_dispatched":
     case "dispatched": return "accent";

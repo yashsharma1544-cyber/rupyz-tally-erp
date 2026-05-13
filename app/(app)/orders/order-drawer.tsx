@@ -33,6 +33,7 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
   switch (s) {
     case "received": return "warn";
     case "loading":  return "warn";
+    case "loaded":   return "accent";
     case "approved":
     case "on_van_trip":
     case "partially_dispatched":
@@ -49,7 +50,8 @@ function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
     case "approved":              return "Approved";
-    case "loading":               return "Loading";
+  case "loading":               return "Loading";
+    case "loaded":                return "Loaded";
     case "on_van_trip":           return "On VAN";
     case "partially_dispatched":  return "Partly sent";
     case "dispatched":            return "Sent";

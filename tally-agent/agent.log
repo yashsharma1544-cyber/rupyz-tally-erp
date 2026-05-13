@@ -1,0 +1,16 @@
+2026-05-04 18:26:29,007 [INFO] Agent ready on http://localhost:7531
+2026-05-04 18:26:29,009 [INFO] Open that URL in a browser on this machine to trigger a sync.
+2026-05-04 18:26:29,009 [INFO] Press Ctrl+C to stop the agent.
+2026-05-04 18:28:18,010 [INFO] Sync triggered from local web UI
+2026-05-04 18:28:18,022 [INFO] Querying Tally at http://localhost:9000
+2026-05-04 18:28:19,259 [ERROR] Tally returned malformed XML: reference to invalid character number: line 43598, column 27
+Response saved to C:\Users\Yash\Downloads\rupyz-tally-erp\tally-agent\tally_response_debug.xml for inspection. Sometimes a ledger has special chars that need cleaning.
+2026-05-04 18:32:37,177 [INFO] Agent ready on http://localhost:7531
+2026-05-04 18:32:37,178 [INFO] Open that URL in a browser on this machine to trigger a sync.
+2026-05-04 18:32:37,178 [INFO] Press Ctrl+C to stop the agent.
+2026-05-04 18:34:12,902 [INFO] Sync triggered from local web UI
+2026-05-04 18:34:12,907 [INFO] Querying Tally at http://localhost:9000
+2026-05-04 18:34:14,519 [INFO] Stripped 1 illegal numeric character reference(s) from Tally response.
+2026-05-04 18:34:14,698 [INFO] Extracted 2 Sundry-Debtor ledgers with positive outstanding
+2026-05-04 18:34:14,699 [INFO] Pushing 2 ledgers to https://rupyz-tally-erp.vercel.app/api/tally/ingest
+2026-05-04 18:34:17,162 [ERROR] ERP ingestion failed (HTTP 405): 

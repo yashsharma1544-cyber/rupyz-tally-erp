@@ -1,0 +1,330 @@
+party_raw,match_status,matched_to,similarity_score,customer_id
+Ashish Kirana (D Raja),REVIEW,ASHISH KIRANA D.RAJA,0.927,d50ce283-f16c-42b3-b281-207a486b87ef
+Ambika  Genrel  Lonar,REVIEW,Ambika General Lonar,0.923,5a71f396-d9cb-4e30-9e9e-044f5fd369c8
+Varad Kirana (Andhera),REVIEW,Arman Kirana (Andhera),0.909,47af8c6f-6c21-41ad-83ed-7c2e38a94528
+Raj Provision,REVIEW,Ajay Provision,0.889,92fd2e94-3b7e-4528-828b-fc846f7cc64d
+Shrikant Kirana Stores,REVIEW,Arihant Kirana Stores,0.884,448a8f40-22e7-4d58-99cc-ec9cac1ff9eb
+Nagraj  Kirana,REVIEW,Arbaj Kirana,0.880,61727ba3-c89c-46d8-b1d4-0080a887ab58
+Sakshi Kirana,REVIEW,akash kirana,0.880,59a5a563-5b75-4939-8129-a2c8ae239b0a
+Sairaj  Kirana,REVIEW,Arbaj Kirana,0.880,61727ba3-c89c-46d8-b1d4-0080a887ab58
+Hemant Kirana D Raja,REVIEW,Arihant Kirana D Raja,0.878,9f5122c1-f173-4be6-a77f-7432f7ca553c
+Ravindra Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.878,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Jain Kirana  D  Raja,REVIEW,Arihant Kirana D Raja,0.872,9f5122c1-f173-4be6-a77f-7432f7ca553c
+Raju  Kirana,REVIEW,Arbaj Kirana,0.870,61727ba3-c89c-46d8-b1d4-0080a887ab58
+"Laddad Kirana, H Ashram",REVIEW,Advait Kirana H Ashram,0.864,79abc08b-4669-441c-982b-241e13187a0e
+Sai  Kirana,REVIEW,Aksa Kirana,0.857,cc1df6b1-76f4-43de-8a32-de3c2cae002b
+Vaishnavi Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.857,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Arihant Provision Lonar,REVIEW,Arihant Provision,0.850,e0fc388b-4097-457d-82a8-7ecef701c122
+Lavkush Kirana,REVIEW,akash kirana,0.846,59a5a563-5b75-4939-8129-a2c8ae239b0a
+Hanuman  Kirana,REVIEW,Anand Kirana,0.846,2053ac6b-4b29-405f-aad3-5759406e8c28
+Jayesh Traders,REVIEW,Ajay Traders,0.846,3e164f84-962f-47b0-b707-b1a2ef1c834b
+Mauli  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.842,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Wasim  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.842,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Mahavir Kirana Stores,REVIEW,Ashirwad Kirana Stores,0.837,fa7b91cf-b923-414d-a3ef-bb8114cf57a6
+Janta  Kirana,REVIEW,Aktar Kirana,0.833,e08642a4-3381-46dc-b9ac-544a90f2cf61
+Kousar  Kirana,REVIEW,Aksa Kirana,0.833,cc1df6b1-76f4-43de-8a32-de3c2cae002b
+Kabra  Kirana,REVIEW,Aarya kirana,0.833,7b8421b1-55d3-44d9-8e89-18d73f9d48b8
+Vishal Kirana D Raja,REVIEW,Arihant Kirana D Raja,0.829,9f5122c1-f173-4be6-a77f-7432f7ca553c
+Jagdamba  Kirana  Mehkar,REVIEW,Amina Kirana Mehkar,0.829,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Swaraj Kirana D Raja,REVIEW,Arihant Kirana D Raja,0.829,9f5122c1-f173-4be6-a77f-7432f7ca553c
+Palsidh  Kirana Lonar,REVIEW,Ashirwad Kirana Lonar,0.829,0cf4c693-456f-4143-a351-dc2990c8f399
+Dr. Prakash Kirana,REVIEW,akash kirana,0.828,59a5a563-5b75-4939-8129-a2c8ae239b0a
+Shardha  Kirana,REVIEW,Aaradhya Kirana,0.828,3d89ece9-bc33-4615-9671-f1a1bf695fe7
+Parshva Kirana,REVIEW,Aarishfa Kirana,0.828,00493fad-077d-4bf6-be88-79dbd35f16af
+Vaibhavi  Kirana,REVIEW,Abhinav Kirana,0.828,235b6387-afb5-4f80-9f24-b81adc73daec
+Ganesh  Kirana A.,REVIEW,Ansh Kirana N.V.,0.828,4c9c465a-69c2-4121-b37f-941663429f5d
+Radhakrishna Kirana,REVIEW,Aarishfa Kirana,0.824,00493fad-077d-4bf6-be88-79dbd35f16af
+Tuljai  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.821,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+"Muskan Kirana, Mehkar",REVIEW,Amina Kirana Mehkar,0.821,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Lonkar Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.821,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Imran Kirana LONAR,REVIEW,Ashirwad Kirana Lonar,0.821,0cf4c693-456f-4143-a351-dc2990c8f399
+Shakil Kirana D Raja,REVIEW,ASHISH KIRANA D.RAJA,0.821,d50ce283-f16c-42b3-b281-207a486b87ef
+Ganesh  Kirana D Raja,REVIEW,ASHISH KIRANA D.RAJA,0.821,d50ce283-f16c-42b3-b281-207a486b87ef
+Satish Kirana H Ashram,REVIEW,Advait Kirana H Ashram,0.818,79abc08b-4669-441c-982b-241e13187a0e
+New Milan Kirana ( Andhera),REVIEW,Arman Kirana (Andhera),0.816,47af8c6f-6c21-41ad-83ed-7c2e38a94528
+Jalna Traders,REVIEW,Ankita Traders,0.815,70559c5e-a820-471a-9ccc-7ba14953df61
+Vaishnavi  Kirana,REVIEW,Anvi Kirana,0.815,dbcbcb0f-c1ca-4404-89cd-5d01c12e269f
+Sadashiv  Kirana,REVIEW,akash kirana,0.815,59a5a563-5b75-4939-8129-a2c8ae239b0a
+Ashirwad Kirana Stores ( D Raja),REVIEW,Ashirwad Kirana Stores,0.815,fa7b91cf-b923-414d-a3ef-bb8114cf57a6
+Avnesh  Kirana,REVIEW,Ansh Kirana N.V.,0.815,4c9c465a-69c2-4121-b37f-941663429f5d
+Samartha Provision,REVIEW,Amit Provision,0.812,ca7734c1-9a20-4b6b-a2a6-19afac6d6386
+Shiv  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.811,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+"Ganesh Kirana, H Ashram",REVIEW,Anubhooti Kirana H Ashram,0.809,543da157-8ee6-46c6-81c7-6f1d92044611
+Shri Shankar Kirana Stores,REVIEW,Arihant Kirana Stores,0.809,448a8f40-22e7-4d58-99cc-ec9cac1ff9eb
+"Sourabh Super Shopee, H Ashram",REVIEW,Anandi Super Shopee H Ashram,0.807,9867aaff-0930-4c66-820d-e6ad356bc51a
+Sairam Kirana,REVIEW,Aarya kirana,0.800,7b8421b1-55d3-44d9-8e89-18d73f9d48b8
+Sarthak  Kirana  Mehkar,REVIEW,Amina Kirana Mehkar,0.800,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Sanket Kirana,REVIEW,Aktar Kirana,0.800,e08642a4-3381-46dc-b9ac-544a90f2cf61
+Jaffar  Kirana,REVIEW,Aarya kirana,0.800,7b8421b1-55d3-44d9-8e89-18d73f9d48b8
+Shri  Kirana,REVIEW,Anshraj kirana,0.800,d9221290-27fd-4abd-abd0-5ffebbc82378
+Raunak Kirana,REVIEW,Anand Kirana,0.800,2053ac6b-4b29-405f-aad3-5759406e8c28
+Mohan  Kirana  Mera,REVIEW,Ananad Kirana Mera,0.800,208cb880-d0df-417b-a86e-31b12cb9f05d
+Pratap  Kirana,REVIEW,Aktar Kirana,0.800,e08642a4-3381-46dc-b9ac-544a90f2cf61
+"Ashish Kirana, S Kheda",REVIEW,ASHISH KIRANA D.RAJA,0.800,d50ce283-f16c-42b3-b281-207a486b87ef
+Balaji  Kirana,REVIEW,Arbaj Kirana,0.800,61727ba3-c89c-46d8-b1d4-0080a887ab58
+"Chabile Kirana, Mehkar",REVIEW,Amina Kirana Mehkar,0.800,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Shivay  Provision,REVIEW,Ajay Provision,0.800,92fd2e94-3b7e-4528-828b-fc846f7cc64d
+Ibrahim  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.800,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Atharva  Kirana Mehkar,REVIEW,Amina Kirana Mehkar,0.800,f2484f0d-14b5-4d6d-be2b-afcf7a390755
+Santaji  Kirana,REVIEW,Anvi Kirana,0.800,dbcbcb0f-c1ca-4404-89cd-5d01c12e269f
+Ganesh Kirana Lonar,REVIEW,Ashirwad Kirana Lonar,0.800,0cf4c693-456f-4143-a351-dc2990c8f399
+"Shubham Kirana, H Ashram",NEW (historical-only),,0.792,
+Yunus  Kirana Mehkar,NEW (historical-only),,0.789,
+Shambu Tea Center,NEW (historical-only),,0.788,
+Vyas  Provision,NEW (historical-only),,0.786,
+Jaishri  Kirana,NEW (historical-only),,0.786,
+Sandesh  Kirana,NEW (historical-only),,0.786,
+Vinod  Kirana,NEW (historical-only),,0.783,
+Sunil  Kirana,NEW (historical-only),,0.783,
+Nitin Kirana,NEW (historical-only),,0.783,
+Kishor Kirana Store,NEW (historical-only),,0.780,
+Vittal Kirana Stores,NEW (historical-only),,0.780,
+Navkar Kirana Stores,NEW (historical-only),,0.780,
+Shyam Kirana ( Mehkar),NEW (historical-only),,0.780,
+Anand Sagar Goli,NEW (historical-only),,0.780,
+Sapna  Super  Shopi,NEW (historical-only),,0.778,
+Gauttam Provision,NEW (historical-only),,0.774,
+Vinayak  Provision,NEW (historical-only),,0.774,
+Sacchidanand  Kirana,NEW (historical-only),,0.774,
+Bhandari  Kirana,NEW (historical-only),,0.769,
+Sandeep Kirana,NEW (historical-only),,0.769,
+Navnath Kirana,NEW (historical-only),,0.769,
+Mahalaxmi Kirana Mera,NEW (historical-only),,0.769,
+Omkar  Kirana D.Raja,NEW (historical-only),,0.769,
+Shivraj Kirana (D Raja),NEW (historical-only),,0.762,
+Sudarshan Kirana Mehkar,NEW (historical-only),,0.762,
+Gupteshwar Kirana ( Andhera),NEW (historical-only),,0.760,
+Shivansh Kirana,NEW (historical-only),,0.759,
+Shridhar Kirana,NEW (historical-only),,0.759,
+Hitendra  Kirana,NEW (historical-only),,0.759,
+Ashwini  Kirana Mera,NEW (historical-only),,0.757,
+Husaini Kirana ( D Raja),NEW (historical-only),,0.756,
+Mauli Super  ( D Raja),NEW (historical-only),,0.756,
+Pimple Kirana,NEW (historical-only),,0.750,
+Mukesh Kirana Lonar,NEW (historical-only),,0.750,
+Samartha Traders,NEW (historical-only),,0.750,
+Shri  Provision D.R.,NEW (historical-only),,0.750,
+Bandubhau Kirana ( S Pur),NEW (historical-only),,0.750,
+Prakash  Kirana (Lonar),NEW (historical-only),,0.744,
+Mauli Kirana ( D Raja),NEW (historical-only),,0.744,
+Mahabhadra  Provision,NEW (historical-only),,0.743,
+Maa Jijau  Kirana,NEW (historical-only),,0.741,
+New  Razvi  Kirana,NEW (historical-only),,0.741,
+Gurukrapa  Kirana,NEW (historical-only),,0.741,
+Raj  Kirana S.Pur,NEW (historical-only),,0.741,
+New Yash Kirana,NEW (historical-only),,0.741,
+Mukkadar   Kirana,NEW (historical-only),,0.741,
+Shabbir  Kirana,NEW (historical-only),,0.741,
+Tirupati Kirana & Stores,NEW (historical-only),,0.739,
+Ramesh Kirana D.M.,NEW (historical-only),,0.733,
+Shivshankar  Kirana,NEW (historical-only),,0.733,
+Sai  Gajanan  Kirana,NEW (historical-only),,0.733,
+Mahesh  Provision,NEW (historical-only),,0.733,
+New Amina Kirana,NEW (historical-only),,0.733,
+Jai Gajanan  Kirana,NEW (historical-only),,0.733,
+Bholenath Kirana,NEW (historical-only),,0.733,
+Deepak Kirana D Raja,NEW (historical-only),,0.732,
+Taj Kirana ( D Raja),NEW (historical-only),,0.732,
+Shri Bajrang Kirana,NEW (historical-only),,0.727,
+Saptshrangi  Kirana Mehkar,NEW (historical-only),,0.727,
+Krishna Kirana D M,NEW (historical-only),,0.727,
+Shrikrishna  Kirana,NEW (historical-only),,0.727,
+Yenkatesh  Provision,NEW (historical-only),,0.727,
+Shah Treaders,NEW (historical-only),,0.720,
+New Sai Kirana,NEW (historical-only),,0.720,
+Shri Prathamesh Kirana (D Raja),NEW (historical-only),,0.720,
+Dagduji  Kirana,NEW (historical-only),,0.720,
+Padmavati  Kirana Meh,NEW (historical-only),,0.718,
+New Janta  Kirana,NEW (historical-only),,0.714,
+Vardhaman Provision Lonar,NEW (historical-only),,0.714,
+Sagar Treaders.D.R.,NEW (historical-only),,0.714,
+Jagdamba Kirana Malipeth JAVLE),NEW (historical-only),,0.714,
+Chaudhari Kirana ( Mehkar),NEW (historical-only),,0.711,
+Kishor Kirana D Mali,NEW (historical-only),,0.711,
+Nandra Munde Kirana,NEW (historical-only),,0.710,
+New Bharat  Kirana,NEW (historical-only),,0.710,
+Swaraj Kirana S Pur,NEW (historical-only),,0.710,
+Jai Venktesh Kirana,NEW (historical-only),,0.710,
+Sachin  Kirana D. M.,NEW (historical-only),,0.710,
+Divya Maharshi Kirana,NEW (historical-only),,0.706,
+Sai Provision  D .Raja,NEW (historical-only),,0.706,
+Santosh Kirana S Pur,NEW (historical-only),,0.706,
+Shri Kirana D Mali,NEW (historical-only),,0.703,
+Sattyanarayan  Provision,NEW (historical-only),,0.703,
+"Navnath Kirana, S Kheda",NEW (historical-only),,0.700,
+Pavan Kirana D Mali,NEW (historical-only),,0.700,
+Padmavati  Kirana Lonar,NEW (historical-only),,0.698,
+Pooja Kirana ( D. Raja),NEW (historical-only),,0.698,
+Tamboli Kirana ( D .Raja),NEW (historical-only),,0.698,
+Tulsi Kirana ( D Mahi),NEW (historical-only),,0.696,
+Goge  Kirana,NEW (historical-only),,0.696,
+New Swaraj Kirana (Lonar),NEW (historical-only),,0.696,
+Dilip   Kirana,NEW (historical-only),,0.696,
+Yogesh Kirana ( Mehkar ),NEW (historical-only),,0.694,
+Lohiya  Treaders,NEW (historical-only),,0.690,
+Sandeep Traders,NEW (historical-only),,0.690,
+Sonali  Kirana D. M.,NEW (historical-only),,0.688,
+Vijay Traders Mehkar,NEW (historical-only),,0.688,
+Chandrasekhar  Kirana,NEW (historical-only),,0.688,
+Shri Rameshwar Kirana,NEW (historical-only),,0.686,
+Navnath Kirana S Pur,NEW (historical-only),,0.686,
+Radheshyam  Kirana S. Pur,NEW (historical-only),,0.684,
+New Chintamani Provision,NEW (historical-only),,0.684,
+Sarthak Provision D Raja,NEW (historical-only),,0.683,
+Gajanan  Kirana  (Loni ),NEW (historical-only),,0.682,
+Jain  Kirana ( Gajanan ),NEW (historical-only),,0.682,
+Pathan Kirana ( Waghrul ),NEW (historical-only),,0.681,
+Janta Kirana (Sakarkheda),NEW (historical-only),,0.681,
+Tirupati  Kirana ( Meh  ),NEW (historical-only),,0.667,
+Sanket Agency,NEW (historical-only),,0.667,
+Bhanapure Kirana S.Pur,NEW (historical-only),,0.667,
+Jai  Mahaveer  Kirana,NEW (historical-only),,0.667,
+Rooshi  Hotel,NEW (historical-only),,0.667,
+Pooja  Kirana (Shingao ),NEW (historical-only),,0.667,
+Jagdamba  Kirana (Ukli ),NEW (historical-only),,0.667,
+Gayatri Kirana D Mali,NEW (historical-only),,0.667,
+Govind Kirana ( S Pur),NEW (historical-only),,0.667,
+Vishvak  Treaders,NEW (historical-only),,0.667,
+Simran  Hotel,NEW (historical-only),,0.667,
+Om Provision D Raja,NEW (historical-only),,0.667,
+Samartha Gajanan Kirana,NEW (historical-only),,0.667,
+Gurudev Kirana Mart (D .Raja),NEW (historical-only),,0.654,
+Vishnu Kirana ( S Kheda),NEW (historical-only),,0.654,
+Pratik Provision  Mehkar,NEW (historical-only),,0.652,
+Jagdamba Kirana(Ugle),NEW (historical-only),,0.651,
+"Shivam Kirana, S Kheda",NEW (historical-only),,0.651,
+"Balaji Kirana, S Kheda",NEW (historical-only),,0.651,
+"Khan Kirana, S Kheda",NEW (historical-only),,0.650,
+Vishal Kirana S Kheda,NEW (historical-only),,0.650,
+Kalinka Genrel Store,NEW (historical-only),,0.650,
+"Ram Kirana, S Kheda",NEW (historical-only),,0.650,
+Mauli Kirana D Mahi,NEW (historical-only),,0.650,
+Mauli Kirana D Mali,NEW (historical-only),,0.650,
+"Shubham Kirana, Talni",NEW (historical-only),,0.647,
+Patil  Kirana Lavala,NEW (historical-only),,0.647,
+Gajanan Traders Andera,NEW (historical-only),,0.647,
+Sharangdhar  Treaders,NEW (historical-only),,0.647,
+Shri Mahaveer Kirana,NEW (historical-only),,0.647,
+Sonu Kirana Talni,NEW (historical-only),,0.645,
+Durga Kirana S Pur,NEW (historical-only),,0.645,
+Laxmiramna  Shopi,NEW (historical-only),,0.645,
+Raza Ganral,NEW (historical-only),,0.640,
+Hari Om  Hotel,NEW (historical-only),,0.640,
+Yuvraj Kirana (M.D. Warade),NEW (historical-only),,0.638,
+Swamisamrtha Dairy Mehkar,NEW (historical-only),,0.636,
+Vishwash Kirana ( Guru),NEW (historical-only),,0.636,
+"Sai Kirana, Sakharkheda",NEW (historical-only),,0.634,
+Chalge Kirana D Mali,NEW (historical-only),,0.634,
+Vaibhavi Kirana & Genrel,NEW (historical-only),,0.632,
+R R Kirana D Mahi,NEW (historical-only),,0.632,
+Vitthal  Super  Shopi,NEW (historical-only),,0.632,
+Vyankatesh Bhuwan Hotel,NEW (historical-only),,0.629,
+Razak Kirana Waghrul,NEW (historical-only),,0.629,
+Mohd Hussain  Kirana,NEW (historical-only),,0.625,
+"Samrudhi Kirana, S Kheda",NEW (historical-only),,0.625,
+Shri Shyam Kirana ( Bang ) Mehkar,NEW (historical-only),,0.623,
+Sukhakarta Kirana D Mahi,NEW (historical-only),,0.622,
+Gajendra Tredares,NEW (historical-only),,0.621,
+New Sharangdhar Provision,NEW (historical-only),,0.619,
+Kishor   Hiralal,NEW (historical-only),,0.615,
+Shyam Kirana Pimpri Mali,NEW (historical-only),,0.612,
+Ganesh Supar Mart (Andhera),NEW (historical-only),,0.612,
+"Om Kirana Shindi, S Kheda",NEW (historical-only),,0.609,
+Dilip Kirana Talni,NEW (historical-only),,0.606,
+Rooshi Kirana Pimprimali,NEW (historical-only),,0.605,
+"Deepak Kirana,  S Kheda",NEW (historical-only),,0.605,
+Morya  Treaders Lonar,NEW (historical-only),,0.600,
+Shivkrupa Genral,NEW (historical-only),,0.600,
+"Shah Masale, Mehkar",NEW (historical-only),,0.595,
+"Shri Balaji Provision, Lonar",NEW (historical-only),,0.591,
+Rudra Kirana Ukhali,NEW (historical-only),,0.591,
+Hanuman Vijay Hotel,NEW (historical-only),,0.581,
+Padmavati  Genrel Mehkar,NEW (historical-only),,0.571,
+Gurudev  Treaders,NEW (historical-only),,0.571,
+Salasar Tread.,NEW (historical-only),,0.560,
+Pappubhai Kazi,NEW (historical-only),,0.560,
+Gurudev  Agency,NEW (historical-only),,0.560,
+Vardhaman Agencies,NEW (historical-only),,0.552,
+SURAJ MINI MALL,NEW (historical-only),,0.552,
+"YSP Kirana and Wholesale, S Kheda",NEW (historical-only),,0.552,
+Harish  Sawarmal Agrawal,NEW (historical-only),,0.550,
+Madhur Milan Hotel Mehkar,NEW (historical-only),,0.545,
+K.K. Agencies,NEW (historical-only),,0.545,
+Nikhil Raut,NEW (historical-only),,0.545,
+Ramesh Agrawal S Pur,NEW (historical-only),,0.541,
+Krishna  Janrel,NEW (historical-only),,0.538,
+Padmavati Super Market,NEW (historical-only),,0.537,
+Datta Hotel D Mali,NEW (historical-only),,0.533,
+Yash Sharma,NEW (historical-only),,0.533,
+Mustakhbhai  Lonar,NEW (historical-only),,0.533,
+Sharad  Balchand,NEW (historical-only),,0.529,
+Shubham  Tea House,NEW (historical-only),,0.524,
+Mangal Murti  Treaders (Mehkar),NEW (historical-only),,0.522,
+Sanjay Banmeru Talni,NEW (historical-only),,0.516,
+Bagmal  Chaganlal,NEW (historical-only),,0.514,
+Shantilal Ratanlal,NEW (historical-only),,0.513,
+Gopal Kokate Mehkar (SR),NEW (historical-only),,0.512,
+Vishal Narwade,NEW (historical-only),,0.500,
+Uday  Store,NEW (historical-only),,0.500,
+Ram Murkut Mehkar,NEW (historical-only),,0.500,
+Joharmal Ayurved Jadi Buti & Kirana,NEW (historical-only),,0.500,
+Vyankatesh  Supar Market,NEW (historical-only),,0.500,
+Rajesh Chetanlal,NEW (historical-only),,0.500,
+Balaji Supar Mart,NEW (historical-only),,0.500,
+Shri Vyankatesh Gen.D.R.,NEW (historical-only),,0.486,
+Bhagwant  Tea  M. R.,NEW (historical-only),,0.486,
+Gaurav Confectionary,NEW (historical-only),,0.485,
+Vivekanand Vidyarthi Uphar Grah,NEW (historical-only),,0.480,
+Shahi Masale,NEW (historical-only),,0.480,
+Dineshkumar Subhashchand,NEW (historical-only),,0.478,
+Diggambar  Appa,NEW (historical-only),,0.474,
+Maharastra  Treading Co.,NEW (historical-only),,0.474,
+Bhikaji  Sakharam,NEW (historical-only),,0.471,
+SWAMISAMRTHA D.M.,NEW (historical-only),,0.471,
+Ram Pimpale,NEW (historical-only),,0.467,
+Sheikh Gulab S Kheda,NEW (historical-only),,0.462,
+New Laxminaraayan Ganral Stores,NEW (historical-only),,0.462,
+Deepak Bhopale,NEW (historical-only),,0.462,
+Sushil Agencies,NEW (historical-only),,0.462,
+SUSHIL AGENCIES (NEW MONDHA),NEW (historical-only),,0.449,
+Ganesh  Parikh,NEW (historical-only),,0.444,
+Chawdi  Masale,NEW (historical-only),,0.444,
+Sai Daily Needs,NEW (historical-only),,0.444,
+Vighnaharta Canting,NEW (historical-only),,0.438,
+Shiv Mart,NEW (historical-only),,0.435,
+M/s Kanhaiyalal Banmeru & Son,NEW (historical-only),,0.433,
+MILAPSETH  D.M.,NEW (historical-only),,0.429,
+Chetanlal Devlalsa Jain,NEW (historical-only),,0.429,
+Govind Tea D Mali,NEW (historical-only),,0.429,
+R D Jain,NEW (historical-only),,0.421,
+Zuber  Bagwan,NEW (historical-only),,0.417,
+Daggadappa Jadibuti,NEW (historical-only),,0.400,
+Gurudev Mart,NEW (historical-only),,0.400,
+Dilipseth  Nimodiya,NEW (historical-only),,0.389,
+Cash,NEW (historical-only),,0.375,
+S M Shiddhiki,NEW (historical-only),,0.375,
+S Mart,NEW (historical-only),,0.364,
+Arihant Kirana D Raja,AUTO-MATCH,Arihant Kirana D Raja,1.000,9f5122c1-f173-4be6-a77f-7432f7ca553c
+Ananad  Kirana Mera,AUTO-MATCH,Ananad Kirana Mera,1.000,208cb880-d0df-417b-a86e-31b12cb9f05d
+Arman Kirana (Andhera),AUTO-MATCH,Arman Kirana (Andhera),1.000,47af8c6f-6c21-41ad-83ed-7c2e38a94528
+Akash Kirana Antrideshmukh,AUTO-MATCH,Akash Kirana Antrideshmukh,1.000,b789b811-7e35-453a-bd4e-26c44e64b0db
+Annapurna  Shopi,AUTO-MATCH,Annapurna Shopi,1.000,9452e548-82d1-478e-851b-dceb916b9ded
+Arihant  Kirana Stores,AUTO-MATCH,Arihant Kirana Stores,1.000,448a8f40-22e7-4d58-99cc-ec9cac1ff9eb
+Adimangal Supar (D Raja),AUTO-MATCH,Adimangal Supar (D Raja),1.000,20ea1869-5fa7-4e89-b675-500038649744
+Aaditya  Kirana,AUTO-MATCH,Aaditya Kirana,1.000,4f14635f-764a-42af-bdd3-e1ad6a1f69ba
+Amardas Goli Biscuit,AUTO-MATCH,Amardas Goli Biscuit,1.000,e8ed609a-3d5c-47f8-a59c-de00778dd3e2
+Abdul Sattar Kasam,AUTO-MATCH,Abdul Sattar Kasam,1.000,152f8941-b758-4449-997e-069ff3b28fbf
+Annapurna  Kirana Dhanya Bhandar,AUTO-MATCH,Annapurna Kirana Dhanya Bhandar,1.000,c2917690-4154-4eb2-85c7-8f0008641045
+Abdul Sattar Dadabhai,AUTO-MATCH,Abdul Sattar Dadabhai,1.000,02dafeef-0705-442d-915f-215822bedbd7
+"Anandi Super Shopee, H Ashram",AUTO-MATCH,Anandi Super Shopee H Ashram,1.000,9867aaff-0930-4c66-820d-e6ad356bc51a
+"Anubhooti Kirana, H Ashram",AUTO-MATCH,Anubhooti Kirana H Ashram,1.000,543da157-8ee6-46c6-81c7-6f1d92044611
+Anvi  Kirana,AUTO-MATCH,Anvi Kirana,1.000,dbcbcb0f-c1ca-4404-89cd-5d01c12e269f
+Anand  Kirana D.R.,AUTO-MATCH,Anand Kirana D.R.,1.000,85bfb1d9-c7f3-458a-a1a2-1ccddc7d55ca
+Aksa Kirana,AUTO-MATCH,Aksa Kirana,1.000,cc1df6b1-76f4-43de-8a32-de3c2cae002b
+7/12 HOTEL,AUTO-MATCH,7/12 Hotel,1.000,c8eea4fe-ac56-4165-abbd-15324ddee44e
+Arun Tea House( Sadhubha),AUTO-MATCH,Arun Tea House( Sadhubha),1.000,c1c2a773-9ca1-49e2-9458-b79fab270560
+Ashirwad Kirana Lonar,AUTO-MATCH,Ashirwad Kirana Lonar,1.000,0cf4c693-456f-4143-a351-dc2990c8f399
+Ajay Agency,AUTO-MATCH,Ajay Agency,1.000,313c3196-0051-40b4-a82b-e29341b28f97
+Advait Kirana H Ashram,AUTO-MATCH,Advait Kirana H Ashram,1.000,79abc08b-4669-441c-982b-241e13187a0e
+Akash Kirana (Malipeth),AUTO-MATCH,Akash Kirana ( Malipeth ),0.958,146d92f7-49d7-4d4c-96f5-c513f46d6937
+Sanvi  Kirana,AUTO-MATCH,Anvi Kirana,0.957,dbcbcb0f-c1ca-4404-89cd-5d01c12e269f
