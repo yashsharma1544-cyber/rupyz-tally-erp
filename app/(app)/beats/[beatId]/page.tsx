@@ -17,13 +17,16 @@ export interface CustomerHealth {
   customer_name: string;
   customer_city: string;
   customer_mobile: string;
+  customer_created_at: string;
   this_30d_kg: number;
   prev_30d_kg: number;
   this_90d_kg: number;
   this_30d_order_count: number;
   this_90d_order_count: number;
+  total_order_count: number;
   last_order_at: string | null;
   days_since_last: number | null;
+  days_since_created: number;
   growth_pct: number | null;
 }
 

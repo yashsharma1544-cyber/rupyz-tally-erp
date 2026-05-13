@@ -17,7 +17,6 @@ import {
   LogOut,
   Menu,
   X,
-  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -29,7 +28,6 @@ const navItems = [
   { href: "/dispatches",   label: "Dispatches", icon: Truck,           roles: "all" },
   { href: "/trips",        label: "VAN Trips",  icon: Route,           roles: "all" },
   { href: "/beats",        label: "Beats",      icon: MapPin,          roles: "all" },
-  { href: "/call-list",    label: "Call List",  icon: ListChecks,      roles: "all" },
   { href: "/customers",    label: "Customers",  icon: Users2,          roles: "all" },
   { href: "/products",     label: "Products",   icon: Package,         roles: "all" },
   { href: "/salesmen",     label: "Salesmen",   icon: UserCircle2,     roles: "all" },
@@ -50,7 +48,6 @@ export function Sidebar({ user }: { user: AppUser }) {
     window.location.href = "/login";
   }
 
-  // Active match — prefer the more-specific item when nested paths exist
   function isActive(href: string): boolean {
     if (pathname === href) return true;
     if (!pathname.startsWith(href + "/")) return false;
