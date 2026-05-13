@@ -5,8 +5,7 @@
 // UUID for the "No beat assigned" tile. We don't look that up in beats table;
 // instead we fetch orders where customer.beat_id IS NULL.
 //
-// Filtered to Jalna area only (beat.city = jalna OR customer.city = jalna,
-// case-insensitive).
+// Filtered to Jalna area only.
 // =============================================================================
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -56,10 +55,8 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
 
-  // SPECIAL CASE: "No beat assigned" synthetic tile
   const isNoBeatTile = beatId === NO_BEAT_ID;
 
-  // Real beat lookup (skip for synthetic)
   let beat: { id: string; name: string; city: string | null };
   if (isNoBeatTile) {
     beat = { id: NO_BEAT_ID, name: "No beat assigned", city: null };
@@ -69,7 +66,6 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     beat = data;
   }
 
-  // Build orders query — different filter depending on synthetic vs real
   let ordersQuery = supabase
     .from("orders")
     .select(`
@@ -80,14 +76,18 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     .in("app_status", ["approved", "partially_dispatched", "loaded"]);
 
   if (isNoBeatTile) {
-    // Fetch orders where customer has NO beat
     ordersQuery = ordersQuery.is("customer.beat_id", null);
   } else {
     ordersQuery = ordersQuery.eq("customer.beat_id", beatId);
   }
 
-  const [{ data: orders, error }, { data: helpers }] = await Promise.all([
+  // Phase: fetch drivers + helpers alongside orders
+  const [{ data: orders, error }, { data: drivers }, { data: helpers }] = await Promise.all([
     ordersQuery.order("rupyz_created_at", { ascending: false }),
+    supabase
+      .from("active_drivers")
+      .select("id, full_name, phone")
+      .order("full_name"),
     supabase
       .from("app_users")
       .select("id, full_name, phone")
@@ -109,8 +109,6 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   }
   const allOrders = (orders ?? []) as unknown as OrderRow[];
 
-  // Filter to Jalna. For the no-beat tile, beat.city is null so we MUST check
-  // customer.city. For real beats, either side suffices.
   const orderRows = allOrders.filter(o =>
     isJalna(beat.city) || isJalna(o.customer?.city)
   );
@@ -128,6 +126,11 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
         customerCity: o.customer?.city ?? null,
         kg: kgForItems(o.items ?? []),
         itemCount: (o.items ?? []).length,
+      }))}
+      drivers={(drivers ?? []).map(d => ({
+        id: d.id,
+        name: d.full_name,
+        phone: d.phone ?? null,
       }))}
       helpers={(helpers ?? []).map(h => ({
         id: h.id,

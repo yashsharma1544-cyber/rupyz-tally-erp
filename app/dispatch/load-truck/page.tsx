@@ -1,10 +1,11 @@
 // =============================================================================
 // /dispatch/load-truck — cross-beat truck loading wizard
 //
-// Loads ALL approved/partly-dispatched/loaded orders, grouped by beat.
-// Optional ?beat=<id> query param hints which beat section to expand by default.
+// Loads ALL approved/partly-dispatched/loaded Jalna orders, grouped by beat.
+// Orders whose customer has no beat assignment are grouped under a synthetic
+// "No beat assigned" group, sorted to the top so admin sees them first.
 //
-// Phase 2: fetches helpers list (role=van_helper) for the Step 2 form.
+// Optional ?beat=<id> query param hints which beat section to expand by default.
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -14,6 +15,8 @@ import { LoadTruckWizard } from "./load-truck-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const NO_BEAT_ID = "00000000-0000-0000-0000-000000000000";
 
 interface OrderRow {
   id: string;
@@ -38,6 +41,11 @@ function kgForItems(items: OrderRow["items"]): number {
     else if (pUnit === "g" || pUnit === "gm" || pUnit.startsWith("gram")) total += (remaining * pSize) / 1000;
   }
   return total;
+}
+
+function isJalna(city: string | null | undefined): boolean {
+  if (!city) return false;
+  return city.trim().toLowerCase() === "jalna";
 }
 
 export default async function LoadTruckPage({
@@ -81,12 +89,7 @@ export default async function LoadTruckPage({
   }
   const orderRows = (orders ?? []) as unknown as OrderRow[];
 
-  // Jalna-only filter: customer.city or beat.city matches 'jalna' (case-insensitive)
-  // For load-truck we only check customer.city (beat join not needed here)
-  function isJalna(city: string | null | undefined): boolean {
-    if (!city) return false;
-    return city.trim().toLowerCase() === "jalna";
-  }
+  // Jalna filter — applied to customer.city
   const filteredOrderRows = orderRows.filter(o => isJalna(o.customer?.city));
 
   const byBeat = new Map<string, { beatId: string; beatName: string; orders: Array<{
@@ -97,9 +100,9 @@ export default async function LoadTruckPage({
   const beatNameMap = new Map<string, string>((beats ?? []).map(b => [b.id, b.name]));
 
   for (const o of filteredOrderRows) {
-    const beatId = o.customer?.beat_id;
-    if (!beatId) continue;
-    const beatName = beatNameMap.get(beatId) ?? "Unknown beat";
+    // CHANGED: instead of skipping no-beat orders, group them under a synthetic key
+    const beatId = o.customer?.beat_id ?? NO_BEAT_ID;
+    const beatName = beatId === NO_BEAT_ID ? "No beat assigned" : (beatNameMap.get(beatId) ?? "Unknown beat");
     if (!byBeat.has(beatId)) {
       byBeat.set(beatId, { beatId, beatName, orders: [] });
     }
@@ -114,16 +117,19 @@ export default async function LoadTruckPage({
     });
   }
 
-  const beatGroups = Array.from(byBeat.values()).sort((a, b) => a.beatName.localeCompare(b.beatName));
+  // Sort: no-beat group first, then real beats alphabetically
+  const beatGroups = Array.from(byBeat.values()).sort((a, b) => {
+    if (a.beatId === NO_BEAT_ID) return -1;
+    if (b.beatId === NO_BEAT_ID) return 1;
+    return a.beatName.localeCompare(b.beatName);
+  });
 
-  // Active registered drivers — for the dropdown in step 2
   const { data: drivers } = await supabase
     .from("active_drivers")
     .select("id, full_name, phone")
     .order("full_name");
   const driverList = (drivers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
 
-  // CHANGED Phase 2: Active helpers (van_helper role)
   const { data: helpers } = await supabase
     .from("app_users")
     .select("id, full_name, phone")

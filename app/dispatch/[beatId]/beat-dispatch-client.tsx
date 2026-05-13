@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { bulkDispatchByBeat } from "@/app/(app)/dispatches/actions";
+import { bulkDispatchByBeat, dispatchSelectedOrders } from "@/app/(app)/dispatches/actions";
 
 interface OrderItem {
   id: string;
@@ -37,22 +37,42 @@ function formatKg(n: number): string {
 }
 
 export function BeatDispatchClient({
-  beat, orders, helpers, isNoBeatTile,
+  beat, orders, drivers, helpers, isNoBeatTile,
 }: {
   beat: { id: string; name: string };
   orders: OrderItem[];
+  drivers: UserOption[];
   helpers: UserOption[];
   isNoBeatTile?: boolean;
 }) {
   const router = useRouter();
   const [showBulk, setShowBulk] = useState(false);
   const [vehicle, setVehicle] = useState("");
+
+  // Driver state — registered dropdown + ad-hoc fallback (matching wizard)
+  const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
+    drivers.length > 0 ? "registered" : "adhoc"
+  );
+  const [driverId, setDriverId] = useState<string>("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
+
   const [helperId, setHelperId] = useState<string>("");
   const [pending, startTransition] = useTransition();
 
-  const canBulk = vehicle.trim().length > 0 && driver.trim().length > 0;
+  function pickRegisteredDriver(id: string) {
+    setDriverId(id);
+    const d = drivers.find(x => x.id === id);
+    if (d) {
+      setDriver(d.name);
+      setDriverPhone(d.phone ?? "");
+    }
+  }
+
+  const canBulk =
+    vehicle.trim().length > 0 &&
+    driver.trim().length > 0 &&
+    (driverMode === "adhoc" || !!driverId);
 
   const totalOrders = orders.length;
   const totalKg     = orders.reduce((s, o) => s + o.kg, 0);
@@ -62,18 +82,35 @@ export function BeatDispatchClient({
 
   function handleBulk() {
     if (!canBulk) {
-      toast.error("Vehicle # and driver name are required");
+      toast.error("Vehicle # and driver are required");
       return;
     }
     if (!confirm(`Dispatch all ${totalOrders} orders for ${beat.name}? This creates ${totalOrders} dispatch records, all with the same vehicle/driver${helperId ? "/helper" : ""}.`)) return;
+
     startTransition(async () => {
-      const res = await bulkDispatchByBeat({
-        beatId: beat.id,
-        vehicleNumber: vehicle.trim(),
-        driverName: driver.trim(),
-        driverPhone: driverPhone.trim() || undefined,
-        helperUserId: helperId || undefined,
-      });
+      // For no-beat tile: bulkDispatchByBeat won't work (it filters by beat_id).
+      // Use dispatchSelectedOrders with the explicit list of no-beat order IDs.
+      let res;
+      if (isNoBeatTile) {
+        res = await dispatchSelectedOrders({
+          orderIds: orders.map(o => o.id),
+          vehicleNumber: vehicle.trim(),
+          driverName: driver.trim(),
+          driverPhone: driverPhone.trim() || undefined,
+          driverUserId: driverMode === "registered" ? driverId : undefined,
+          helperUserId: helperId || undefined,
+        });
+      } else {
+        res = await bulkDispatchByBeat({
+          beatId: beat.id,
+          vehicleNumber: vehicle.trim(),
+          driverName: driver.trim(),
+          driverPhone: driverPhone.trim() || undefined,
+          driverUserId: driverMode === "registered" ? driverId : undefined,
+          helperUserId: helperId || undefined,
+        });
+      }
+
       if ("error" in res && res.error) {
         toast.error(res.error);
         return;
@@ -114,14 +151,13 @@ export function BeatDispatchClient({
           {totalOrders} order{totalOrders === 1 ? "" : "s"} · {formatKg(totalKg)} · {formatINR(totalAmount)}
         </p>
 
-        {/* Warning banner for no-beat tile */}
         {isNoBeatTile && (
           <div className="bg-warn-soft border border-warn/40 rounded-md p-2.5 mb-3 text-xs">
             <div className="font-semibold inline-flex items-center gap-1 mb-1">
               <AlertTriangle size={11} className="text-warn"/> Customers without beat assignment
             </div>
             <p className="text-ink-muted">
-              These customers don&apos;t belong to any beat yet. Dispatch them one at a time below, or use &ldquo;Load a truck&rdquo; to pick them.
+              These customers don&apos;t belong to any beat yet. Dispatch them one at a time below, in bulk, or use &ldquo;Load a truck&rdquo;.
               Fix beat assignment in <Link href="/customers" className="text-accent hover:underline">Customers</Link>.
             </p>
           </div>
@@ -129,17 +165,13 @@ export function BeatDispatchClient({
 
         {totalOrders > 0 && (
           <>
-            {/* Bulk dispatch only works for real beats — bulkDispatchByBeat needs a real beat_id.
-                For no-beat tile, skip this button. */}
-            {!isNoBeatTile && (
-              <Button
-                className="w-full mb-2"
-                onClick={() => setShowBulk(true)}
-                disabled={pending}
-              >
-                <Truck size={13}/> Dispatch all {totalOrders} orders
-              </Button>
-            )}
+            <Button
+              className="w-full mb-2"
+              onClick={() => setShowBulk(true)}
+              disabled={pending}
+            >
+              <Truck size={13}/> Dispatch all {totalOrders} orders
+            </Button>
             <Link
               href={`/dispatch/load-truck${!isNoBeatTile ? `?beat=${beat.id}` : ""}`}
               className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-accent/40 text-accent text-sm font-medium hover:bg-accent-soft active:bg-accent-soft/80 transition-colors"
@@ -158,7 +190,7 @@ export function BeatDispatchClient({
         ) : (
           <div className="space-y-2">
             <p className="text-2xs uppercase tracking-wide text-ink-muted">
-              {isNoBeatTile ? "Dispatch one at a time" : "Or dispatch one at a time"}
+              Or dispatch one at a time
             </p>
             {orders.map(o => (
               <Link
@@ -191,7 +223,7 @@ export function BeatDispatchClient({
         )}
       </div>
 
-      {showBulk && !isNoBeatTile && (
+      {showBulk && (
         <div
           className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
           onClick={() => !pending && setShowBulk(false)}
@@ -217,21 +249,65 @@ export function BeatDispatchClient({
               autoFocus
             />
 
-            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver name *</Label>
-            <Input
-              className="mt-1 mb-3"
-              placeholder="e.g. Ramesh"
-              value={driver}
-              onChange={e => setDriver(e.target.value)}
-            />
+            {/* Driver — dropdown + ad-hoc toggle */}
+            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver *</Label>
+            {drivers.length > 0 && (
+              <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
+                <button
+                  type="button"
+                  onClick={() => setDriverMode("registered")}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "registered"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Pick driver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDriverMode("adhoc"); setDriverId(""); setDriver(""); setDriverPhone(""); }}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "adhoc"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Other driver
+                </button>
+              </div>
+            )}
+
+            {driverMode === "registered" && drivers.length > 0 ? (
+              <select
+                className="w-full mt-1 mb-3 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                value={driverId}
+                onChange={(e) => pickRegisteredDriver(e.target.value)}
+              >
+                <option value="">— Select a driver —</option>
+                {drivers.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}{d.phone ? ` · ${d.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                className="mt-1 mb-3"
+                placeholder="e.g. Ramesh"
+                value={driver}
+                onChange={e => setDriver(e.target.value)}
+              />
+            )}
 
             <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver phone (optional)</Label>
             <Input
               className="mt-1 mb-4"
-              placeholder="9876543210"
+              placeholder={driverMode === "registered" && driverId ? "" : "9876543210"}
               inputMode="tel"
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
+              disabled={driverMode === "registered" && !!driverId}
             />
 
             {helpers.length > 0 ? (
