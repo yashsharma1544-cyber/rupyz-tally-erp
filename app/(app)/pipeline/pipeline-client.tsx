@@ -17,7 +17,7 @@ interface OrderCard {
 interface StageConfig {
   key: string;
   label: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ComponentType<{ size?: string | number; className?: string }>;
   /** Color hint: pulls from your palette via Tailwind classes. */
   accent: "warn" | "accent" | "ok" | "neutral";
   /** Where to send "View all" link. Maps to the /orders tab system. */
