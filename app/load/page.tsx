@@ -2,7 +2,8 @@
 // /load — godown loading app home
 //
 // Mobile-first PWA at /load. Shows orders in 'approved' or 'loading' status,
-// grouped by beat. Loading team taps an order to start loading.
+// grouped by beat. Filtered to Jalna area only (beat.city = jalna OR
+// customer.city = jalna, case-insensitive).
 //
 // Auth: admin and dispatch only.
 // =============================================================================
@@ -20,13 +21,19 @@ function formatINR(n: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
+// Jalna-area test. Case-insensitive, trimmed.
+function isJalna(city: string | null | undefined): boolean {
+  if (!city) return false;
+  return city.trim().toLowerCase() === "jalna";
+}
+
 interface OrderRow {
   id: string;
   rupyz_order_id: string;
   total_amount: number;
   app_status: string;
   customer: { id: string; name: string; city: string | null } | null;
-  beat: { id: string; name: string } | null;
+  beat: { id: string; name: string; city: string | null } | null;
   item_count: number;
 }
 
@@ -55,19 +62,18 @@ export default async function LoadHomePage() {
     );
   }
 
-  // Pull approved + loading orders. Inner join on customer to get beat.
-  // Filter must use status IN list — we want approved (not yet started) and loading (in progress).
+  // Pull approved + loading orders. Include beat.city for Jalna filter.
   const { data: rawOrders } = await supabase
     .from("orders")
     .select(`
       id, rupyz_order_id, total_amount, app_status,
-      customer:customers!inner(id, name, city, beat:beats(id, name)),
+      customer:customers!inner(id, name, city, beat:beats(id, name, city)),
       items:order_items(id)
     `)
     .in("app_status", ["approved", "loading"])
     .order("rupyz_created_at", { ascending: true });
 
-  const orders: OrderRow[] = (rawOrders ?? []).map(o => {
+  const allOrders: OrderRow[] = (rawOrders ?? []).map(o => {
     const customer = Array.isArray(o.customer) ? o.customer[0] : o.customer;
     const beatRel = customer?.beat;
     const beat = Array.isArray(beatRel) ? beatRel[0] : beatRel;
@@ -77,12 +83,18 @@ export default async function LoadHomePage() {
       total_amount: Number(o.total_amount),
       app_status: o.app_status,
       customer: customer ? { id: customer.id, name: customer.name, city: customer.city } : null,
-      beat: beat ? { id: beat.id, name: beat.name } : null,
+      beat: beat ? { id: beat.id, name: beat.name, city: beat.city } : null,
       item_count: o.items?.length ?? 0,
     };
   });
 
-  // Group by beat
+  // Jalna filter: order qualifies if either the customer's beat city OR
+  // the customer's own city is "jalna" (case-insensitive).
+  const orders = allOrders.filter(o =>
+    isJalna(o.beat?.city) || isJalna(o.customer?.city)
+  );
+
+  // Group by beat (orders with no beat are grouped under "No beat assigned")
   const byBeat = new Map<string, { beatName: string; orders: OrderRow[] }>();
   const unassigned: OrderRow[] = [];
   for (const o of orders) {
@@ -107,18 +119,16 @@ export default async function LoadHomePage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
-        {/* Header */}
         <div className="flex items-center gap-2 mb-1">
           <div className="w-8 h-8 rounded bg-accent text-paper-card flex items-center justify-center shrink-0">
             <Boxes size={16} />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-bold leading-tight">Loading</h1>
-            <p className="text-2xs text-ink-muted">{me.full_name}</p>
+            <p className="text-2xs text-ink-muted">{me.full_name} · Jalna only</p>
           </div>
         </div>
 
-        {/* KPI strip */}
         <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
           <div className="text-2xs uppercase tracking-wide text-ink-muted mb-2">Loading queue</div>
           <div className="grid grid-cols-3 gap-2">
@@ -128,12 +138,11 @@ export default async function LoadHomePage() {
           </div>
         </div>
 
-        {/* Beat groups */}
         {totalOrders === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Boxes size={28} className="mx-auto text-ink-subtle mb-2"/>
             <p className="font-semibold text-sm mb-0.5">Nothing to load right now</p>
-            <p className="text-xs text-ink-muted">When admin approves orders, they&apos;ll appear here.</p>
+            <p className="text-xs text-ink-muted">Only Jalna orders show here. When admin approves Jalna orders, they&apos;ll appear.</p>
           </div>
         ) : (
           <div className="space-y-4">

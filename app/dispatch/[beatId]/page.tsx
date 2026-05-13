@@ -1,10 +1,9 @@
 // =============================================================================
 // /dispatch/[beatId] — orders list for one beat
 //
-// Shows every approved/loaded/partially-dispatched order in this beat. Each
-// order is tappable and goes to the per-order dispatch screen. Top has
-// "Dispatch all" for one-tap full-beat dispatch and "Load a truck" for the
-// cross-beat wizard pre-selecting this beat.
+// Shows every approved/loaded/partially-dispatched order in this beat.
+// Filtered to Jalna area only (beat.city = jalna OR customer.city = jalna,
+// case-insensitive).
 // =============================================================================
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -20,6 +19,12 @@ interface OrderRow {
   customer: { id: string; name: string; city: string | null } | null;
   items: { qty: number; total_dispatched_qty: number | null; unit: string | null; packaging_size: number | null; packaging_unit: string | null }[];
 }
+
+function isJalna(city: string | null | undefined): boolean {
+  if (!city) return false;
+  return city.trim().toLowerCase() === "jalna";
+}
+
 function kgForItems(items: OrderRow["items"]): number {
   let total = 0;
   for (const it of items) {
@@ -43,8 +48,10 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   if (!user) redirect(`/login?from=/dispatch/${beatId}`);
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
-  const { data: beat } = await supabase.from("beats").select("id, name").eq("id", beatId).maybeSingle();
+  const { data: beat } = await supabase.from("beats").select("id, name, city").eq("id", beatId).maybeSingle();
   if (!beat) notFound();
+
+  // Pull orders + customer city for Jalna filter.
   const { data: orders, error } = await supabase
     .from("orders")
     .select(`
@@ -66,7 +73,13 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
       </div>
     );
   }
-  const orderRows = (orders ?? []) as unknown as OrderRow[];
+  const allOrders = (orders ?? []) as unknown as OrderRow[];
+
+  // Filter to Jalna: either beat.city or customer.city must be 'jalna'
+  const orderRows = allOrders.filter(o =>
+    isJalna(beat.city) || isJalna(o.customer?.city)
+  );
+
   return (
     <BeatDispatchClient
       beat={beat as { id: string; name: string }}
