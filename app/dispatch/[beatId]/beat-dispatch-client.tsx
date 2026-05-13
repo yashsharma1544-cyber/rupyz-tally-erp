@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Truck, Package, UserPlus } from "lucide-react";
+import { ArrowLeft, ChevronRight, Truck, Package, UserPlus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,18 +37,18 @@ function formatKg(n: number): string {
 }
 
 export function BeatDispatchClient({
-  beat, orders, helpers,
+  beat, orders, helpers, isNoBeatTile,
 }: {
   beat: { id: string; name: string };
   orders: OrderItem[];
   helpers: UserOption[];
+  isNoBeatTile?: boolean;
 }) {
   const router = useRouter();
   const [showBulk, setShowBulk] = useState(false);
   const [vehicle, setVehicle] = useState("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
-  // Phase 2: helper state
   const [helperId, setHelperId] = useState<string>("");
   const [pending, startTransition] = useTransition();
 
@@ -106,22 +106,42 @@ export function BeatDispatchClient({
         <Link href="/dispatch" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
           <ArrowLeft size={11}/> All beats
         </Link>
-        <h1 className="text-base font-bold leading-tight">{beat.name}</h1>
+        <h1 className="text-base font-bold leading-tight inline-flex items-center gap-1.5">
+          {isNoBeatTile && <AlertTriangle size={14} className="text-warn"/>}
+          {beat.name}
+        </h1>
         <p className="text-2xs text-ink-muted mb-3">
           {totalOrders} order{totalOrders === 1 ? "" : "s"} · {formatKg(totalKg)} · {formatINR(totalAmount)}
         </p>
 
+        {/* Warning banner for no-beat tile */}
+        {isNoBeatTile && (
+          <div className="bg-warn-soft border border-warn/40 rounded-md p-2.5 mb-3 text-xs">
+            <div className="font-semibold inline-flex items-center gap-1 mb-1">
+              <AlertTriangle size={11} className="text-warn"/> Customers without beat assignment
+            </div>
+            <p className="text-ink-muted">
+              These customers don&apos;t belong to any beat yet. Dispatch them one at a time below, or use &ldquo;Load a truck&rdquo; to pick them.
+              Fix beat assignment in <Link href="/customers" className="text-accent hover:underline">Customers</Link>.
+            </p>
+          </div>
+        )}
+
         {totalOrders > 0 && (
           <>
-            <Button
-              className="w-full mb-2"
-              onClick={() => setShowBulk(true)}
-              disabled={pending}
-            >
-              <Truck size={13}/> Dispatch all {totalOrders} orders
-            </Button>
+            {/* Bulk dispatch only works for real beats — bulkDispatchByBeat needs a real beat_id.
+                For no-beat tile, skip this button. */}
+            {!isNoBeatTile && (
+              <Button
+                className="w-full mb-2"
+                onClick={() => setShowBulk(true)}
+                disabled={pending}
+              >
+                <Truck size={13}/> Dispatch all {totalOrders} orders
+              </Button>
+            )}
             <Link
-              href={`/dispatch/load-truck?beat=${beat.id}`}
+              href={`/dispatch/load-truck${!isNoBeatTile ? `?beat=${beat.id}` : ""}`}
               className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-accent/40 text-accent text-sm font-medium hover:bg-accent-soft active:bg-accent-soft/80 transition-colors"
             >
               <Truck size={13}/> Load a truck (pick orders)
@@ -138,7 +158,7 @@ export function BeatDispatchClient({
         ) : (
           <div className="space-y-2">
             <p className="text-2xs uppercase tracking-wide text-ink-muted">
-              Or dispatch one at a time
+              {isNoBeatTile ? "Dispatch one at a time" : "Or dispatch one at a time"}
             </p>
             {orders.map(o => (
               <Link
@@ -171,7 +191,7 @@ export function BeatDispatchClient({
         )}
       </div>
 
-      {showBulk && (
+      {showBulk && !isNoBeatTile && (
         <div
           className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center"
           onClick={() => !pending && setShowBulk(false)}
@@ -214,7 +234,6 @@ export function BeatDispatchClient({
               onChange={e => setDriverPhone(e.target.value)}
             />
 
-            {/* Phase 2: Helper picker (optional) */}
             {helpers.length > 0 ? (
               <>
                 <Label className="text-2xs uppercase tracking-wide text-ink-muted inline-flex items-center gap-1">

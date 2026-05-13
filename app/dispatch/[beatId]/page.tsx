@@ -1,11 +1,12 @@
 // =============================================================================
 // /dispatch/[beatId] — orders list for one beat
 //
-// Shows every approved/loaded/partially-dispatched order in this beat.
+// Special case: beatId = '00000000-0000-0000-0000-000000000000' is a synthetic
+// UUID for the "No beat assigned" tile. We don't look that up in beats table;
+// instead we fetch orders where customer.beat_id IS NULL.
+//
 // Filtered to Jalna area only (beat.city = jalna OR customer.city = jalna,
 // case-insensitive).
-//
-// Phase 2: fetches helpers list (role=van_helper) for the bulk dispatch sheet.
 // =============================================================================
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -13,6 +14,9 @@ import { createClient } from "@/lib/supabase/server";
 import { BeatDispatchClient } from "./beat-dispatch-client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const NO_BEAT_ID = "00000000-0000-0000-0000-000000000000";
+
 interface OrderRow {
   id: string;
   rupyz_order_id: string;
@@ -43,6 +47,7 @@ function kgForItems(items: OrderRow["items"]): number {
   }
   return total;
 }
+
 export default async function BeatDispatchPage({ params }: { params: Promise<{ beatId: string }> }) {
   const { beatId } = await params;
   const supabase = await createClient();
@@ -50,21 +55,39 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   if (!user) redirect(`/login?from=/dispatch/${beatId}`);
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
-  const { data: beat } = await supabase.from("beats").select("id, name, city").eq("id", beatId).maybeSingle();
-  if (!beat) notFound();
 
-  // Fetch orders + helpers in parallel
+  // SPECIAL CASE: "No beat assigned" synthetic tile
+  const isNoBeatTile = beatId === NO_BEAT_ID;
+
+  // Real beat lookup (skip for synthetic)
+  let beat: { id: string; name: string; city: string | null };
+  if (isNoBeatTile) {
+    beat = { id: NO_BEAT_ID, name: "No beat assigned", city: null };
+  } else {
+    const { data } = await supabase.from("beats").select("id, name, city").eq("id", beatId).maybeSingle();
+    if (!data) notFound();
+    beat = data;
+  }
+
+  // Build orders query — different filter depending on synthetic vs real
+  let ordersQuery = supabase
+    .from("orders")
+    .select(`
+      id, rupyz_order_id, total_amount, app_status,
+      customer:customers!inner(id, name, city, beat_id),
+      items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
+    `)
+    .in("app_status", ["approved", "partially_dispatched", "loaded"]);
+
+  if (isNoBeatTile) {
+    // Fetch orders where customer has NO beat
+    ordersQuery = ordersQuery.is("customer.beat_id", null);
+  } else {
+    ordersQuery = ordersQuery.eq("customer.beat_id", beatId);
+  }
+
   const [{ data: orders, error }, { data: helpers }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select(`
-        id, rupyz_order_id, total_amount, app_status,
-        customer:customers!inner(id, name, city, beat_id),
-        items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
-      `)
-      .in("app_status", ["approved", "partially_dispatched", "loaded"])
-      .eq("customer.beat_id", beatId)
-      .order("rupyz_created_at", { ascending: false }),
+    ordersQuery.order("rupyz_created_at", { ascending: false }),
     supabase
       .from("app_users")
       .select("id, full_name, phone")
@@ -86,14 +109,16 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   }
   const allOrders = (orders ?? []) as unknown as OrderRow[];
 
-  // Filter to Jalna: either beat.city or customer.city must be 'jalna'
+  // Filter to Jalna. For the no-beat tile, beat.city is null so we MUST check
+  // customer.city. For real beats, either side suffices.
   const orderRows = allOrders.filter(o =>
     isJalna(beat.city) || isJalna(o.customer?.city)
   );
 
   return (
     <BeatDispatchClient
-      beat={beat as { id: string; name: string }}
+      beat={{ id: beat.id, name: beat.name }}
+      isNoBeatTile={isNoBeatTile}
       orders={orderRows.map(o => ({
         id: o.id,
         rupyzOrderId: o.rupyz_order_id,
