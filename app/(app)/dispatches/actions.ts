@@ -43,7 +43,6 @@ async function recomputeOrderStatus(
   admin: ReturnType<typeof createAdminClient>,
   orderId: string,
 ) {
-  // Sum dispatched (shipped or delivered) and delivered qty per line
   const { data: items } = await admin.from("order_items").select("id, qty").eq("order_id", orderId);
   if (!items?.length) return;
 
@@ -78,7 +77,6 @@ async function recomputeOrderStatus(
   if (allDelivered) newStatus = "delivered";
   else if (allShippedOrMore) newStatus = "dispatched";
   else {
-    // Check if anything is shipped at all → partially_dispatched
     const anyShipped = (dispatchItems ?? []).some((di: { dispatch: { status: string } | { status: string }[] | null }) => {
       const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
       return status === "shipped" || status === "delivered";
@@ -86,7 +84,6 @@ async function recomputeOrderStatus(
     if (anyShipped) {
       newStatus = "partially_dispatched";
     } else {
-      // Nothing shipped, but is anything currently pending (= being loaded)?
       const anyPending = (dispatchItems ?? []).some((di: { dispatch: { status: string } | { status: string }[] | null }) => {
         const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
         return status === "pending";
@@ -108,8 +105,9 @@ export async function createDispatch(
     vehicleNumber?: string;
     driverName?: string;
     driverPhone?: string;
-    /** FK to app_users.id when a registered driver is picked. */
     driverUserId?: string;
+    /** Optional helper (typically van_helper role). Allows them to POD via /driver. */
+    helperUserId?: string;
     notes?: string;
   } = {},
 ) {
@@ -119,12 +117,12 @@ export async function createDispatch(
 
     const { data: order } = await admin.from("orders").select("id, app_status").eq("id", orderId).single();
     if (!order) return { error: "Order not found" };
-    if (!["approved", "partially_dispatched"].includes(order.app_status))
+    // CHANGED: accept 'loaded' (orders coming from /load)
+    if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status))
       return { error: `Cannot dispatch — order is "${order.app_status}"` };
 
     if (!items.length) return { error: "No items selected for dispatch" };
 
-    // Validate available qty per line
     const itemIds = items.map(i => i.orderItemId);
     const { data: orderItems } = await admin
       .from("order_items")
@@ -132,7 +130,6 @@ export async function createDispatch(
       .in("id", itemIds);
     if (!orderItems) return { error: "Could not load order items" };
 
-    // Sum already-shipped/delivered qty per line
     const { data: existingDi } = await admin
       .from("dispatch_items")
       .select("order_item_id, qty, dispatch:dispatches!inner(status)")
@@ -171,12 +168,10 @@ export async function createDispatch(
       totalAmount += lineTotal;
     }
 
-    // Generate dispatch number
     const { data: numRow } = await admin.rpc("next_dispatch_number");
     const dispatchNumber = numRow as unknown as string;
 
-    // Insert dispatch — always 'pending' (= loading on truck). The dispatcher
-    // will tap "Mark dispatched (truck left)" later to advance to 'shipped'.
+    // Insert dispatch — now with optional helper_user_id
     const { data: dispatch, error: dErr } = await admin.from("dispatches").insert({
       order_id: orderId,
       dispatch_number: dispatchNumber,
@@ -185,6 +180,7 @@ export async function createDispatch(
       driver_name: meta.driverName || null,
       driver_phone: meta.driverPhone || null,
       driver_user_id: meta.driverUserId || null,
+      helper_user_id: meta.helperUserId || null,
       notes: meta.notes || null,
       total_qty: totalQty,
       total_amount: totalAmount,
@@ -192,7 +188,6 @@ export async function createDispatch(
     }).select("id, dispatch_number").single();
     if (dErr || !dispatch) return { error: dErr?.message ?? "Failed to create dispatch" };
 
-    // Insert items
     const { error: diErr } = await admin.from("dispatch_items")
       .insert(dispatchItemsToInsert.map(di => ({ ...di, dispatch_id: dispatch.id })));
     if (diErr) return { error: diErr.message };
@@ -202,10 +197,9 @@ export async function createDispatch(
       dispatch_number: dispatch.dispatch_number,
       total_qty: totalQty,
       total_amount: totalAmount,
+      helper_user_id: meta.helperUserId || null,
     });
 
-    // Recompute the order's app_status — should flip to 'loading' if this is
-    // the first pending dispatch on it.
     await recomputeOrderStatus(admin, orderId);
 
     revalidatePath("/orders");
@@ -250,6 +244,9 @@ export async function shipDispatch(dispatchId: string) {
 
 // =============================================================================
 // MARK DISPATCH DELIVERED (with POD)
+//
+// CHANGED: 'van_helper' added to allowed roles so a helper assigned to the
+// dispatch can also capture POD.
 // =============================================================================
 export async function markDelivered(
   dispatchId: string,
@@ -263,13 +260,22 @@ export async function markDelivered(
   },
 ) {
   try {
-    const actor = await requireRoles(["admin", "dispatch", "delivery", "driver"]);
+    const actor = await requireRoles(["admin", "dispatch", "delivery", "driver", "van_helper"]);
     const admin = createAdminClient();
 
     const { data: d } = await admin.from("dispatches")
-      .select("id, order_id, status").eq("id", dispatchId).single();
+      .select("id, order_id, status, driver_user_id, helper_user_id").eq("id", dispatchId).single();
     if (!d) return { error: "Dispatch not found" };
     if (d.status !== "shipped") return { error: `Cannot mark delivered — current status: ${d.status}` };
+
+    // If actor is driver or van_helper (not admin/dispatch), ensure they're
+    // actually assigned to this dispatch.
+    if (actor.role === "driver" && d.driver_user_id !== actor.userId) {
+      return { error: "Not assigned to this delivery" };
+    }
+    if (actor.role === "van_helper" && d.helper_user_id !== actor.userId) {
+      return { error: "Not assigned to this delivery" };
+    }
 
     if (!pod.photoUrl) return { error: "POD photo required" };
 
@@ -292,7 +298,10 @@ export async function markDelivered(
     }).eq("id", dispatchId);
     if (dErr) return { error: dErr.message };
 
-    await logEvent(admin, d.order_id, "dispatch_delivered", actor, undefined, { dispatch_id: dispatchId });
+    await logEvent(admin, d.order_id, "dispatch_delivered", actor, undefined, {
+      dispatch_id: dispatchId,
+      captured_by_role: actor.role,
+    });
     await recomputeOrderStatus(admin, d.order_id);
 
     revalidatePath("/orders");
@@ -305,7 +314,7 @@ export async function markDelivered(
 }
 
 // =============================================================================
-// CANCEL DISPATCH (warehouse error etc — only if not yet shipped)
+// CANCEL DISPATCH
 // =============================================================================
 export async function cancelDispatch(dispatchId: string, reason: string) {
   try {
@@ -338,11 +347,13 @@ export async function cancelDispatch(dispatchId: string, reason: string) {
 }
 
 // =============================================================================
-// UPLOAD POD PHOTO (returns storage URL — called from client before markDelivered)
+// UPLOAD POD PHOTO
+//
+// CHANGED: 'van_helper' added so helpers can upload POD photos.
 // =============================================================================
 export async function getPhotoUploadUrl(dispatchId: string) {
   try {
-    await requireRoles(["admin", "dispatch", "delivery", "driver"]);
+    await requireRoles(["admin", "dispatch", "delivery", "driver", "van_helper"]);
     const admin = createAdminClient();
     const objectName = `dispatch-${dispatchId}/${Date.now()}.jpg`;
     const { data, error } = await admin.storage
@@ -363,15 +374,7 @@ export async function getPhotoPublicUrl(objectName: string) {
 
 // =============================================================================
 // BULK DISPATCH BY BEAT
-//
-// Creates one dispatch row per approved/partially_dispatched order in the
-// given beat, all sharing the same vehicle/driver. Each dispatch contains
-// the full remaining quantity per line.
-//
-// Stops on the first failure and returns a partial-success result so the
-// dispatcher knows which orders went through.
 // =============================================================================
-
 export async function bulkDispatchByBeat(input: {
   beatId: string;
   vehicleNumber: string;
@@ -387,21 +390,18 @@ export async function bulkDispatchByBeat(input: {
     if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
     if (!input.driverName.trim()) return { error: "Driver name is required" };
 
-    // Find candidate orders for this beat
     const { data: orders, error: oErr } = await admin
       .from("orders")
       .select("id, rupyz_order_id, customer:customers!inner(name, beat_id)")
-      .in("app_status", ["approved", "partially_dispatched"])
+      .in("app_status", ["approved", "partially_dispatched", "loaded"])
       .eq("customer.beat_id", input.beatId);
     if (oErr) return { error: oErr.message };
     const orderList = (orders ?? []) as unknown as Array<{ id: string; rupyz_order_id: string }>;
     if (orderList.length === 0) return { error: "No approved orders found for this beat" };
 
-    // For each order, load remaining (un-dispatched) line quantities and dispatch full remaining
     const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
 
     for (const o of orderList) {
-      // Pull order items with already-dispatched qty
       const { data: items } = await admin
         .from("order_items")
         .select("id, qty, total_dispatched_qty")
@@ -454,15 +454,8 @@ export async function bulkDispatchByBeat(input: {
 }
 
 // =============================================================================
-// DISPATCH SELECTED ORDERS (load-truck wizard)
-//
-// Like bulkDispatchByBeat but operates on an explicit list of order IDs
-// instead of "all in beat." Used by the wizard at /dispatch/[beatId]/load-truck.
-//
-// Each order is dispatched at full remaining quantity. Vehicle/driver is
-// shared across all dispatches.
+// DISPATCH SELECTED ORDERS
 // =============================================================================
-
 export async function dispatchSelectedOrders(input: {
   orderIds: string[];
   vehicleNumber: string;
@@ -479,7 +472,6 @@ export async function dispatchSelectedOrders(input: {
     if (!input.driverName.trim()) return { error: "Driver name is required" };
     if (!input.orderIds || input.orderIds.length === 0) return { error: "No orders selected" };
 
-    // Validate all order IDs exist and are in dispatchable state
     const { data: orders, error: oErr } = await admin
       .from("orders")
       .select("id, rupyz_order_id, app_status")
@@ -487,7 +479,7 @@ export async function dispatchSelectedOrders(input: {
     if (oErr) return { error: oErr.message };
     const orderList = (orders ?? []) as Array<{ id: string; rupyz_order_id: string; app_status: string }>;
 
-    const invalid = orderList.filter(o => !["approved", "partially_dispatched"].includes(o.app_status));
+    const invalid = orderList.filter(o => !["approved", "partially_dispatched", "loaded"].includes(o.app_status));
     if (invalid.length > 0) {
       return { error: `${invalid.length} order(s) not dispatchable (already sent or cancelled). Refresh the list.` };
     }
@@ -550,13 +542,8 @@ export async function dispatchSelectedOrders(input: {
 }
 
 // =============================================================================
-// SHIP TRUCK (mark all pending dispatches with a given vehicle+driver as shipped)
-//
-// Used by the dispatch PWA when the dispatcher confirms "truck has left."
-// Advances every pending dispatch matching the (vehicle_number, driver_name)
-// pair to 'shipped' and recomputes each affected order's app_status.
+// SHIP TRUCK
 // =============================================================================
-
 export async function shipTruck(input: {
   vehicleNumber: string;
   driverName: string;
@@ -567,7 +554,6 @@ export async function shipTruck(input: {
 
     if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
 
-    // Pull the matching pending dispatches
     const { data: dispatches, error: dErr } = await admin.from("dispatches")
       .select("id, order_id")
       .eq("status", "pending")
@@ -580,13 +566,11 @@ export async function shipTruck(input: {
     const dispatchIds = dispatches.map(d => d.id);
     const orderIds = Array.from(new Set(dispatches.map(d => d.order_id)));
 
-    // Flip them all to 'shipped'
     const { error: uErr } = await admin.from("dispatches")
       .update({ status: "shipped", shipped_at: now, shipped_by: actor.userId })
       .in("id", dispatchIds);
     if (uErr) return { error: uErr.message };
 
-    // Log + recompute each affected order's status
     for (const orderId of orderIds) {
       await logEvent(admin, orderId, "truck_dispatched", actor, undefined, {
         vehicle_number: input.vehicleNumber,

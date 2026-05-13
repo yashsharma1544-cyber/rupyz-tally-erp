@@ -24,18 +24,33 @@ export default async function OrderDispatchPage({
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
 
-  const { data: order } = await supabase
-    .from("orders")
-    .select(`
-      id, rupyz_order_id, total_amount, app_status,
-      customer:customers(id, name, city, mobile),
-      items:order_items(id, product_name, qty, total_dispatched_qty, price, unit, packaging_size, packaging_unit)
-    `)
-    .eq("id", orderId)
-    .maybeSingle();
+  // Fetch order + drivers + helpers in parallel
+  const [{ data: order }, { data: drivers }, { data: helpers }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(`
+        id, rupyz_order_id, total_amount, app_status,
+        customer:customers(id, name, city, mobile),
+        items:order_items(id, product_name, qty, total_dispatched_qty, price, unit, packaging_size, packaging_unit)
+      `)
+      .eq("id", orderId)
+      .maybeSingle(),
+    supabase
+      .from("app_users")
+      .select("id, full_name, phone")
+      .eq("role", "driver")
+      .eq("active", true)
+      .order("full_name"),
+    supabase
+      .from("app_users")
+      .select("id, full_name, phone")
+      .eq("role", "van_helper")
+      .eq("active", true)
+      .order("full_name"),
+  ]);
+
   if (!order) notFound();
 
-  // CHANGED: also accept 'loaded' so orders coming from /load can be dispatched
   if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
@@ -69,6 +84,16 @@ export default async function OrderDispatchPage({
           unit: it.unit,
         })),
       }}
+      drivers={(drivers ?? []).map(d => ({
+        id: d.id,
+        name: d.full_name,
+        phone: d.phone ?? null,
+      }))}
+      helpers={(helpers ?? []).map(h => ({
+        id: h.id,
+        name: h.full_name,
+        phone: h.phone ?? null,
+      }))}
     />
   );
 }

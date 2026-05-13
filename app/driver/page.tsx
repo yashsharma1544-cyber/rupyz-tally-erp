@@ -1,18 +1,17 @@
 // =============================================================================
 // /driver — driver app home
 //
-// Shows the logged-in driver their assigned dispatches (where
-// dispatches.driver_user_id = current user). Both 'pending' (loading) and
-// 'shipped' (ready to deliver) statuses are shown, grouped by truck.
+// Shows the logged-in user their assigned dispatches:
+//   - As driver (dispatch.driver_user_id = me)
+//   - As helper (dispatch.helper_user_id = me)
 //
-// Pending dispatches are preview-only — driver can see what's being loaded
-// but can't deliver yet. Once dispatcher marks the truck dispatched (status
-// flips to 'shipped'), the driver can open the stop and capture POD.
+// Both 'pending' (loading) and 'shipped' (ready to deliver) statuses are shown,
+// grouped by truck. Pending = preview-only.
 // =============================================================================
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Truck, MapPin, Clock, Package } from "lucide-react";
+import { ChevronRight, Truck, MapPin, Clock, Package, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./sign-out-button";
 
@@ -24,6 +23,8 @@ interface DispatchRow {
   status: string;
   vehicle_number: string | null;
   driver_name: string | null;
+  driver_user_id: string | null;
+  helper_user_id: string | null;
   total_qty: number;
   total_amount: number;
   created_at: string;
@@ -63,29 +64,33 @@ export default async function DriverHomePage() {
     .eq("id", user.id)
     .single();
   if (!me?.active) redirect("/login");
-  if (me.role !== "driver" && me.role !== "admin") {
+
+  // CHANGED: allow van_helper role too — they see dispatches where helper_user_id = them
+  if (!["driver", "van_helper", "admin"].includes(me.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
           <h1 className="font-semibold text-base mb-1">Not authorized</h1>
-          <p className="text-sm text-ink-muted mb-4">Driver app is for drivers only.</p>
+          <p className="text-sm text-ink-muted mb-4">Driver app is for drivers and helpers only.</p>
           <Link href="/dashboard" className="text-accent text-sm">Go to dashboard</Link>
         </div>
       </div>
     );
   }
 
-  // Fetch all current dispatches assigned to this driver (pending + shipped)
+  // Fetch dispatches where current user is either driver OR helper
+  // Use Supabase .or() filter
   const { data: dispatches, error } = await supabase
     .from("dispatches")
     .select(`
-      id, status, vehicle_number, driver_name, total_qty, total_amount, created_at, shipped_at,
+      id, status, vehicle_number, driver_name, driver_user_id, helper_user_id,
+      total_qty, total_amount, created_at, shipped_at,
       order:orders(
         id, rupyz_order_id,
         customer:customers(name, city, beat:beats(name))
       )
     `)
-    .eq("driver_user_id", user.id)
+    .or(`driver_user_id.eq.${user.id},helper_user_id.eq.${user.id}`)
     .in("status", ["pending", "shipped"])
     .order("created_at", { ascending: true });
 
@@ -100,8 +105,6 @@ export default async function DriverHomePage() {
 
   const dispatchRows = (dispatches ?? []) as unknown as DispatchRow[];
 
-  // Group by truck (vehicle_number + status)
-  // Within a truck, separate pending vs shipped — pending is preview-only.
   type TruckBucket = {
     vehicleNumber: string;
     pending: DispatchRow[];
@@ -134,17 +137,19 @@ export default async function DriverHomePage() {
     return order?.rupyz_order_id ?? "—";
   }
 
+  // Role hint for the user
+  const roleLabel = me.role === "van_helper" ? "Helper" : "Driver";
+
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
-        {/* Header */}
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-full bg-accent text-paper-card flex items-center justify-center shrink-0">
-            <Truck size={16}/>
+            {me.role === "van_helper" ? <UserPlus size={16}/> : <Truck size={16}/>}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="font-bold text-base leading-tight">Hi, {me.full_name}</h1>
-            {me.phone && <p className="text-2xs text-ink-muted font-mono">{me.phone}</p>}
+            <p className="text-2xs text-ink-muted">{roleLabel}{me.phone ? ` · ${me.phone}` : ""}</p>
           </div>
           <SignOutButton />
         </div>
@@ -153,7 +158,9 @@ export default async function DriverHomePage() {
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-6">
             <Truck size={32} className="mx-auto text-ink-subtle mb-2"/>
             <p className="font-semibold text-sm mb-0.5">No deliveries assigned</p>
-            <p className="text-xs text-ink-muted">When you&apos;re assigned to a truck, it&apos;ll appear here.</p>
+            <p className="text-xs text-ink-muted">
+              When you&apos;re assigned to a truck as {me.role === "van_helper" ? "helper" : "driver"}, it&apos;ll appear here.
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -169,7 +176,6 @@ export default async function DriverHomePage() {
 
               return (
                 <section key={t.vehicleNumber}>
-                  {/* Truck header */}
                   <div className="bg-accent text-paper-card rounded-md p-3 mb-2">
                     <div className="font-mono font-semibold text-base">{t.vehicleNumber}</div>
                     <div className="text-2xs opacity-90 mt-0.5 inline-flex items-center gap-1">
@@ -181,7 +187,6 @@ export default async function DriverHomePage() {
                     </div>
                   </div>
 
-                  {/* Shipped (ready to deliver) — actionable */}
                   {t.shipped.length > 0 && (
                     <div className="space-y-2">
                       <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold">
@@ -189,6 +194,7 @@ export default async function DriverHomePage() {
                       </h2>
                       {t.shipped.map(d => {
                         const c = customerOf(d);
+                        const asHelper = d.helper_user_id === user.id && d.driver_user_id !== user.id;
                         return (
                           <Link
                             key={d.id}
@@ -210,6 +216,11 @@ export default async function DriverHomePage() {
                                   <span className="tabular"><strong className="text-ink">{Number(d.total_qty)}</strong> units</span>
                                   <span className="text-ink-subtle"> · </span>
                                   <span className="tabular">{formatINR(Number(d.total_amount))}</span>
+                                  {asHelper && (
+                                    <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
+                                      <UserPlus size={9}/> as helper
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <ChevronRight size={14} className="text-ink-subtle shrink-0"/>
@@ -220,7 +231,6 @@ export default async function DriverHomePage() {
                     </div>
                   )}
 
-                  {/* Pending (still being loaded) — preview only */}
                   {t.pending.length > 0 && (
                     <div className="mt-3 space-y-1.5">
                       <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold inline-flex items-center gap-1">
@@ -245,7 +255,6 @@ export default async function DriverHomePage() {
                     </div>
                   )}
 
-                  {/* Edge case: no shipped at all on this truck */}
                   {t.shipped.length === 0 && t.pending.length > 0 && (
                     <p className="text-2xs text-ink-muted text-center mt-3 italic">
                       Nothing ready to deliver yet — wait for dispatcher to dispatch this truck.

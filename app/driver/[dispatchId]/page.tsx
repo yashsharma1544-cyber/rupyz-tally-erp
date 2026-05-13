@@ -1,10 +1,7 @@
 // =============================================================================
-// /driver/[dispatchId] — driver opens a stop to deliver
+// /driver/[dispatchId] — driver/helper opens a stop to deliver
 //
-// Loads the dispatch + its order + items + customer, then hands off to the
-// client component which renders POD capture + Mark delivered flow.
-//
-// Authorization: dispatch must be assigned to the current user (or admin).
+// Authorization: dispatch must be assigned to current user as driver OR helper.
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";
@@ -32,12 +29,13 @@ export default async function DriverStopPage({
     .eq("id", user.id)
     .single();
   if (!me?.active) redirect("/login");
-  if (me.role !== "driver" && me.role !== "admin") redirect("/dashboard");
+  // CHANGED: allow van_helper too
+  if (!["driver", "van_helper", "admin"].includes(me.role)) redirect("/dashboard");
 
   const { data: dispatch } = await supabase
     .from("dispatches")
     .select(`
-      id, status, vehicle_number, driver_name, driver_user_id,
+      id, status, vehicle_number, driver_name, driver_user_id, helper_user_id,
       total_qty, total_amount, notes,
       order:orders(
         id, rupyz_order_id, total_amount, app_status,
@@ -53,8 +51,13 @@ export default async function DriverStopPage({
 
   if (!dispatch) notFound();
 
-  // Authorization: must be assigned to this driver (or admin)
-  if (me.role === "driver" && dispatch.driver_user_id !== user.id) {
+  // CHANGED: authz allows driver OR helper assignment, plus admin
+  const isAssigned =
+    me.role === "admin" ||
+    dispatch.driver_user_id === user.id ||
+    dispatch.helper_user_id === user.id;
+
+  if (!isAssigned) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
@@ -66,7 +69,6 @@ export default async function DriverStopPage({
     );
   }
 
-  // Already-delivered or cancelled — show terminal state
   if (dispatch.status === "delivered" || dispatch.status === "cancelled") {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">

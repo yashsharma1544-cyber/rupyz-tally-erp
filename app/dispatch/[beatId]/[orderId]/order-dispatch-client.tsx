@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Truck, Minus, Plus, Pencil, X } from "lucide-react";
+import { ArrowLeft, Truck, Minus, Plus, Pencil, X, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
@@ -30,16 +30,24 @@ interface OrderForDispatch {
   items: OrderLine[];
 }
 
+interface UserOption {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
 function formatINR(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "₹0";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
 export function OrderDispatchClient({
-  beatId, order,
+  beatId, order, drivers, helpers,
 }: {
   beatId: string;
   order: OrderForDispatch;
+  drivers: UserOption[];
+  helpers: UserOption[];
 }) {
   const router = useRouter();
 
@@ -51,10 +59,29 @@ export function OrderDispatchClient({
   const [editMode, setEditMode] = useState(false);
 
   const [vehicle, setVehicle] = useState("");
+
+  // Driver state
+  const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
+    drivers.length > 0 ? "registered" : "adhoc"
+  );
+  const [driverId, setDriverId] = useState<string>("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
+
+  // Helper state — optional
+  const [helperId, setHelperId] = useState<string>("");
+
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
+
+  function pickRegisteredDriver(id: string) {
+    setDriverId(id);
+    const d = drivers.find(x => x.id === id);
+    if (d) {
+      setDriver(d.name);
+      setDriverPhone(d.phone ?? "");
+    }
+  }
 
   function setQty(itemId: string, qty: number) {
     setQtys(prev => {
@@ -91,11 +118,15 @@ export function OrderDispatchClient({
     });
   }, [order.items, qtys]);
 
-  const canDispatch = vehicle.trim().length > 0 && driver.trim().length > 0 && dispatchableLines.length > 0;
+  const canDispatch =
+    vehicle.trim().length > 0 &&
+    driver.trim().length > 0 &&
+    (driverMode === "adhoc" || !!driverId) &&
+    dispatchableLines.length > 0;
 
   function handleConfirm() {
     if (!canDispatch) {
-      toast.error("Vehicle # and driver name are required");
+      toast.error("Vehicle # and driver are required");
       return;
     }
     startTransition(async () => {
@@ -106,6 +137,8 @@ export function OrderDispatchClient({
           vehicleNumber: vehicle.trim(),
           driverName: driver.trim(),
           driverPhone: driverPhone.trim() || undefined,
+          driverUserId: driverMode === "registered" ? driverId : undefined,
+          helperUserId: helperId || undefined,
           notes: notes.trim() || undefined,
         },
       );
@@ -119,6 +152,7 @@ export function OrderDispatchClient({
   }
 
   const itemCount = order.items.filter(it => it.remaining > 0).length;
+  const selectedHelper = helpers.find(h => h.id === helperId);
 
   return (
     <div className="min-h-screen bg-paper pb-24">
@@ -139,6 +173,9 @@ export function OrderDispatchClient({
           <span className="font-semibold tabular">{formatINR(totalAmt)}</span>
           {order.appStatus === "partially_dispatched" && (
             <span className="ml-2 text-2xs text-warn">· partly sent already</span>
+          )}
+          {order.appStatus === "loaded" && (
+            <span className="ml-2 text-2xs text-accent">· loaded by warehouse</span>
           )}
         </div>
 
@@ -252,25 +289,103 @@ export function OrderDispatchClient({
               onChange={e => setVehicle(e.target.value)}
             />
           </div>
+
+          {/* DRIVER */}
           <div>
-            <Label className="text-xs">Driver name <span className="text-danger">*</span></Label>
-            <Input
-              className="mt-1"
-              placeholder="e.g. Ramesh"
-              value={driver}
-              onChange={e => setDriver(e.target.value)}
-            />
+            <Label className="text-xs">Driver <span className="text-danger">*</span></Label>
+            {drivers.length > 0 && (
+              <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
+                <button
+                  type="button"
+                  onClick={() => setDriverMode("registered")}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "registered"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Pick driver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDriverMode("adhoc"); setDriverId(""); setDriver(""); setDriverPhone(""); }}
+                  className={`px-2 py-1 rounded border transition-colors ${
+                    driverMode === "adhoc"
+                      ? "border-accent bg-accent text-paper-card"
+                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                  }`}
+                >
+                  Other driver
+                </button>
+              </div>
+            )}
+
+            {driverMode === "registered" && drivers.length > 0 ? (
+              <select
+                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                value={driverId}
+                onChange={(e) => pickRegisteredDriver(e.target.value)}
+              >
+                <option value="">— Select a driver —</option>
+                {drivers.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}{d.phone ? ` · ${d.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                className="mt-1"
+                placeholder="e.g. Ramesh"
+                value={driver}
+                onChange={e => setDriver(e.target.value)}
+              />
+            )}
           </div>
+
           <div>
             <Label className="text-xs text-ink-muted">Driver phone</Label>
             <Input
               className="mt-1"
-              placeholder="9876543210 (optional)"
+              placeholder={driverMode === "registered" && driverId ? "" : "9876543210 (optional)"}
               inputMode="tel"
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
+              disabled={driverMode === "registered" && !!driverId}
             />
           </div>
+
+          {/* HELPER (optional) */}
+          {helpers.length > 0 ? (
+            <div>
+              <Label className="text-xs inline-flex items-center gap-1">
+                <UserPlus size={11}/> Helper
+                <span className="text-2xs text-ink-subtle font-normal">(optional)</span>
+              </Label>
+              <select
+                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                value={helperId}
+                onChange={(e) => setHelperId(e.target.value)}
+              >
+                <option value="">— No helper —</option>
+                {helpers.map(h => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}{h.phone ? ` · ${h.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedHelper && (
+                <p className="text-2xs text-ink-muted mt-1">
+                  {selectedHelper.name} will see this delivery on the Driver app and can mark it delivered.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="text-2xs text-ink-subtle">
+              <em>No helpers configured. Admin can add helpers in Users → Invite User with role &lsquo;van_helper&rsquo;.</em>
+            </div>
+          )}
+
           <div>
             <Label className="text-xs text-ink-muted">Notes</Label>
             <Textarea
