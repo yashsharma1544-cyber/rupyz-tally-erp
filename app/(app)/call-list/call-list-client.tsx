@@ -11,9 +11,8 @@ import type { CallListData, CallListRow } from "./page";
 type TabKey = "sleeping" | "shrinking" | "new_stuck";
 
 function fmtKg(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "0";
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}t`;
-  return `${n.toFixed(1)}kg`;
+  if (!Number.isFinite(n) || n === 0) return "0 kg";
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
 function fmtRelative(days: number | null): string {
@@ -27,7 +26,6 @@ function fmtRelative(days: number | null): string {
 
 export function CallListClient({ data }: { data: CallListData }) {
   const [tab, setTab] = useState<TabKey>(() => {
-    // Default to the bucket with the most items
     if (data.sleeping_total >= data.shrinking_total && data.sleeping_total >= data.new_stuck_total) return "sleeping";
     if (data.shrinking_total >= data.new_stuck_total) return "shrinking";
     return "new_stuck";
@@ -68,7 +66,6 @@ export function CallListClient({ data }: { data: CallListData }) {
           </p>
         </div>
 
-        {/* Tabs */}
         <div className="flex items-center gap-1 mb-3 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
           {tabs.map(t => {
             const active = t.key === tab;
@@ -98,19 +95,16 @@ export function CallListClient({ data }: { data: CallListData }) {
           {tabs.find(t => t.key === tab)?.description}
         </p>
 
-        {/* Cards (mobile) / table (desktop) */}
         {rows.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">
             {emptyMessage}
           </div>
         ) : (
           <>
-            {/* Mobile: card list */}
             <div className="lg:hidden space-y-2">
               {rows.map(r => <CallCardMobile key={r.id} row={r} tab={tab}/>)}
             </div>
 
-            {/* Desktop: table */}
             <div className="hidden lg:block bg-paper-card border border-paper-line rounded-md overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-paper-subtle/50 border-b border-paper-line">
@@ -145,12 +139,10 @@ export function CallListClient({ data }: { data: CallListData }) {
   );
 }
 
-// ---------- Mobile card ----------
-
 function CallCardMobile({ row, tab }: { row: CallListRow; tab: TabKey }) {
   return (
     <Link
-      href={`/insights/customers/${row.id}`}
+      href={`/customers/${row.id}`}
       className="block bg-paper-card border border-paper-line rounded-md p-3 hover:bg-paper-subtle/40 active:bg-paper-subtle"
     >
       <div className="flex items-start justify-between gap-2">
@@ -218,13 +210,11 @@ function Tile({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
-// ---------- Desktop row ----------
-
 function CallRowDesktop({ row, tab }: { row: CallListRow; tab: TabKey }) {
   return (
     <tr className="hover:bg-paper-subtle/30 group">
       <td className="px-3 py-2.5">
-        <Link href={`/insights/customers/${row.id}`} className="font-medium hover:text-accent hover:underline">
+        <Link href={`/customers/${row.id}`} className="font-medium hover:text-accent hover:underline">
           {row.name}
         </Link>
         <div className="text-2xs text-ink-muted flex items-center gap-2 flex-wrap mt-0.5">
@@ -266,7 +256,7 @@ function CallRowDesktop({ row, tab }: { row: CallListRow; tab: TabKey }) {
       </td>
       <td className="px-3 py-2.5">
         <Link
-          href={`/insights/customers/${row.id}`}
+          href={`/customers/${row.id}`}
           className="text-ink-subtle group-hover:text-accent inline-flex"
           aria-label="Open customer detail"
         >

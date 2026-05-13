@@ -16,6 +16,6 @@ export async function markVisited(customerId: string): Promise<{ ok: boolean; er
 
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath(`/insights/customers/${customerId}`);
+  revalidatePath(`/customers/${customerId}`);
   return { ok: true };
 }

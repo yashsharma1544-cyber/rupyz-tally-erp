@@ -55,16 +55,14 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
     <div className="min-h-screen bg-paper pb-20 lg:pb-6">
       <div className="max-w-7xl mx-auto px-3 py-3 lg:px-6 lg:py-5">
 
-        {/* Back link */}
         <Link
-          href={data.beat_id ? `/insights/beats/${data.beat_id}` : "/insights"}
+          href={data.beat_id ? `/beats/${data.beat_id}` : "/customers"}
           className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3"
         >
           <ArrowLeft size={11}/>
-          {data.beat_name ? `Back to ${data.beat_name}` : "Back to Insights"}
+          {data.beat_name ? `Back to ${data.beat_name}` : "Back to Customers"}
         </Link>
 
-        {/* Header — spans full width */}
         <div className="mb-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -115,7 +113,6 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
           )}
         </div>
 
-        {/* Insufficient history warning */}
         {data.confidence === "insufficient" && (
           <div className="bg-warn-soft border border-warn/30 rounded-md px-3 py-2 mb-4 flex items-start gap-2">
             <AlertCircle size={14} className="text-warn shrink-0 mt-0.5"/>
@@ -127,11 +124,8 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
           </div>
         )}
 
-        {/* 2-column layout: main content left (2/3), AI sidebar right (1/3). 
-            On mobile/tablet, AI shows above main content. */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          {/* AI sidebar — on mobile renders first (top), on desktop renders right side */}
           <aside className="lg:col-span-1 lg:order-2">
             <div className="lg:sticky lg:top-4">
               <NarrativeSection
@@ -141,10 +135,8 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
             </div>
           </aside>
 
-          {/* Main content — KPIs, mix, orders, lifetime */}
           <div className="lg:col-span-2 lg:order-1 space-y-4">
 
-            {/* KPI tiles */}
             <div className="grid grid-cols-2 gap-2 lg:gap-3">
               <KpiCard
                 label="Last 30 days"
@@ -183,7 +175,6 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
               />
             </div>
 
-            {/* Product mix */}
             <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
                 <Package size={14} className="text-ink-muted"/>
@@ -221,7 +212,6 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
               )}
             </section>
 
-            {/* Recent orders */}
             <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
                 <ShoppingBag size={14} className="text-ink-muted"/>
@@ -249,7 +239,6 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
               )}
             </section>
 
-            {/* Lifetime stats */}
             <section className="bg-paper-subtle border border-paper-line rounded-md p-3 lg:p-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
                 <Sm label="Lifetime kg" value={fmtKg(data.kg_lifetime)} />

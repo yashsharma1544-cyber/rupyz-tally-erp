@@ -1,8 +1,8 @@
 // =============================================================================
-// /insights/call-list — operational watchlist (sleeping / shrinking / new stuck)
+// /call-list — operational watchlist (sleeping / shrinking / new stuck)
 //
 // Admin sees all customers needing attention.
-// Salesman (when role exists) sees only their assigned customers.
+// Salesman sees only their assigned customers.
 // Admin can preview as a salesman via ?as_user=<uuid>.
 // =============================================================================
 
@@ -51,7 +51,7 @@ export default async function CallListPage({ searchParams }: PageProps) {
   const { as_user } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?from=/insights/call-list");
+  if (!user) redirect("/login?from=/call-list");
 
   const { data, error } = await supabase.rpc("call_list_summary", {
     p_view_as_user_id: as_user ?? null,

@@ -52,8 +52,6 @@ function GrowthCell({ pct }: { pct: number | null }) {
   );
 }
 
-// Note: beatId prop is still accepted for backward compat but no longer used here
-// (NarrativeSection is rendered by the parent page, alongside this component).
 export function BeatInsightsTabs({ customers, beatId: _beatId }: { customers: CustomerHealth[]; beatId?: string }) {
   const [tab, setTab] = useState<TabKey>("all");
 
@@ -147,7 +145,7 @@ export function BeatInsightsTabs({ customers, beatId: _beatId }: { customers: Cu
                   <tr key={c.customer_id} className="hover:bg-paper-subtle/30 group">
                     <td className="px-3 py-2.5">
                       <Link
-                        href={`/insights/customers/${c.customer_id}`}
+                        href={`/customers/${c.customer_id}`}
                         className="font-medium hover:text-accent hover:underline"
                       >
                         {c.customer_name}
@@ -165,27 +163,27 @@ export function BeatInsightsTabs({ customers, beatId: _beatId }: { customers: Cu
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular font-semibold">
-                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                      <Link href={`/customers/${c.customer_id}`} className="block">
                         {Number(c.this_30d_kg) > 0 ? formatKg(Number(c.this_30d_kg)) : <span className="text-ink-subtle">0</span>}
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                      <Link href={`/customers/${c.customer_id}`} className="block">
                         <GrowthCell pct={c.growth_pct} />
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular text-ink-muted">
-                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                      <Link href={`/customers/${c.customer_id}`} className="block">
                         {formatKg(Number(c.this_90d_kg))}
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular text-ink-muted">
-                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                      <Link href={`/customers/${c.customer_id}`} className="block">
                         {Number(c.this_30d_order_count)}
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <Link href={`/insights/customers/${c.customer_id}`} className="block">
+                      <Link href={`/customers/${c.customer_id}`} className="block">
                         <span className={`text-2xs inline-flex items-center gap-0.5 tabular ${
                           isSleeping ? "text-warn font-semibold" : "text-ink-muted"
                         }`}>
@@ -196,7 +194,7 @@ export function BeatInsightsTabs({ customers, beatId: _beatId }: { customers: Cu
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <Link
-                        href={`/insights/customers/${c.customer_id}`}
+                        href={`/customers/${c.customer_id}`}
                         className="text-ink-subtle group-hover:text-accent inline-flex"
                         aria-label="Open customer detail"
                       >

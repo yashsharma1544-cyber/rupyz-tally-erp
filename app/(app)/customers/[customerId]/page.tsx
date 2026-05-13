@@ -1,5 +1,5 @@
 // =============================================================================
-// /insights/customers/[customerId] — customer detail page
+// /customers/[customerId] — customer detail page (analytics + actions)
 //
 // Server-fetches everything via the customer_detail RPC, hands to client UI.
 // =============================================================================
@@ -17,13 +17,13 @@ export default async function CustomerDetailPage({ params }: PageProps) {
   const { customerId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?from=/insights/customers/${customerId}`);
+  if (!user) redirect(`/login?from=/customers/${customerId}`);
 
   const { data, error } = await supabase.rpc("customer_detail", { p_customer_id: customerId });
   if (error) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <h1 className="text-base font-semibold mb-1">Couldn't load customer</h1>
+        <h1 className="text-base font-semibold mb-1">Couldn&apos;t load customer</h1>
         <p className="text-sm text-ink-muted">{error.message}</p>
       </div>
     );
@@ -33,7 +33,7 @@ export default async function CustomerDetailPage({ params }: PageProps) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
         <h1 className="text-base font-semibold mb-1">Not authorized</h1>
-        <p className="text-sm text-ink-muted">This customer isn't in your scope.</p>
+        <p className="text-sm text-ink-muted">This customer isn&apos;t in your scope.</p>
       </div>
     );
   }

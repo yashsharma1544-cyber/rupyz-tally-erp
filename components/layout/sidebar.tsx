@@ -17,7 +17,6 @@ import {
   LogOut,
   Menu,
   X,
-  TrendingUp,
   ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,26 +24,24 @@ import { createClient } from "@/lib/supabase/client";
 import type { AppUser } from "@/lib/types";
 
 const navItems = [
-  { href: "/dashboard",          label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
-  { href: "/orders",             label: "Orders",     icon: ShoppingBag,     roles: "all" },
-  { href: "/dispatches",         label: "Dispatches", icon: Truck,           roles: "all" },
-  { href: "/trips",              label: "VAN Trips",  icon: Route,           roles: "all" },
-  { href: "/insights",           label: "Insights",   icon: TrendingUp,      roles: "all" },
-  { href: "/insights/call-list", label: "Call List",  icon: ListChecks,      roles: "all" },
-  { href: "/customers",          label: "Customers",  icon: Users2,          roles: "all" },
-  { href: "/products",           label: "Products",   icon: Package,         roles: "all" },
-  { href: "/salesmen",           label: "Salesmen",   icon: UserCircle2,     roles: "all" },
-  { href: "/beats",              label: "Beats",      icon: MapPin,          roles: "all" },
-  { href: "/drivers",            label: "Drivers",    icon: Truck,           roles: "admin" },
-  { href: "/users",              label: "Users",      icon: Shield,          roles: "admin" },
-  { href: "/settings",           label: "Settings",   icon: Settings,        roles: "admin" },
+  { href: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
+  { href: "/orders",       label: "Orders",     icon: ShoppingBag,     roles: "all" },
+  { href: "/dispatches",   label: "Dispatches", icon: Truck,           roles: "all" },
+  { href: "/trips",        label: "VAN Trips",  icon: Route,           roles: "all" },
+  { href: "/beats",        label: "Beats",      icon: MapPin,          roles: "all" },
+  { href: "/call-list",    label: "Call List",  icon: ListChecks,      roles: "all" },
+  { href: "/customers",    label: "Customers",  icon: Users2,          roles: "all" },
+  { href: "/products",     label: "Products",   icon: Package,         roles: "all" },
+  { href: "/salesmen",     label: "Salesmen",   icon: UserCircle2,     roles: "all" },
+  { href: "/drivers",      label: "Drivers",    icon: Truck,           roles: "admin" },
+  { href: "/users",        label: "Users",      icon: Shield,          roles: "admin" },
+  { href: "/settings",     label: "Settings",   icon: Settings,        roles: "admin" },
 ] as const;
 
 export function Sidebar({ user }: { user: AppUser }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Close drawer when navigation completes
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   async function handleSignOut() {
@@ -54,7 +51,6 @@ export function Sidebar({ user }: { user: AppUser }) {
   }
 
   // Active match — prefer the more-specific item when nested paths exist
-  // (so /insights/call-list highlights Call List, not Insights).
   function isActive(href: string): boolean {
     if (pathname === href) return true;
     if (!pathname.startsWith(href + "/")) return false;
@@ -68,7 +64,6 @@ export function Sidebar({ user }: { user: AppUser }) {
 
   const navContent = (
     <>
-      {/* Brand */}
       <div className="px-4 pt-4 pb-3 border-b border-paper-line flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-7 w-7 rounded bg-ink text-paper flex items-center justify-center">
@@ -79,7 +74,6 @@ export function Sidebar({ user }: { user: AppUser }) {
             <div className="text-2xs text-ink-subtle uppercase tracking-wider">Rupyz · Tally ERP</div>
           </div>
         </div>
-        {/* Close button — mobile drawer only */}
         <button
           onClick={() => setMobileOpen(false)}
           className="lg:hidden text-ink-muted hover:text-ink p-1"
@@ -89,7 +83,6 @@ export function Sidebar({ user }: { user: AppUser }) {
         </button>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           if (item.roles === "admin" && user.role !== "admin") return null;
@@ -114,7 +107,6 @@ export function Sidebar({ user }: { user: AppUser }) {
         })}
       </nav>
 
-      {/* User card */}
       <div className="border-t border-paper-line p-3">
         <div className="flex items-center gap-2.5 mb-2">
           <div className="h-8 w-8 rounded-full bg-accent-soft text-accent flex items-center justify-center font-semibold text-sm shrink-0">
@@ -138,7 +130,6 @@ export function Sidebar({ user }: { user: AppUser }) {
 
   return (
     <>
-      {/* Mobile / tablet top bar — visible <1024px (lg breakpoint) */}
       <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between bg-paper-card/95 backdrop-blur border-b border-paper-line px-3 py-2">
         <button
           onClick={() => setMobileOpen(true)}
@@ -153,16 +144,13 @@ export function Sidebar({ user }: { user: AppUser }) {
           </div>
           <span className="font-semibold text-sm">Sushil Agencies</span>
         </div>
-        <div className="w-7"/>{/* spacer for balance */}
+        <div className="w-7"/>
       </div>
 
-      {/* Sidebar — desktop sticky aside, mobile drawer */}
       <aside
         className={cn(
           "border-r border-paper-line bg-paper-card flex flex-col h-screen",
-          // Desktop ≥1024px: classic sidebar
           "lg:sticky lg:top-0 lg:w-56 lg:shrink-0 lg:bg-paper-card/60",
-          // Mobile/tablet: slide-in drawer over content
           "fixed top-0 left-0 z-50 w-72 max-w-[85vw] transition-transform duration-200 ease-out shadow-xl lg:shadow-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
@@ -170,7 +158,6 @@ export function Sidebar({ user }: { user: AppUser }) {
         {navContent}
       </aside>
 
-      {/* Backdrop for mobile drawer */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-ink/40 backdrop-blur-[2px] z-40"

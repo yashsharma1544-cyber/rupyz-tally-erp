@@ -1,5 +1,5 @@
 // =============================================================================
-// /insights/beats/[beatId] — per-customer health for one beat
+// /beats/[beatId] — per-customer health for one beat
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";
@@ -32,7 +32,7 @@ function formatKg(n: number): string {
   return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
-export default async function BeatInsightsPage({
+export default async function BeatDetailPage({
   params,
 }: {
   params: Promise<{ beatId: string }>;
@@ -40,7 +40,7 @@ export default async function BeatInsightsPage({
   const { beatId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?from=/insights/beats/${beatId}`);
+  if (!user) redirect(`/login?from=/beats/${beatId}`);
 
   const { data: me } = await supabase
     .from("app_users")
@@ -67,8 +67,8 @@ export default async function BeatInsightsPage({
   if (error) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
-        <Link href="/insights" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
-          <ArrowLeft size={11}/> All insights
+        <Link href="/beats" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
+          <ArrowLeft size={11}/> All beats
         </Link>
         <p className="text-sm font-semibold mb-1">Couldn&apos;t load beat health</p>
         <p className="text-xs text-ink-muted">{error.message}</p>
@@ -88,8 +88,8 @@ export default async function BeatInsightsPage({
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <Link href="/insights" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
-          <ArrowLeft size={11}/> All insights
+        <Link href="/beats" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
+          <ArrowLeft size={11}/> All beats
         </Link>
 
         <h1 className="text-xl font-semibold leading-tight mb-1">{beat.name}</h1>
@@ -97,10 +97,8 @@ export default async function BeatInsightsPage({
           Per-customer health for this beat. All measurements in kg.
         </p>
 
-        {/* 2-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          {/* AI sidebar */}
           <aside className="lg:col-span-1 lg:order-2">
             <div className="lg:sticky lg:top-4">
               <NarrativeSection
@@ -110,9 +108,7 @@ export default async function BeatInsightsPage({
             </div>
           </aside>
 
-          {/* Main content */}
           <div className="lg:col-span-2 lg:order-1 space-y-4">
-            {/* KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
               <div className="bg-paper-card border border-paper-line rounded-md p-3">
                 <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 30 days</div>
