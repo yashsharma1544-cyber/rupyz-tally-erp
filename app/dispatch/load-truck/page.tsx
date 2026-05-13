@@ -1,11 +1,10 @@
 // =============================================================================
 // /dispatch/load-truck — cross-beat truck loading wizard
 //
-// Loads ALL approved/partly-dispatched orders, grouped by beat. Optional
-// ?beat=<id> query param hints which beat section to expand by default
-// (when entered from a beat page).
+// Loads ALL approved/partly-dispatched/loaded orders, grouped by beat.
+// Optional ?beat=<id> query param hints which beat section to expand by default.
 //
-// Two-step wizard, all client-side state.
+// Phase 2: fetches helpers list (role=van_helper) for the Step 2 form.
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -55,7 +54,6 @@ export default async function LoadTruckPage({
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
 
-  // All beats with at least one approved order — needed for grouping/labels
   const { data: beats } = await supabase
     .from("beats")
     .select("id, name")
@@ -68,7 +66,7 @@ export default async function LoadTruckPage({
       customer:customers!inner(id, name, city, beat_id),
       items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
     `)
-    .in("app_status", ["approved", "partially_dispatched"])
+    .in("app_status", ["approved", "partially_dispatched", "loaded"])
     .order("rupyz_created_at", { ascending: false });
   if (error) {
     return (
@@ -83,8 +81,14 @@ export default async function LoadTruckPage({
   }
   const orderRows = (orders ?? []) as unknown as OrderRow[];
 
-  // Group orders by beat. Skip orders whose customer has no beat (they're
-  // unreachable here — admin should fix them).
+  // Jalna-only filter: customer.city or beat.city matches 'jalna' (case-insensitive)
+  // For load-truck we only check customer.city (beat join not needed here)
+  function isJalna(city: string | null | undefined): boolean {
+    if (!city) return false;
+    return city.trim().toLowerCase() === "jalna";
+  }
+  const filteredOrderRows = orderRows.filter(o => isJalna(o.customer?.city));
+
   const byBeat = new Map<string, { beatId: string; beatName: string; orders: Array<{
     id: string; rupyzOrderId: string; totalAmount: number; appStatus: string;
     customerName: string; customerCity: string | null; kg: number;
@@ -92,7 +96,7 @@ export default async function LoadTruckPage({
 
   const beatNameMap = new Map<string, string>((beats ?? []).map(b => [b.id, b.name]));
 
-  for (const o of orderRows) {
+  for (const o of filteredOrderRows) {
     const beatId = o.customer?.beat_id;
     if (!beatId) continue;
     const beatName = beatNameMap.get(beatId) ?? "Unknown beat";
@@ -119,11 +123,21 @@ export default async function LoadTruckPage({
     .order("full_name");
   const driverList = (drivers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
 
+  // CHANGED Phase 2: Active helpers (van_helper role)
+  const { data: helpers } = await supabase
+    .from("app_users")
+    .select("id, full_name, phone")
+    .eq("role", "van_helper")
+    .eq("active", true)
+    .order("full_name");
+  const helperList = (helpers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
+
   return (
     <LoadTruckWizard
       beatGroups={beatGroups}
       focusBeatId={focusBeatId ?? null}
       drivers={driverList.map(d => ({ id: d.id, name: d.full_name, phone: d.phone }))}
+      helpers={helperList.map(h => ({ id: h.id, name: h.full_name, phone: h.phone }))}
     />
   );
 }

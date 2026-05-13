@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Truck, CheckSquare, Square, ChevronDown, ChevronRight, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, Truck, CheckSquare, Square, ChevronDown, ChevronRight, MapPin, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
@@ -38,25 +38,24 @@ function formatKg(n: number): string {
 
 type Step = "pick" | "details";
 
-interface DriverOption {
+interface UserOption {
   id: string;
   name: string;
   phone: string | null;
 }
 
 export function LoadTruckWizard({
-  beatGroups, focusBeatId, drivers,
+  beatGroups, focusBeatId, drivers, helpers,
 }: {
   beatGroups: BeatGroup[];
   focusBeatId: string | null;
-  drivers: DriverOption[];
+  drivers: UserOption[];
+  helpers: UserOption[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("pick");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Beats expanded by default: just the focusBeatId if set, else all if there
-  // are 2 or fewer beats, else none.
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(() => {
     const s = new Set<string>();
     if (focusBeatId) s.add(focusBeatId);
@@ -65,18 +64,17 @@ export function LoadTruckWizard({
   });
 
   const [vehicle, setVehicle] = useState("");
-  // Driver mode: "registered" → picked from dropdown; "adhoc" → typed text
   const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
     drivers.length > 0 ? "registered" : "adhoc"
   );
-  const [driverId, setDriverId] = useState<string>(""); // app_users.id when registered
+  const [driverId, setDriverId] = useState<string>("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
+  // Phase 2: helper state
+  const [helperId, setHelperId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
 
-  // When a registered driver is picked, keep the legacy text fields synced
-  // so the server gets a coherent view either way.
   function pickRegisteredDriver(id: string) {
     setDriverId(id);
     const d = drivers.find(x => x.id === id);
@@ -86,7 +84,6 @@ export function LoadTruckWizard({
     }
   }
 
-  // Flat lookup: orderId -> {beatName, order}
   const allOrdersFlat = useMemo(() => {
     const m = new Map<string, { beatName: string; order: OrderItem }>();
     for (const g of beatGroups) for (const o of g.orders) m.set(o.id, { beatName: g.beatName, order: o });
@@ -157,16 +154,15 @@ export function LoadTruckWizard({
         driverName: driver.trim(),
         driverPhone: driverPhone.trim() || undefined,
         driverUserId: driverMode === "registered" ? driverId : undefined,
+        helperUserId: helperId || undefined,
         notes: notes.trim() || undefined,
       });
       if ("error" in res && res.error) {
         toast.error(res.error);
         return;
       }
-      // Pull a representative error message if anything failed
       const firstFailureErr = res.results?.find(r => !r.ok)?.error;
       if (res.succeeded === 0) {
-        // Total failure — keep the dispatcher on this screen with the error
         toast.error(firstFailureErr ?? `All ${res.total} dispatches failed`, {
           duration: 12000,
           description: firstFailureErr ? `${res.failed} of ${res.total} orders failed` : undefined,
@@ -184,6 +180,8 @@ export function LoadTruckWizard({
       router.push(`/dispatch`);
     });
   }
+
+  const selectedHelper = helpers.find(h => h.id === helperId);
 
   // ============ STEP 1: PICK ============
   if (step === "pick") {
@@ -230,7 +228,6 @@ export function LoadTruckWizard({
                     key={group.beatId}
                     className="bg-paper-card border border-paper-line rounded-md overflow-hidden"
                   >
-                    {/* Beat header — tap to expand/collapse */}
                     <button
                       type="button"
                       onClick={() => toggleBeatExpanded(group.beatId)}
@@ -256,10 +253,8 @@ export function LoadTruckWizard({
                       </div>
                     </button>
 
-                    {/* Beat orders — only when expanded */}
                     {isExpanded && (
                       <div className="border-t border-paper-line divide-y divide-paper-line">
-                        {/* Beat-level select-all/clear row */}
                         <div className="px-3 py-1.5 bg-paper-subtle/40 flex items-center gap-3 text-2xs">
                           <button
                             type="button"
@@ -293,6 +288,7 @@ export function LoadTruckWizard({
                                   <span className="font-mono">{o.rupyzOrderId}</span>
                                   {o.customerCity && <> · {o.customerCity}</>}
                                   {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">partly sent</span></>}
+                                  {o.appStatus === "loaded" && <> · <span className="text-accent">loaded</span></>}
                                 </div>
                                 <div className="text-2xs text-ink-muted mt-0.5">
                                   <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
@@ -312,7 +308,6 @@ export function LoadTruckWizard({
           )}
         </div>
 
-        {/* Sticky bottom: count + Next */}
         <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
           <div className="max-w-md mx-auto">
             <div className="text-2xs text-center text-ink-muted mb-1.5">
@@ -336,7 +331,6 @@ export function LoadTruckWizard({
   }
 
   // ============ STEP 2: DETAILS ============
-  // Group selected orders by beat for the preview list
   const selectedByBeat = new Map<string, { beatName: string; orders: OrderItem[] }>();
   for (const x of selectedOrders) {
     const key = x.beatName;
@@ -365,7 +359,6 @@ export function LoadTruckWizard({
           {previewGroups.length > 1 && <> · across <strong className="text-ink">{previewGroups.length}</strong> beats</>}
         </p>
 
-        {/* Selected orders preview, grouped by beat */}
         <div className="mt-4">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
             Orders on this truck
@@ -391,7 +384,6 @@ export function LoadTruckWizard({
           </div>
         </div>
 
-        {/* Vehicle / driver — below the preview */}
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
             Vehicle &amp; driver
@@ -468,6 +460,38 @@ export function LoadTruckWizard({
               disabled={driverMode === "registered" && !!driverId}
             />
           </div>
+
+          {/* Phase 2: Helper picker (optional) */}
+          {helpers.length > 0 ? (
+            <div>
+              <Label className="text-xs inline-flex items-center gap-1">
+                <UserPlus size={11}/> Helper
+                <span className="text-2xs text-ink-subtle font-normal">(optional)</span>
+              </Label>
+              <select
+                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                value={helperId}
+                onChange={(e) => setHelperId(e.target.value)}
+              >
+                <option value="">— No helper —</option>
+                {helpers.map(h => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}{h.phone ? ` · ${h.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedHelper && (
+                <p className="text-2xs text-ink-muted mt-1">
+                  {selectedHelper.name} will see all {selected.size} dispatches on the Driver app.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="text-2xs text-ink-subtle">
+              <em>No helpers configured. Admin can add helpers in Users with role &lsquo;van_helper&rsquo;.</em>
+            </div>
+          )}
+
           <div>
             <Label className="text-xs text-ink-muted">Notes</Label>
             <Textarea
@@ -481,7 +505,6 @@ export function LoadTruckWizard({
         </div>
       </div>
 
-      {/* Sticky confirm */}
       <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto">
           <Button

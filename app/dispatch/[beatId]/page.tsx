@@ -4,6 +4,8 @@
 // Shows every approved/loaded/partially-dispatched order in this beat.
 // Filtered to Jalna area only (beat.city = jalna OR customer.city = jalna,
 // case-insensitive).
+//
+// Phase 2: fetches helpers list (role=van_helper) for the bulk dispatch sheet.
 // =============================================================================
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -51,17 +53,26 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   const { data: beat } = await supabase.from("beats").select("id, name, city").eq("id", beatId).maybeSingle();
   if (!beat) notFound();
 
-  // Pull orders + customer city for Jalna filter.
-  const { data: orders, error } = await supabase
-    .from("orders")
-    .select(`
-      id, rupyz_order_id, total_amount, app_status,
-      customer:customers!inner(id, name, city, beat_id),
-      items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
-    `)
-    .in("app_status", ["approved", "partially_dispatched", "loaded"])
-    .eq("customer.beat_id", beatId)
-    .order("rupyz_created_at", { ascending: false });
+  // Fetch orders + helpers in parallel
+  const [{ data: orders, error }, { data: helpers }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(`
+        id, rupyz_order_id, total_amount, app_status,
+        customer:customers!inner(id, name, city, beat_id),
+        items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
+      `)
+      .in("app_status", ["approved", "partially_dispatched", "loaded"])
+      .eq("customer.beat_id", beatId)
+      .order("rupyz_created_at", { ascending: false }),
+    supabase
+      .from("app_users")
+      .select("id, full_name, phone")
+      .eq("role", "van_helper")
+      .eq("active", true)
+      .order("full_name"),
+  ]);
+
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
@@ -92,6 +103,11 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
         customerCity: o.customer?.city ?? null,
         kg: kgForItems(o.items ?? []),
         itemCount: (o.items ?? []).length,
+      }))}
+      helpers={(helpers ?? []).map(h => ({
+        id: h.id,
+        name: h.full_name,
+        phone: h.phone ?? null,
       }))}
     />
   );

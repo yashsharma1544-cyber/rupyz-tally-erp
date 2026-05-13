@@ -106,7 +106,6 @@ export async function createDispatch(
     driverName?: string;
     driverPhone?: string;
     driverUserId?: string;
-    /** Optional helper (typically van_helper role). Allows them to POD via /driver. */
     helperUserId?: string;
     notes?: string;
   } = {},
@@ -117,7 +116,6 @@ export async function createDispatch(
 
     const { data: order } = await admin.from("orders").select("id, app_status").eq("id", orderId).single();
     if (!order) return { error: "Order not found" };
-    // CHANGED: accept 'loaded' (orders coming from /load)
     if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status))
       return { error: `Cannot dispatch — order is "${order.app_status}"` };
 
@@ -171,7 +169,6 @@ export async function createDispatch(
     const { data: numRow } = await admin.rpc("next_dispatch_number");
     const dispatchNumber = numRow as unknown as string;
 
-    // Insert dispatch — now with optional helper_user_id
     const { data: dispatch, error: dErr } = await admin.from("dispatches").insert({
       order_id: orderId,
       dispatch_number: dispatchNumber,
@@ -244,9 +241,6 @@ export async function shipDispatch(dispatchId: string) {
 
 // =============================================================================
 // MARK DISPATCH DELIVERED (with POD)
-//
-// CHANGED: 'van_helper' added to allowed roles so a helper assigned to the
-// dispatch can also capture POD.
 // =============================================================================
 export async function markDelivered(
   dispatchId: string,
@@ -268,8 +262,6 @@ export async function markDelivered(
     if (!d) return { error: "Dispatch not found" };
     if (d.status !== "shipped") return { error: `Cannot mark delivered — current status: ${d.status}` };
 
-    // If actor is driver or van_helper (not admin/dispatch), ensure they're
-    // actually assigned to this dispatch.
     if (actor.role === "driver" && d.driver_user_id !== actor.userId) {
       return { error: "Not assigned to this delivery" };
     }
@@ -348,8 +340,6 @@ export async function cancelDispatch(dispatchId: string, reason: string) {
 
 // =============================================================================
 // UPLOAD POD PHOTO
-//
-// CHANGED: 'van_helper' added so helpers can upload POD photos.
 // =============================================================================
 export async function getPhotoUploadUrl(dispatchId: string) {
   try {
@@ -374,6 +364,9 @@ export async function getPhotoPublicUrl(objectName: string) {
 
 // =============================================================================
 // BULK DISPATCH BY BEAT
+//
+// CHANGED in Phase 2: accepts helperUserId, threads through to createDispatch
+// so every dispatch row created for the beat gets the same helper assignment.
 // =============================================================================
 export async function bulkDispatchByBeat(input: {
   beatId: string;
@@ -381,6 +374,7 @@ export async function bulkDispatchByBeat(input: {
   driverName: string;
   driverPhone?: string;
   driverUserId?: string;
+  helperUserId?: string;
   notes?: string;
 }) {
   try {
@@ -424,6 +418,7 @@ export async function bulkDispatchByBeat(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         driverUserId: input.driverUserId,
+        helperUserId: input.helperUserId,
         notes: input.notes?.trim() || undefined,
       });
 
@@ -455,6 +450,8 @@ export async function bulkDispatchByBeat(input: {
 
 // =============================================================================
 // DISPATCH SELECTED ORDERS
+//
+// CHANGED in Phase 2: accepts helperUserId, threads through to createDispatch.
 // =============================================================================
 export async function dispatchSelectedOrders(input: {
   orderIds: string[];
@@ -462,6 +459,7 @@ export async function dispatchSelectedOrders(input: {
   driverName: string;
   driverPhone?: string;
   driverUserId?: string;
+  helperUserId?: string;
   notes?: string;
 }) {
   try {
@@ -512,6 +510,7 @@ export async function dispatchSelectedOrders(input: {
         driverName: input.driverName.trim(),
         driverPhone: input.driverPhone?.trim() || undefined,
         driverUserId: input.driverUserId,
+        helperUserId: input.helperUserId,
         notes: input.notes?.trim() || undefined,
       });
 

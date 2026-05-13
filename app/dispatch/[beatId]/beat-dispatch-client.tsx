@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Truck, Package } from "lucide-react";
+import { ArrowLeft, ChevronRight, Truck, Package, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,12 @@ interface OrderItem {
   itemCount: number;
 }
 
+interface UserOption {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
 function formatINR(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "₹0";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -31,16 +37,19 @@ function formatKg(n: number): string {
 }
 
 export function BeatDispatchClient({
-  beat, orders,
+  beat, orders, helpers,
 }: {
   beat: { id: string; name: string };
   orders: OrderItem[];
+  helpers: UserOption[];
 }) {
   const router = useRouter();
   const [showBulk, setShowBulk] = useState(false);
   const [vehicle, setVehicle] = useState("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
+  // Phase 2: helper state
+  const [helperId, setHelperId] = useState<string>("");
   const [pending, startTransition] = useTransition();
 
   const canBulk = vehicle.trim().length > 0 && driver.trim().length > 0;
@@ -49,18 +58,21 @@ export function BeatDispatchClient({
   const totalKg     = orders.reduce((s, o) => s + o.kg, 0);
   const totalAmount = orders.reduce((s, o) => s + o.totalAmount, 0);
 
+  const selectedHelper = helpers.find(h => h.id === helperId);
+
   function handleBulk() {
     if (!canBulk) {
       toast.error("Vehicle # and driver name are required");
       return;
     }
-    if (!confirm(`Dispatch all ${totalOrders} orders for ${beat.name}? This creates ${totalOrders} dispatch records, all with the same vehicle/driver.`)) return;
+    if (!confirm(`Dispatch all ${totalOrders} orders for ${beat.name}? This creates ${totalOrders} dispatch records, all with the same vehicle/driver${helperId ? "/helper" : ""}.`)) return;
     startTransition(async () => {
       const res = await bulkDispatchByBeat({
         beatId: beat.id,
         vehicleNumber: vehicle.trim(),
         driverName: driver.trim(),
         driverPhone: driverPhone.trim() || undefined,
+        helperUserId: helperId || undefined,
       });
       if ("error" in res && res.error) {
         toast.error(res.error);
@@ -141,6 +153,7 @@ export function BeatDispatchClient({
                       <span className="font-mono">{o.rupyzOrderId}</span>
                       {o.customerCity && <> · {o.customerCity}</>}
                       {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">partly sent</span></>}
+                      {o.appStatus === "loaded" && <> · <span className="text-accent">loaded</span></>}
                     </div>
                     <div className="text-2xs text-ink-muted mt-0.5">
                       <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
@@ -172,7 +185,7 @@ export function BeatDispatchClient({
               <h2 className="font-semibold">Dispatch all orders</h2>
             </div>
             <p className="text-xs text-ink-muted mb-3">
-              Creates {totalOrders} dispatch{totalOrders === 1 ? "" : "es"} with full quantities, all with the same vehicle and driver.
+              Creates {totalOrders} dispatch{totalOrders === 1 ? "" : "es"} with full quantities, all with the same vehicle{helperId ? ", driver, and helper" : " and driver"}.
             </p>
 
             <Label className="text-2xs uppercase tracking-wide text-ink-muted">Vehicle # *</Label>
@@ -200,6 +213,37 @@ export function BeatDispatchClient({
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
             />
+
+            {/* Phase 2: Helper picker (optional) */}
+            {helpers.length > 0 ? (
+              <>
+                <Label className="text-2xs uppercase tracking-wide text-ink-muted inline-flex items-center gap-1">
+                  <UserPlus size={10}/> Helper (optional)
+                </Label>
+                <select
+                  className="w-full mt-1 mb-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  value={helperId}
+                  onChange={(e) => setHelperId(e.target.value)}
+                >
+                  <option value="">— No helper —</option>
+                  {helpers.map(h => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}{h.phone ? ` · ${h.phone}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {selectedHelper && (
+                  <p className="text-2xs text-ink-muted mb-3">
+                    {selectedHelper.name} will see all {totalOrders} dispatches.
+                  </p>
+                )}
+                {!selectedHelper && <div className="mb-3"/>}
+              </>
+            ) : (
+              <p className="text-2xs text-ink-subtle italic mb-3">
+                No helpers configured. Add helpers in Users with role &lsquo;van_helper&rsquo;.
+              </p>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
