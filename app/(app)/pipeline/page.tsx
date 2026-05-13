@@ -24,9 +24,9 @@ const STAGES = [
   "approved",
   "loading",
   "loaded",
-  "on_van_trip",
   "dispatched",
   "delivered",
+  "on_van_trip",
 ] as const;
 
 type Stage = typeof STAGES[number];

@@ -29,9 +29,9 @@ const STAGES: StageConfig[] = [
   { key: "approved",     label: "Approved",   icon: CheckCircle2, accent: "accent",  ordersTab: "dispatch" },
   { key: "loading",      label: "Loading",    icon: Loader2,      accent: "warn",    ordersTab: "loading" },
   { key: "loaded",       label: "Loaded",     icon: PackageCheck, accent: "accent",  ordersTab: "loading" },
-  { key: "on_van_trip",  label: "On VAN",     icon: Bus,          accent: "accent",  ordersTab: "van" },
   { key: "dispatched",   label: "Dispatched", icon: Truck,        accent: "accent",  ordersTab: "transit" },
   { key: "delivered",    label: "Delivered",  icon: BadgeCheck,   accent: "ok",      ordersTab: "delivered" },
+  { key: "on_van_trip",  label: "On VAN",     icon: Bus,          accent: "neutral", ordersTab: "van" },
 ];
 
 function formatINR(n: number): string {
