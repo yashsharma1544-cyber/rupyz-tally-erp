@@ -5,14 +5,15 @@
 // simple "X sleeping customers" count. Tap a beat to drill down into per-
 // customer detail.
 //
-// Future layers will add /insights/customers, /insights/products, and AI
-// summaries on each page.
+// Layer 2 (AI): each beat row also shows a one-line Claude-generated insight.
+// All measurements in kg (never tonnes).
 // =============================================================================
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, Minus, MapPin, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { BeatLinesProvider, BeatLinesHeader } from "@/components/ai/beat-lines";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,8 +31,7 @@ interface BeatSummary {
 
 function formatKg(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "0 kg";
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")} t`;
-  return `${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })} kg`;
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 1 })} kg`;
 }
 
 function GrowthBadge({ pct }: { pct: number | null }) {
@@ -82,6 +82,8 @@ export default async function InsightsIndexPage() {
     );
   }
 
+  const isAdmin = me.role === "admin";
+
   // Coverage check on weight_kg setup — warn if mostly missing
   const [
     { count: productCount },
@@ -107,13 +109,12 @@ export default async function InsightsIndexPage() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         <h1 className="text-xl font-semibold leading-tight mb-1">Sales insights</h1>
         <p className="text-sm text-ink-muted mb-5">
           30-day rolling sales by beat, measured in kg. Tap a beat to see per-customer detail.
         </p>
 
-        {/* Coverage warning if weights aren't set */}
         {coveragePct < 80 && (
           <div className="bg-warn-soft border border-warn/30 rounded-md p-3 mb-5 flex items-start gap-2">
             <AlertCircle size={16} className="text-warn shrink-0 mt-0.5"/>
@@ -157,13 +158,72 @@ export default async function InsightsIndexPage() {
         )}
 
         {/* Beat list */}
-        <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Beats</h2>
+        <div className="flex items-center justify-between mb-2.5">
+          <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle">Beats</h2>
+        </div>
         {beats.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <p className="text-sm font-semibold mb-0.5">No beats configured</p>
             <p className="text-xs text-ink-muted">Add beats and assign customers to them first.</p>
           </div>
+        ) : isAdmin ? (
+          // Admin view: with AI insights column
+          <BeatLinesProvider>
+            {({ lines, loading, error }) => (
+              <>
+                <div className="mb-2 flex justify-end">
+                  <BeatLinesHeader loading={loading} error={error}/>
+                </div>
+                <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[920px]">
+                      <thead className="bg-paper-subtle/50 border-b border-paper-line">
+                        <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                          <th className="px-3 py-2 font-medium">Beat</th>
+                          <th className="px-3 py-2 font-medium text-right">Last 30d (kg)</th>
+                          <th className="px-3 py-2 font-medium text-right">vs prev</th>
+                          <th className="px-3 py-2 font-medium text-right">Customers</th>
+                          <th className="px-3 py-2 font-medium text-right">Active</th>
+                          <th className="px-3 py-2 font-medium text-right">Sleeping</th>
+                          <th className="px-3 py-2 font-medium min-w-[280px]">AI insight</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-paper-line">
+                        {beats.map(b => (
+                          <tr key={b.beat_id} className="hover:bg-paper-subtle/40">
+                            <td className="px-3 py-2.5">
+                              <Link
+                                href={`/insights/beats/${b.beat_id}`}
+                                className="font-medium text-accent hover:underline inline-flex items-center gap-1"
+                              >
+                                <MapPin size={11}/> {b.beat_name}
+                              </Link>
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular font-semibold">{formatKg(Number(b.this_30d_kg))}</td>
+                            <td className="px-3 py-2.5 text-right"><GrowthBadge pct={b.growth_pct}/></td>
+                            <td className="px-3 py-2.5 text-right tabular text-ink-muted">{Number(b.customer_count)}</td>
+                            <td className="px-3 py-2.5 text-right tabular text-ok">{Number(b.active_30d_count)}</td>
+                            <td className="px-3 py-2.5 text-right tabular">
+                              {Number(b.sleeping_count) > 0 ? (
+                                <span className="text-warn font-semibold">{Number(b.sleeping_count)}</span>
+                              ) : (
+                                <span className="text-ink-subtle">0</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-ink leading-relaxed">
+                              {lines[b.beat_id] ?? (loading ? <span className="text-ink-subtle">—</span> : <span className="text-ink-subtle">—</span>)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </BeatLinesProvider>
         ) : (
+          // Non-admin view: no AI column
           <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-paper-subtle/50 border-b border-paper-line">
