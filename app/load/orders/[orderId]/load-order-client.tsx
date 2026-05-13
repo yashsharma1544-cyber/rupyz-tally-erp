@@ -13,7 +13,7 @@ interface OrderLine {
   id: string;
   productName: string;
   orderedQty: number;
-  loadedQty: number | null;  // from DB; might already have a value if order was partially saved
+  loadedQty: number | null;
   price: number;
   unit: string | null;
 }
@@ -36,8 +36,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  // Initialize qty inputs: prefilled with loaded_qty if previously saved, else ordered_qty.
-  // (Auto-fill the ordered qty per user's spec.)
+  // Pre-fill inputs: loaded_qty if previously saved, else ordered_qty.
   const [qtys, setQtys] = useState<Map<string, string>>(() => {
     const m = new Map<string, string>();
     for (const it of order.items) {
@@ -47,7 +46,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
     return m;
   });
 
-  // Confirmation modal for partial loads
   const [confirmPartial, setConfirmPartial] = useState(false);
 
   function setQty(id: string, v: string) {
@@ -58,7 +56,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
     });
   }
 
-  // Parse current state. Empty / NaN → 0.
   const parsedQtys = useMemo(() => {
     const m = new Map<string, number>();
     for (const it of order.items) {
@@ -69,7 +66,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
     return m;
   }, [qtys, order.items]);
 
-  // Is this a partial load? (any line where loaded_qty < ordered_qty AND ordered_qty > 0)
   const isPartial = useMemo(() => {
     return order.items.some(it => {
       const loaded = parsedQtys.get(it.id) ?? 0;
@@ -108,11 +104,9 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   }
 
   function handleAllLoaded() {
-    // Set every input to its ordered qty
     const m = new Map<string, string>();
     for (const it of order.items) m.set(it.id, String(it.orderedQty));
     setQtys(m);
-    // Submit immediately as a full load
     setTimeout(() => submit(false), 0);
   }
 
@@ -159,7 +153,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           )}
         </div>
 
-        {/* Mark all loaded button — quick path */}
         <div className="mt-3">
           <Button
             onClick={handleAllLoaded}
@@ -174,7 +167,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           </p>
         </div>
 
-        {/* Or adjust per-line */}
         <div className="mt-5">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
             Or adjust each line
@@ -184,40 +176,78 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
               This order has no line items.
             </div>
           ) : (
-            <div className="bg-paper-card border border-paper-line rounded-md divide-y divide-paper-line">
+            <div className="space-y-3">
               {order.items.map(it => {
                 const cur = parsedQtys.get(it.id) ?? 0;
                 const isLess = cur < it.orderedQty;
+                const isZero = cur === 0;
                 return (
-                  <div key={it.id} className="px-3 py-3">
-                    <div className="flex items-baseline justify-between gap-2 mb-2">
-                      <div className="font-medium text-sm flex-1 min-w-0">{it.productName}</div>
-                      <div className="text-2xs text-ink-subtle tabular shrink-0">
-                        ordered: {it.orderedQty}{it.unit && <span> {it.unit}</span>}
+                  <div
+                    key={it.id}
+                    className="bg-paper-card border border-paper-line rounded-md p-3"
+                  >
+                    {/* Product name — big */}
+                    <div className="text-base font-semibold leading-tight mb-3">
+                      {it.productName}
+                    </div>
+
+                    {/* Two boxes side-by-side */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Ordered (read-only) */}
+                      <div className="bg-paper-subtle/60 border border-paper-line rounded-md p-3 text-center">
+                        <div className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1">
+                          Ordered
+                        </div>
+                        <div className="text-2xl font-bold tabular leading-none">
+                          {it.orderedQty}
+                        </div>
+                        {it.unit && (
+                          <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>
+                        )}
+                      </div>
+
+                      {/* Loaded (editable) */}
+                      <div className={`border-2 rounded-md p-3 text-center ${
+                        isZero
+                          ? "border-danger/30 bg-danger-soft/30"
+                          : isLess
+                            ? "border-warn/40 bg-warn-soft/30"
+                            : "border-accent/40 bg-accent-soft/20"
+                      }`}>
+                        <div className={`text-2xs uppercase tracking-wide font-semibold mb-1 ${
+                          isZero ? "text-danger" : isLess ? "text-warn" : "text-accent"
+                        }`}>
+                          Loaded
+                        </div>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min="0"
+                          value={qtys.get(it.id) ?? ""}
+                          onChange={e => setQty(it.id, e.target.value)}
+                          disabled={pending}
+                          className={`w-full text-center text-2xl font-bold tabular leading-none bg-transparent outline-none border-0 focus:outline-none focus:ring-0 p-0 ${
+                            isZero ? "text-danger" : isLess ? "text-warn" : "text-ink"
+                          }`}
+                          aria-label={`Loaded quantity for ${it.productName}`}
+                        />
+                        {it.unit && (
+                          <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        min="0"
-                        value={qtys.get(it.id) ?? ""}
-                        onChange={e => setQty(it.id, e.target.value)}
-                        className={`text-center tabular font-mono ${isLess ? "text-warn font-semibold" : ""}`}
-                        disabled={pending}
-                      />
-                      {it.unit && (
-                        <span className="text-2xs text-ink-muted whitespace-nowrap">{it.unit}</span>
-                      )}
-                    </div>
+
+                    {/* Status messages below the boxes */}
                     {isLess && cur > 0 && (
-                      <div className="text-2xs text-warn mt-1.5 inline-flex items-center gap-1">
-                        <AlertCircle size={10}/> Less than ordered ({it.orderedQty - cur} {it.unit ?? ""} short)
+                      <div className="text-2xs text-warn mt-2 inline-flex items-center gap-1">
+                        <AlertCircle size={10}/> Short by {it.orderedQty - cur}{it.unit ? ` ${it.unit}` : ""}
                       </div>
                     )}
-                    {cur === 0 && (
-                      <div className="text-2xs text-ink-subtle mt-1.5">Nothing loaded for this line</div>
+                    {isZero && (
+                      <div className="text-2xs text-danger mt-2 inline-flex items-center gap-1">
+                        <AlertCircle size={10}/> Nothing loaded for this line
+                      </div>
                     )}
                   </div>
                 );
@@ -227,7 +257,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
         </div>
       </div>
 
-      {/* Sticky bottom action bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto space-y-1">
           {isPartial && totalLoaded > 0 && (
@@ -252,7 +281,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
         </div>
       </div>
 
-      {/* Confirm partial dialog */}
       {confirmPartial && (
         <div
           className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-3"
