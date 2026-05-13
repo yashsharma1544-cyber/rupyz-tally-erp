@@ -1,19 +1,16 @@
 // =============================================================================
 // /insights — entry point for the analytics surface
 //
-// Layer 1: shows all beats with 30-day kg totals, growth/shrinkage %, and a
-// simple "X sleeping customers" count. Tap a beat to drill down into per-
-// customer detail.
-//
-// Layer 2 (AI): each beat row also shows a one-line Claude-generated insight.
-// All measurements in kg (never tonnes).
+// Server-renders the page chrome (KPIs, warnings).
+// The beats table itself is a client component (`<BeatsTableClient>`) so it
+// can hydrate AI insights asynchronously without server/client boundary issues.
 // =============================================================================
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpRight, ArrowDownRight, Minus, MapPin, AlertCircle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { BeatLinesProvider, BeatLinesHeader } from "@/components/ai/beat-lines";
+import { BeatsTableClient } from "@/components/ai/beats-table-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -84,7 +81,6 @@ export default async function InsightsIndexPage() {
 
   const isAdmin = me.role === "admin";
 
-  // Coverage check on weight_kg setup — warn if mostly missing
   const [
     { count: productCount },
     { count: productsWithWeight },
@@ -100,7 +96,6 @@ export default async function InsightsIndexPage() {
   const productsWithWeightCount = productsWithWeight ?? 0;
   const coveragePct = totalProducts > 0 ? Math.round((productsWithWeightCount / totalProducts) * 100) : 0;
 
-  // Aggregate totals
   const total30d = beats.reduce((s, b) => s + Number(b.this_30d_kg), 0);
   const totalPrev30d = beats.reduce((s, b) => s + Number(b.prev_30d_kg), 0);
   const overallGrowth = totalPrev30d > 0 ? ((total30d - totalPrev30d) / totalPrev30d) * 100 : null;
@@ -125,7 +120,6 @@ export default async function InsightsIndexPage() {
           </div>
         )}
 
-        {/* Top-level KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-6">
           <div className="bg-paper-card border border-paper-line rounded-md p-3">
             <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 30 days</div>
@@ -157,112 +151,15 @@ export default async function InsightsIndexPage() {
           </div>
         )}
 
-        {/* Beat list */}
-        <div className="flex items-center justify-between mb-2.5">
-          <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle">Beats</h2>
-        </div>
+        <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Beats</h2>
+
         {beats.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <p className="text-sm font-semibold mb-0.5">No beats configured</p>
             <p className="text-xs text-ink-muted">Add beats and assign customers to them first.</p>
           </div>
-        ) : isAdmin ? (
-          // Admin view: with AI insights column
-          <BeatLinesProvider>
-            {({ lines, loading, error }) => (
-              <>
-                <div className="mb-2 flex justify-end">
-                  <BeatLinesHeader loading={loading} error={error}/>
-                </div>
-                <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[920px]">
-                      <thead className="bg-paper-subtle/50 border-b border-paper-line">
-                        <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
-                          <th className="px-3 py-2 font-medium">Beat</th>
-                          <th className="px-3 py-2 font-medium text-right">Last 30d (kg)</th>
-                          <th className="px-3 py-2 font-medium text-right">vs prev</th>
-                          <th className="px-3 py-2 font-medium text-right">Customers</th>
-                          <th className="px-3 py-2 font-medium text-right">Active</th>
-                          <th className="px-3 py-2 font-medium text-right">Sleeping</th>
-                          <th className="px-3 py-2 font-medium min-w-[280px]">AI insight</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-paper-line">
-                        {beats.map(b => (
-                          <tr key={b.beat_id} className="hover:bg-paper-subtle/40">
-                            <td className="px-3 py-2.5">
-                              <Link
-                                href={`/insights/beats/${b.beat_id}`}
-                                className="font-medium text-accent hover:underline inline-flex items-center gap-1"
-                              >
-                                <MapPin size={11}/> {b.beat_name}
-                              </Link>
-                            </td>
-                            <td className="px-3 py-2.5 text-right tabular font-semibold">{formatKg(Number(b.this_30d_kg))}</td>
-                            <td className="px-3 py-2.5 text-right"><GrowthBadge pct={b.growth_pct}/></td>
-                            <td className="px-3 py-2.5 text-right tabular text-ink-muted">{Number(b.customer_count)}</td>
-                            <td className="px-3 py-2.5 text-right tabular text-ok">{Number(b.active_30d_count)}</td>
-                            <td className="px-3 py-2.5 text-right tabular">
-                              {Number(b.sleeping_count) > 0 ? (
-                                <span className="text-warn font-semibold">{Number(b.sleeping_count)}</span>
-                              ) : (
-                                <span className="text-ink-subtle">0</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-ink leading-relaxed">
-                              {lines[b.beat_id] ?? (loading ? <span className="text-ink-subtle">—</span> : <span className="text-ink-subtle">—</span>)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            )}
-          </BeatLinesProvider>
         ) : (
-          // Non-admin view: no AI column
-          <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-paper-subtle/50 border-b border-paper-line">
-                <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
-                  <th className="px-3 py-2 font-medium">Beat</th>
-                  <th className="px-3 py-2 font-medium text-right">Last 30d (kg)</th>
-                  <th className="px-3 py-2 font-medium text-right">vs prev</th>
-                  <th className="px-3 py-2 font-medium text-right">Customers</th>
-                  <th className="px-3 py-2 font-medium text-right">Active</th>
-                  <th className="px-3 py-2 font-medium text-right">Sleeping</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-paper-line">
-                {beats.map(b => (
-                  <tr key={b.beat_id} className="hover:bg-paper-subtle/40">
-                    <td className="px-3 py-2.5">
-                      <Link
-                        href={`/insights/beats/${b.beat_id}`}
-                        className="font-medium text-accent hover:underline inline-flex items-center gap-1"
-                      >
-                        <MapPin size={11}/> {b.beat_name}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular font-semibold">{formatKg(Number(b.this_30d_kg))}</td>
-                    <td className="px-3 py-2.5 text-right"><GrowthBadge pct={b.growth_pct}/></td>
-                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">{Number(b.customer_count)}</td>
-                    <td className="px-3 py-2.5 text-right tabular text-ok">{Number(b.active_30d_count)}</td>
-                    <td className="px-3 py-2.5 text-right tabular">
-                      {Number(b.sleeping_count) > 0 ? (
-                        <span className="text-warn font-semibold">{Number(b.sleeping_count)}</span>
-                      ) : (
-                        <span className="text-ink-subtle">0</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <BeatsTableClient beats={beats} isAdmin={isAdmin} />
         )}
 
         <p className="text-2xs text-ink-subtle mt-4">
