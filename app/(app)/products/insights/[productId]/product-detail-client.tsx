@@ -33,7 +33,7 @@ export function ProductDetailClient({ data }: { data: ProductDetailData }) {
   const trend = growth >= 5 ? "up" : growth <= -5 ? "down" : "flat";
 
   return (
-    <div className="max-w-5xl mx-auto px-3 py-4 lg:px-6 lg:py-6">
+    <div className="max-w-7xl mx-auto px-3 py-4 lg:px-6 lg:py-6">
 
       <Link href="/products/insights" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
         <ArrowLeft size={11}/> All products
@@ -56,133 +56,141 @@ export function ProductDetailClient({ data }: { data: ProductDetailData }) {
         </div>
       </div>
 
-      {/* AI INSIGHTS — top of analytical content */}
-      <div className="mb-4">
-        <NarrativeSection
-          endpoint={`/api/ai/narrative/product/${data.id}`}
-          title="AI insights"
-        />
-      </div>
+      {/* 2-column layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-      {/* KPI tiles */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3 mb-4">
-        <KpiCard
-          label="Last 30 days"
-          value={fmtKg(Number(data.kg_30d))}
-          sublabel={
-            <span className={
-              trend === "up" ? "text-ok"
-              : trend === "down" ? "text-danger"
-              : "text-ink-subtle"
-            }>
-              {trend === "up" && <TrendingUp size={11} className="inline mr-0.5"/>}
-              {trend === "down" && <TrendingDown size={11} className="inline mr-0.5"/>}
-              {trend === "flat" && <Minus size={11} className="inline mr-0.5"/>}
-              {growth > 0 ? "+" : ""}{growth}% vs prev
-            </span>
-          }
-        />
-        <KpiCard
-          label="Last 90 days"
-          value={fmtKg(Number(data.kg_90d))}
-          sublabel={`${data.buyers_90d} buyers`}
-        />
-        <KpiCard
-          label="Active buyers"
-          value={data.buyers_30d.toString()}
-          sublabel="in last 30 days"
-        />
-        <KpiCard
-          label="Lifetime"
-          value={fmtKg(Number(data.kg_lifetime))}
-          sublabel={data.last_sold_at ? `last sold ${fmtRelative(data.days_since_last_sold)}` : "never sold"}
-        />
-      </div>
-
-      {/* Stoppers warning (if any) */}
-      {data.recent_stoppers.length > 0 && (
-        <div className="bg-warn-soft border border-warn/30 rounded-md px-3 py-2 mb-4 flex items-start gap-2">
-          <AlertCircle size={14} className="text-warn shrink-0 mt-0.5"/>
-          <div className="text-xs">
-            <span className="font-semibold">{data.recent_stoppers.length} customer{data.recent_stoppers.length === 1 ? "" : "s"} stopped buying</span> in the last 30 days — were active in the prior 60 days. See below.
+        {/* AI sidebar — right on desktop, top on mobile */}
+        <aside className="lg:col-span-1 lg:order-2">
+          <div className="lg:sticky lg:top-4">
+            <NarrativeSection
+              endpoint={`/api/ai/narrative/product/${data.id}`}
+              title="AI insights"
+            />
           </div>
+        </aside>
+
+        {/* Main content */}
+        <div className="lg:col-span-2 lg:order-1 space-y-4">
+
+          {/* KPI tiles */}
+          <div className="grid grid-cols-2 gap-2 lg:gap-3">
+            <KpiCard
+              label="Last 30 days"
+              value={fmtKg(Number(data.kg_30d))}
+              sublabel={
+                <span className={
+                  trend === "up" ? "text-ok"
+                  : trend === "down" ? "text-danger"
+                  : "text-ink-subtle"
+                }>
+                  {trend === "up" && <TrendingUp size={11} className="inline mr-0.5"/>}
+                  {trend === "down" && <TrendingDown size={11} className="inline mr-0.5"/>}
+                  {trend === "flat" && <Minus size={11} className="inline mr-0.5"/>}
+                  {growth > 0 ? "+" : ""}{growth}% vs prev
+                </span>
+              }
+            />
+            <KpiCard
+              label="Last 90 days"
+              value={fmtKg(Number(data.kg_90d))}
+              sublabel={`${data.buyers_90d} buyers`}
+            />
+            <KpiCard
+              label="Active buyers"
+              value={data.buyers_30d.toString()}
+              sublabel="in last 30 days"
+            />
+            <KpiCard
+              label="Lifetime"
+              value={fmtKg(Number(data.kg_lifetime))}
+              sublabel={data.last_sold_at ? `last sold ${fmtRelative(data.days_since_last_sold)}` : "never sold"}
+            />
+          </div>
+
+          {/* Stoppers warning */}
+          {data.recent_stoppers.length > 0 && (
+            <div className="bg-warn-soft border border-warn/30 rounded-md px-3 py-2 flex items-start gap-2">
+              <AlertCircle size={14} className="text-warn shrink-0 mt-0.5"/>
+              <div className="text-xs">
+                <span className="font-semibold">{data.recent_stoppers.length} customer{data.recent_stoppers.length === 1 ? "" : "s"} stopped buying</span> in the last 30 days — were active in the prior 60 days. See below.
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <Users size={14} className="text-ink-muted"/>
+                Top buyers (90d)
+              </h2>
+              {data.top_buyers.length === 0 ? (
+                <p className="text-xs text-ink-subtle">No buyers in the last 90 days.</p>
+              ) : (
+                <div className="divide-y divide-paper-line">
+                  {data.top_buyers.map(b => <BuyerRowDisplay key={b.customer_id} row={b}/>)}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <TrendingDown size={14} className="text-warn"/>
+                Recent stoppers
+              </h2>
+              <p className="text-2xs text-ink-muted mb-2">
+                Bought in last 90 days but not in last 30
+              </p>
+              {data.recent_stoppers.length === 0 ? (
+                <p className="text-xs text-ink-subtle">No recent stoppers — everyone who was buying is still buying.</p>
+              ) : (
+                <div className="divide-y divide-paper-line">
+                  {data.recent_stoppers.map(b => <BuyerRowDisplay key={b.customer_id} row={b}/>)}
+                </div>
+              )}
+            </section>
+          </div>
+
+          {data.beats.length > 0 && (
+            <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <MapPin size={14} className="text-ink-muted"/>
+                Beat breakdown
+              </h2>
+              <div className="overflow-x-auto -mx-3 lg:mx-0">
+                <table className="w-full text-sm">
+                  <thead className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                    <tr>
+                      <th className="px-3 py-1.5 font-medium">Beat</th>
+                      <th className="px-3 py-1.5 font-medium text-right">30d kg</th>
+                      <th className="px-3 py-1.5 font-medium text-right">90d kg</th>
+                      <th className="px-3 py-1.5 font-medium text-right">Buyers 30d</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-paper-line">
+                    {data.beats.map(b => (
+                      <tr key={b.beat_id ?? b.beat_name}>
+                        <td className="px-3 py-1.5">
+                          {b.beat_id ? (
+                            <Link href={`/insights/beats/${b.beat_id}`} className="hover:text-accent hover:underline">
+                              {b.beat_name}
+                            </Link>
+                          ) : (
+                            <span className="text-ink-muted">{b.beat_name}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular">{fmtKg(Number(b.kg_30d ?? 0))}</td>
+                        <td className="px-3 py-1.5 text-right tabular text-ink-muted">{fmtKg(Number(b.kg_90d))}</td>
+                        <td className="px-3 py-1.5 text-right tabular text-ink-muted">{Number(b.buyers_30d)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
         </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top buyers */}
-        <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-            <Users size={14} className="text-ink-muted"/>
-            Top buyers (90d)
-          </h2>
-          {data.top_buyers.length === 0 ? (
-            <p className="text-xs text-ink-subtle">No buyers in the last 90 days.</p>
-          ) : (
-            <div className="divide-y divide-paper-line">
-              {data.top_buyers.map(b => <BuyerRowDisplay key={b.customer_id} row={b}/>)}
-            </div>
-          )}
-        </section>
-
-        {/* Recent stoppers */}
-        <section className="bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-            <TrendingDown size={14} className="text-warn"/>
-            Recent stoppers
-          </h2>
-          <p className="text-2xs text-ink-muted mb-2">
-            Bought in last 90 days but not in last 30
-          </p>
-          {data.recent_stoppers.length === 0 ? (
-            <p className="text-xs text-ink-subtle">No recent stoppers — everyone who was buying is still buying.</p>
-          ) : (
-            <div className="divide-y divide-paper-line">
-              {data.recent_stoppers.map(b => <BuyerRowDisplay key={b.customer_id} row={b}/>)}
-            </div>
-          )}
-        </section>
       </div>
-
-      {/* Beat breakdown */}
-      {data.beats.length > 0 && (
-        <section className="mt-4 bg-paper-card border border-paper-line rounded-md p-3 lg:p-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-            <MapPin size={14} className="text-ink-muted"/>
-            Beat breakdown
-          </h2>
-          <div className="overflow-x-auto -mx-3 lg:mx-0">
-            <table className="w-full text-sm">
-              <thead className="text-left text-2xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th className="px-3 py-1.5 font-medium">Beat</th>
-                  <th className="px-3 py-1.5 font-medium text-right">30d kg</th>
-                  <th className="px-3 py-1.5 font-medium text-right">90d kg</th>
-                  <th className="px-3 py-1.5 font-medium text-right">Buyers 30d</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-paper-line">
-                {data.beats.map(b => (
-                  <tr key={b.beat_id ?? b.beat_name}>
-                    <td className="px-3 py-1.5">
-                      {b.beat_id ? (
-                        <Link href={`/insights/beats/${b.beat_id}`} className="hover:text-accent hover:underline">
-                          {b.beat_name}
-                        </Link>
-                      ) : (
-                        <span className="text-ink-muted">{b.beat_name}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular">{fmtKg(Number(b.kg_30d ?? 0))}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink-muted">{fmtKg(Number(b.kg_90d))}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink-muted">{Number(b.buyers_30d)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

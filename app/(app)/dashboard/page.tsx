@@ -1,18 +1,8 @@
 // =============================================================================
 // /dashboard — task-focused home page
 //
-// Goal: tell the user what they should do today, with a single click to get
-// there. Avoid charts, avoid noise. Each section answers "what's waiting for
-// me?" or "what's stuck?".
-//
-// Sections (top to bottom):
-//   1. AI daily briefing (admin only) — what's notable, what to watch
-//   2. Greeting + headline counters
-//   3. Action items — things to do RIGHT NOW (with prominent buttons)
-//   4. Admin nav (admin only) — quick links to /drivers, /trucks, /users
-//   5. Today snapshot — quick stats with no buttons (just for awareness)
-//   6. Stale items — only shown when there's something genuinely overdue
-//   7. System status (Rupyz token, sync) — only shown if there's a problem
+// Layout (lg+): main content left, AI briefing as right sidebar.
+// On mobile/tablet, briefing shows first (top), then main content.
 // =============================================================================
 
 import Link from "next/link";
@@ -26,7 +16,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { BriefingCard } from "@/components/ai/briefing-card";
 
-export const dynamic = "force-dynamic";  // Never cache; always show fresh
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function formatINR(n: number): string {
@@ -50,7 +40,6 @@ export default async function DashboardPage() {
   const { data: me } = await supabase.from("app_users").select("full_name, role").eq("id", user.id).single();
   if (!me) redirect("/login");
 
-  // Day boundaries for "today" filters (IST)
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTodayISO = startOfToday.toISOString();
@@ -58,7 +47,6 @@ export default async function DashboardPage() {
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
 
-  // =============== Bulk parallel queries ===============
   const [
     pendingApprovalAgg,
     readyToSendAgg,
@@ -74,31 +62,25 @@ export default async function DashboardPage() {
     rupyzSession,
     lastRupyzSync,
   ] = await Promise.all([
-    // 1. Action items
     supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "received"),
     supabase.from("orders").select("total_amount", { count: "exact" }).in("app_status", ["approved", "partially_dispatched"]),
     supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "on_van_trip"),
     supabase.from("van_trips").select("id", { count: "exact" }).eq("status", "in_progress"),
     supabase.from("van_trips").select("id", { count: "exact" }).eq("status", "returned"),
 
-    // 2. Today snapshot
     supabase.from("orders").select("total_amount", { count: "exact" }).gte("rupyz_created_at", startOfTodayISO),
     supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "delivered").gte("delivered_at", startOfTodayISO),
     supabase.from("trip_bills").select("total_amount").gte("confirmed_at", startOfTodayISO).eq("is_cancelled", false).not("confirmed_at", "is", null),
 
-    // 3. Outstanding (from existing customer_outstanding table; legacy CSV-imported)
     supabase.from("customer_outstanding").select("amount"),
 
-    // 4. Stale items
     supabase.from("orders").select("id", { count: "exact", head: true }).eq("app_status", "received").lt("rupyz_created_at", yesterday),
     supabase.from("orders").select("id", { count: "exact", head: true }).eq("app_status", "approved").lt("approved_at", twoDaysAgo),
 
-    // 5. System status — Rupyz token expiry
     supabase.from("rupyz_session").select("expires_at, last_refreshed_at").eq("id", 1).maybeSingle(),
     supabase.from("rupyz_sync_log").select("status, started_at, error_message").order("started_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
-  // ======= Reduce ========
   const sumAmt = (rows: { total_amount: number }[] | null | undefined) =>
     (rows ?? []).reduce((s, r) => s + Number(r.total_amount), 0);
   const sumCol = (rows: { amount: number }[] | null | undefined) =>
@@ -118,13 +100,11 @@ export default async function DashboardPage() {
   const staleApproval = staleApprovalAgg.count ?? 0;
   const staleApproved = staleApprovedAgg.count ?? 0;
 
-  // System status
   const tokenExpiresAt = rupyzSession?.data?.expires_at ? new Date(rupyzSession.data.expires_at) : null;
   const tokenExpired = tokenExpiresAt ? tokenExpiresAt.getTime() < Date.now() : false;
   const tokenExpiringSoon = tokenExpiresAt ? !tokenExpired && tokenExpiresAt.getTime() - Date.now() < 4 * 60 * 60 * 1000 : false;
   const lastSyncFailed = lastRupyzSync?.data?.status === "failed";
 
-  // Tasks for the action-items section. Filter by what's actually present.
   const tasks: Array<{
     key: string;
     icon: typeof CheckSquare;
@@ -152,7 +132,6 @@ export default async function DashboardPage() {
       icon: Truck,
       title: `${readyToSend.count} order${readyToSend.count === 1 ? "" : "s"} approved and ready to send`,
       detail: `Worth ${formatINR(readyToSend.amount)} · dispatch or add to a VAN trip`,
-      // Dispatch role uses the mobile dispatch app; admin/van_lead get the desktop orders flow
       href: me.role === "dispatch" ? "/dispatch" : "/orders?tab=dispatch",
       accent: "accent",
     });
@@ -183,7 +162,6 @@ export default async function DashboardPage() {
     });
   }
 
-  // Stale items (only shown if non-zero)
   const stale: Array<{ icon: typeof Clock; text: string; href: string }> = [];
   if (staleApproval > 0) {
     stale.push({
@@ -200,7 +178,6 @@ export default async function DashboardPage() {
     });
   }
 
-  // System problems (only if present)
   const systemIssues: Array<{ text: string; href: string }> = [];
   if (tokenExpired) {
     systemIssues.push({ text: "Rupyz token has expired — sync isn't working", href: "/settings" });
@@ -211,93 +188,108 @@ export default async function DashboardPage() {
     systemIssues.push({ text: "Last Rupyz sync failed — check Settings", href: "/settings" });
   }
 
+  const isAdmin = me.role === "admin";
+
   return (
     <>
       <PageHeader title={`${greeting()}, ${me.full_name.split(" ")[0]}`} subtitle="Here's what needs your attention today" />
 
-      <div className="p-3 sm:p-6 max-w-5xl space-y-5 sm:space-y-6">
+      <div className="p-3 sm:p-6 max-w-7xl">
 
-        {/* AI DAILY BRIEFING — admin only. First thing they see. */}
-        {me.role === "admin" && (
-          <BriefingCard />
-        )}
+        {/* 2-column layout for admins (briefing in sidebar). Other roles: single column. */}
+        <div className={isAdmin ? "grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6" : ""}>
 
-        {/* SYSTEM ISSUES — only when there are problems. Sits near top to grab attention. */}
-        {systemIssues.length > 0 && (
-          <div className="bg-danger-soft border border-danger/30 rounded-md p-3 sm:p-4 space-y-1.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-danger">
-              <AlertCircle size={14}/>
-              {systemIssues.length === 1 ? "Action needed" : `${systemIssues.length} issues need attention`}
-            </div>
-            {systemIssues.map((iss, i) => (
-              <Link key={i} href={iss.href} className="flex items-center justify-between text-sm text-ink hover:underline">
-                <span>{iss.text}</span>
-                <ChevronRight size={14} className="text-ink-subtle"/>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {/* TASKS — the heart of the page. Big rows, prominent buttons. */}
-        <section>
-          <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today&apos;s tasks</h2>
-          {tasks.length === 0 ? (
-            <div className="bg-paper-card border border-paper-line rounded-md p-6 sm:p-8 text-center">
-              <CheckCircle2 size={32} className="mx-auto text-ok mb-2"/>
-              <h3 className="font-semibold text-base mb-0.5">All caught up</h3>
-              <p className="text-sm text-ink-muted">
-                No orders need approval, no trips need attention. Take a moment.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2 sm:space-y-2.5">
-              {tasks.map(({ key, ...t }) => (
-                <TaskCard key={key} {...t} />
-              ))}
-            </div>
+          {/* AI sidebar — only for admins. Mobile: top. Desktop: right. */}
+          {isAdmin && (
+            <aside className="lg:col-span-1 lg:order-2">
+              <div className="lg:sticky lg:top-4">
+                <BriefingCard />
+              </div>
+            </aside>
           )}
-        </section>
 
-        {/* ADMIN NAV — quick jumps to admin-only areas. Only for admin role. */}
-        {me.role === "admin" && (
-          <section>
-            <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Manage</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-              <NavTile icon={Truck}    title="Drivers"   subtitle="Truck driver accounts" href="/drivers" />
-              <NavTile icon={MapPin}   title="Trucks"    subtitle="Trip routes &amp; maps"     href="/trucks" />
-              <NavTile icon={Users}    title="Users"     subtitle="ERP staff accounts"    href="/users" />
-            </div>
-          </section>
-        )}
+          {/* Main content */}
+          <div className={isAdmin ? "lg:col-span-2 lg:order-1 space-y-5 sm:space-y-6" : "space-y-5 sm:space-y-6"}>
 
-        {/* STALE — only when there's something to nudge about */}
-        {stale.length > 0 && (
-          <section>
-            <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Catching up on older items</h2>
-            <div className="bg-paper-card border border-paper-line rounded-md divide-y divide-paper-line">
-              {stale.map((s, i) => (
-                <Link key={i} href={s.href} className="flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-paper-subtle/40 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <Clock size={14} className="text-warn shrink-0"/>
-                    <span className="text-sm text-ink">{s.text}</span>
-                  </div>
-                  <ChevronRight size={14} className="text-ink-subtle shrink-0"/>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
+            {/* SYSTEM ISSUES */}
+            {systemIssues.length > 0 && (
+              <div className="bg-danger-soft border border-danger/30 rounded-md p-3 sm:p-4 space-y-1.5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-danger">
+                  <AlertCircle size={14}/>
+                  {systemIssues.length === 1 ? "Action needed" : `${systemIssues.length} issues need attention`}
+                </div>
+                {systemIssues.map((iss, i) => (
+                  <Link key={i} href={iss.href} className="flex items-center justify-between text-sm text-ink hover:underline">
+                    <span>{iss.text}</span>
+                    <ChevronRight size={14} className="text-ink-subtle"/>
+                  </Link>
+                ))}
+              </div>
+            )}
 
-        {/* TODAY SNAPSHOT — small stats, no buttons. For situational awareness only. */}
-        <section>
-          <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today at a glance</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-            <Stat label="New orders" icon={ShoppingBag} value={todayOrders.count.toLocaleString("en-IN")} sub={formatINR(todayOrders.amount)} />
-            <Stat label="Delivered" icon={CheckCircle2} value={todayDelivered.count.toLocaleString("en-IN")} sub={formatINR(todayDelivered.amount)} />
-            <Stat label="Collected" icon={IndianRupee} value={formatINR(todayCollections)} sub="VAN cash + credit" />
-            <Stat label="Outstanding" icon={AlertTriangle} value={formatINR(outstanding)} sub="across all customers" warn={outstanding > 0} />
+            {/* TASKS */}
+            <section>
+              <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today&apos;s tasks</h2>
+              {tasks.length === 0 ? (
+                <div className="bg-paper-card border border-paper-line rounded-md p-6 sm:p-8 text-center">
+                  <CheckCircle2 size={32} className="mx-auto text-ok mb-2"/>
+                  <h3 className="font-semibold text-base mb-0.5">All caught up</h3>
+                  <p className="text-sm text-ink-muted">
+                    No orders need approval, no trips need attention. Take a moment.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 sm:space-y-2.5">
+                  {tasks.map(({ key, ...t }) => (
+                    <TaskCard key={key} {...t} />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* ADMIN NAV */}
+            {isAdmin && (
+              <section>
+                <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Manage</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+                  <NavTile icon={Truck}    title="Drivers"   subtitle="Truck driver accounts" href="/drivers" />
+                  <NavTile icon={MapPin}   title="Trucks"    subtitle="Trip routes &amp; maps"     href="/trucks" />
+                  <NavTile icon={Users}    title="Users"     subtitle="ERP staff accounts"    href="/users" />
+                </div>
+              </section>
+            )}
+
+            {/* STALE */}
+            {stale.length > 0 && (
+              <section>
+                <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Catching up on older items</h2>
+                <div className="bg-paper-card border border-paper-line rounded-md divide-y divide-paper-line">
+                  {stale.map((s, i) => (
+                    <Link key={i} href={s.href} className="flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-paper-subtle/40 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Clock size={14} className="text-warn shrink-0"/>
+                        <span className="text-sm text-ink">{s.text}</span>
+                      </div>
+                      <ChevronRight size={14} className="text-ink-subtle shrink-0"/>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* TODAY SNAPSHOT */}
+            <section>
+              <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today at a glance</h2>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <Stat label="New orders" icon={ShoppingBag} value={todayOrders.count.toLocaleString("en-IN")} sub={formatINR(todayOrders.amount)} />
+                <Stat label="Delivered" icon={CheckCircle2} value={todayDelivered.count.toLocaleString("en-IN")} sub={formatINR(todayDelivered.amount)} />
+                <Stat label="Collected" icon={IndianRupee} value={formatINR(todayCollections)} sub="VAN cash + credit" />
+                <Stat label="Outstanding" icon={AlertTriangle} value={formatINR(outstanding)} sub="across all customers" warn={outstanding > 0} />
+              </div>
+            </section>
+
           </div>
-        </section>
+        </div>
 
       </div>
     </>
@@ -305,7 +297,7 @@ export default async function DashboardPage() {
 }
 
 // =============================================================================
-// COMPONENTS
+// COMPONENTS (unchanged from original)
 // =============================================================================
 
 function TaskCard({

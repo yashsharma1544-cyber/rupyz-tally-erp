@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, Minus, Phone, Clock, ChevronRight } from "lucide-react";
-import { NarrativeSection } from "@/components/ai/narrative-section";
 import type { CustomerHealth } from "./page";
 
 type TabKey = "all" | "growing" | "shrinking" | "sleeping";
@@ -53,7 +52,9 @@ function GrowthCell({ pct }: { pct: number | null }) {
   );
 }
 
-export function BeatInsightsTabs({ customers, beatId }: { customers: CustomerHealth[]; beatId?: string }) {
+// Note: beatId prop is still accepted for backward compat but no longer used here
+// (NarrativeSection is rendered by the parent page, alongside this component).
+export function BeatInsightsTabs({ customers, beatId: _beatId }: { customers: CustomerHealth[]; beatId?: string }) {
   const [tab, setTab] = useState<TabKey>("all");
 
   const filtered = useMemo(() => {
@@ -69,10 +70,7 @@ export function BeatInsightsTabs({ customers, beatId }: { customers: CustomerHea
       case "sleeping":
         return customers
           .filter(c => c.last_order_at == null || (c.days_since_last ?? 0) >= 30)
-          .sort((a, b) => {
-            // Sort by 90-day kg desc (so high-value sleepers appear first, never-ordered last)
-            return Number(b.this_90d_kg ?? 0) - Number(a.this_90d_kg ?? 0);
-          });
+          .sort((a, b) => Number(b.this_90d_kg ?? 0) - Number(a.this_90d_kg ?? 0));
       default:
         return customers;
     }
@@ -87,16 +85,6 @@ export function BeatInsightsTabs({ customers, beatId }: { customers: CustomerHea
 
   return (
     <>
-      {/* AI INSIGHTS — beat-level narrative, only renders if beatId is provided */}
-      {beatId && (
-        <div className="mb-4">
-          <NarrativeSection
-            endpoint={`/api/ai/narrative/beat/${beatId}`}
-            title="AI insights"
-          />
-        </div>
-      )}
-
       <div className="flex items-center gap-1 mb-3 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map(t => {
           const active = t.key === tab;

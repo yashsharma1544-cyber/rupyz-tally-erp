@@ -42,21 +42,25 @@ Tone:
 export const CUSTOMER_NARRATIVE_SYSTEM = `
 ${BIZ_CONTEXT}
 
-Your task: write a 2-3 paragraph narrative about a single customer's recent ordering pattern.
+Your task: write a SHORT summary of a single customer's recent ordering pattern.
 
-Focus on:
-1. Are they ordering consistently, growing, shrinking, or sleeping?
-2. What products/brands do they prefer?
-3. Any anomalies — recent gap, unusual order size, dropped product they used to buy?
-4. A specific actionable insight if the data supports one (e.g., "Last ordered Vikram Lion in Feb but bought it monthly before then — worth re-pitching")
+Format:
+- One opening sentence (1 line) summarizing the customer's state — order rhythm, growth/shrink, or sleeping flag
+- Then 3-5 bullet points using "- " prefix, each ONE sentence (≤15 words ideal)
+
+Bullets should cover (only if data supports it):
+- Product / brand preferences with kg or revenue numbers
+- Anomalies — recent gap, unusual order size, dropped product
+- Specific actionable insight (e.g., "Last bought Vikram Lion Feb 14, was monthly before — worth re-pitching")
+- Concentration risk if one product dominates
 
 ${TONE_RULES}
 
 DO NOT:
-- Recommend visits or "follow up" generically — only if specific data justifies it
-- Mention features/buttons of the app
-- Output bullets, headers, or markdown — plain prose only
-- Exceed ~150 words
+- Use paragraphs after the opening line
+- Generic suggestions like "follow up" or "visit them" — only if data clearly supports it
+- Use markdown bold/italic/headers — just the opening line + plain bullets with "- " prefix
+- Exceed ~80 words total
 `.trim();
 
 export function buildCustomerNarrativeUser(ctx: CustomerContext): string {
@@ -109,20 +113,26 @@ export interface CustomerContext {
 export const BEAT_NARRATIVE_SYSTEM = `
 ${BIZ_CONTEXT}
 
-Your task: write a 2-3 paragraph operational summary of a single beat (sales route).
+Your task: write a SHORT summary of a single beat (sales route).
 
-Focus on:
-1. Beat health — total customers, active vs sleeping, growing vs shrinking
-2. Top customers in this beat and any standout patterns
-3. Brand/product mix on this beat — anything unusual vs the business average
-4. The most actionable next move (specific customer to re-engage, product opportunity)
+Format:
+- One opening sentence (1 line) summarizing beat health — overall kg trend, active/sleeping balance, or standout pattern
+- Then 3-5 bullet points using "- " prefix, each ONE sentence (≤15 words ideal)
+
+Bullets should cover (only if data supports it):
+- Top customers with kg numbers
+- Brand mix observation if unusual
+- Shrinking accounts to re-engage (name + numbers)
+- Sleeping high-value customers
+- Most actionable next move
 
 ${TONE_RULES}
 
 DO NOT:
-- Generalize ("the beat is doing well") — be specific or say nothing
-- Output bullets, headers, or markdown
-- Exceed ~150 words
+- Use paragraphs after the opening line
+- Vague claims like "the beat is doing well" — be specific or skip
+- Use markdown bold/italic/headers — just the opening line + plain bullets with "- " prefix
+- Exceed ~80 words total
 `.trim();
 
 export function buildBeatNarrativeUser(ctx: BeatContext): string {
@@ -177,20 +187,25 @@ export interface BeatContext {
 export const PRODUCT_NARRATIVE_SYSTEM = `
 ${BIZ_CONTEXT}
 
-Your task: write a 2-3 paragraph summary of a single product's sales performance.
+Your task: write a SHORT summary of a single product's sales performance.
 
-Focus on:
-1. Volume trend — growing, stable, declining vs prior period
-2. Customer concentration — is this product spread across many customers or dependent on a few?
-3. Any customers who used to buy this product and stopped (churn signal)
-4. A specific opportunity or risk
+Format:
+- One opening sentence (1 line) summarizing trend — growing/stable/declining and any standout fact
+- Then 3-5 bullet points using "- " prefix, each ONE sentence (≤15 words ideal)
+
+Bullets should cover (only if data supports it):
+- Volume trend with kg numbers
+- Customer concentration (e.g., "Top customer X is 40% of sales")
+- Customers who used to buy but stopped (churn signal, name them)
+- Specific opportunity or risk
 
 ${TONE_RULES}
 
 DO NOT:
-- Recommend marketing campaigns or generic actions
-- Output bullets, headers, or markdown
-- Exceed ~150 words
+- Use paragraphs after the opening line
+- Suggest generic actions like "marketing campaign"
+- Use markdown bold/italic/headers — just the opening line + plain bullets with "- " prefix
+- Exceed ~80 words total
 `.trim();
 
 export function buildProductNarrativeUser(ctx: ProductContext): string {
@@ -236,22 +251,28 @@ export interface ProductContext {
 export const DAILY_BRIEFING_SYSTEM = `
 ${BIZ_CONTEXT}
 
-Your task: write a 4-6 paragraph daily briefing for the business owner/operator at start of day.
+Your task: write a daily briefing for the business owner at start of day.
 
-Cover, in this order:
-1. Yesterday's number — orders, kg, revenue, and how that compares to the trailing 7-day and 30-day averages
-2. Two or three things worth attention today — sleeping customers due for outreach, shrinking accounts, products with falling trends, opportunities, or anomalies
-3. One specific lead-or-lag indicator worth watching
-4. Acknowledge what's normal/healthy without dwelling on it
+Format:
+- One opening sentence (1 line) summarizing yesterday vs trailing averages — clear "above/below average" or anomaly call
+- Then 4-7 bullet points using "- " prefix, each ONE sentence (≤18 words ideal)
+
+Bullets should cover, prioritized by what's notable:
+- Yesterday's standout number with context vs 7d/30d avg
+- Sleeping high-value customers due for outreach (name them with kg/days)
+- Shrinking accounts worth attention
+- Pending operational work (orders waiting approval/dispatch)
+- One lead-or-lag indicator worth watching
+- Acknowledge what's healthy/normal in passing if relevant
 
 ${TONE_RULES}
 
 DO NOT:
-- Repeat lots of numbers — the operator can see them. Highlight what's notable.
-- Speculate about reasons unless the data clearly supports it
-- Output bullets, headers, or markdown — running prose only
-- Exceed ~250 words
-- Start with "Good morning" or other pleasantries
+- Use paragraphs after the opening line
+- Pleasantries ("Good morning", "have a great day")
+- Repeat every number from input data — only highlight what's notable
+- Use markdown bold/italic/headers — just opening line + plain bullets with "- " prefix
+- Exceed ~120 words total
 `.trim();
 
 export function buildDailyBriefingUser(ctx: DailyBriefingContext): string {

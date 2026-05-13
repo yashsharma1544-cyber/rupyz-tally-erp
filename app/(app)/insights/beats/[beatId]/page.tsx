@@ -1,19 +1,12 @@
 // =============================================================================
 // /insights/beats/[beatId] — per-customer health for one beat
-//
-// Shows every customer in this beat with kg sales over the last 30 days,
-// previous 30, last 90, days since last order, growth %.
-//
-// Three views (tabs): All / Growing / Sleeping
-//   • All: every customer in the beat
-//   • Growing: this_30d_kg > prev_30d_kg by 10%+, sorted by growth
-//   • Sleeping: 30+ days since last order (or never)
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { NarrativeSection } from "@/components/ai/narrative-section";
 import { BeatInsightsTabs } from "./beat-insights-tabs";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +78,6 @@ export default async function BeatInsightsPage({
 
   const customers = (rows ?? []) as CustomerHealth[];
 
-  // Aggregate roll-ups
   const total30 = customers.reduce((s, c) => s + Number(c.this_30d_kg), 0);
   const totalPrev30 = customers.reduce((s, c) => s + Number(c.prev_30d_kg), 0);
   const total90 = customers.reduce((s, c) => s + Number(c.this_90d_kg), 0);
@@ -95,7 +87,7 @@ export default async function BeatInsightsPage({
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         <Link href="/insights" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
           <ArrowLeft size={11}/> All insights
         </Link>
@@ -105,39 +97,57 @@ export default async function BeatInsightsPage({
           Per-customer health for this beat. All measurements in kg.
         </p>
 
-        {/* Beat-level KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-6">
-          <div className="bg-paper-card border border-paper-line rounded-md p-3">
-            <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 30 days</div>
-            <div className="text-lg font-bold tabular">{formatKg(total30)}</div>
-            {overallGrowth != null && (
-              <div className={`text-2xs font-semibold tabular mt-1 ${
-                overallGrowth > 0 ? "text-ok" : overallGrowth < 0 ? "text-danger" : "text-ink-muted"
-              }`}>
-                {overallGrowth > 0 ? "+" : ""}{overallGrowth.toFixed(0)}% vs prev
-              </div>
-            )}
-          </div>
-          <div className="bg-paper-card border border-paper-line rounded-md p-3">
-            <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 90 days</div>
-            <div className="text-lg font-bold tabular">{formatKg(total90)}</div>
-            <div className="text-2xs text-ink-subtle mt-1">3-month rolling</div>
-          </div>
-          <div className="bg-paper-card border border-paper-line rounded-md p-3">
-            <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Active 30d</div>
-            <div className="text-lg font-bold tabular text-ok">{activeCount}</div>
-            <div className="text-2xs text-ink-subtle mt-1">of {customers.length} customers</div>
-          </div>
-          <div className={`bg-paper-card border ${sleepingCount > 0 ? "border-warn/30" : "border-paper-line"} rounded-md p-3`}>
-            <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Sleeping</div>
-            <div className={`text-lg font-bold tabular ${sleepingCount > 0 ? "text-warn" : ""}`}>
-              {sleepingCount}
-            </div>
-            <div className="text-2xs text-ink-subtle mt-1">30+ days no order</div>
-          </div>
-        </div>
+        {/* 2-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        <BeatInsightsTabs customers={customers} beatId={beatId} />
+          {/* AI sidebar */}
+          <aside className="lg:col-span-1 lg:order-2">
+            <div className="lg:sticky lg:top-4">
+              <NarrativeSection
+                endpoint={`/api/ai/narrative/beat/${beatId}`}
+                title="AI insights"
+              />
+            </div>
+          </aside>
+
+          {/* Main content */}
+          <div className="lg:col-span-2 lg:order-1 space-y-4">
+            {/* KPIs */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+              <div className="bg-paper-card border border-paper-line rounded-md p-3">
+                <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 30 days</div>
+                <div className="text-lg font-bold tabular">{formatKg(total30)}</div>
+                {overallGrowth != null && (
+                  <div className={`text-2xs font-semibold tabular mt-1 ${
+                    overallGrowth > 0 ? "text-ok" : overallGrowth < 0 ? "text-danger" : "text-ink-muted"
+                  }`}>
+                    {overallGrowth > 0 ? "+" : ""}{overallGrowth.toFixed(0)}% vs prev
+                  </div>
+                )}
+              </div>
+              <div className="bg-paper-card border border-paper-line rounded-md p-3">
+                <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 90 days</div>
+                <div className="text-lg font-bold tabular">{formatKg(total90)}</div>
+                <div className="text-2xs text-ink-subtle mt-1">3-month rolling</div>
+              </div>
+              <div className="bg-paper-card border border-paper-line rounded-md p-3">
+                <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Active 30d</div>
+                <div className="text-lg font-bold tabular text-ok">{activeCount}</div>
+                <div className="text-2xs text-ink-subtle mt-1">of {customers.length} customers</div>
+              </div>
+              <div className={`bg-paper-card border ${sleepingCount > 0 ? "border-warn/30" : "border-paper-line"} rounded-md p-3`}>
+                <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Sleeping</div>
+                <div className={`text-lg font-bold tabular ${sleepingCount > 0 ? "text-warn" : ""}`}>
+                  {sleepingCount}
+                </div>
+                <div className="text-2xs text-ink-subtle mt-1">30+ days no order</div>
+              </div>
+            </div>
+
+            <BeatInsightsTabs customers={customers} />
+          </div>
+
+        </div>
       </div>
     </div>
   );
