@@ -1,20 +1,17 @@
 // =============================================================================
 // /dispatch/[beatId] — orders list for one beat
 //
-// Shows every approved/partially-dispatched order in this beat. Each order is
-// tappable and goes to the per-order dispatch screen. Top has "Dispatch all"
-// for one-tap full-beat dispatch and "Load a truck" for the cross-beat wizard
-// pre-selecting this beat.
+// Shows every approved/loaded/partially-dispatched order in this beat. Each
+// order is tappable and goes to the per-order dispatch screen. Top has
+// "Dispatch all" for one-tap full-beat dispatch and "Load a truck" for the
+// cross-beat wizard pre-selecting this beat.
 // =============================================================================
-
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { BeatDispatchClient } from "./beat-dispatch-client";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
 interface OrderRow {
   id: string;
   rupyz_order_id: string;
@@ -23,7 +20,6 @@ interface OrderRow {
   customer: { id: string; name: string; city: string | null } | null;
   items: { qty: number; total_dispatched_qty: number | null; unit: string | null; packaging_size: number | null; packaging_unit: string | null }[];
 }
-
 function kgForItems(items: OrderRow["items"]): number {
   let total = 0;
   for (const it of items) {
@@ -40,19 +36,15 @@ function kgForItems(items: OrderRow["items"]): number {
   }
   return total;
 }
-
 export default async function BeatDispatchPage({ params }: { params: Promise<{ beatId: string }> }) {
   const { beatId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/dispatch/${beatId}`);
-
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
-
   const { data: beat } = await supabase.from("beats").select("id, name").eq("id", beatId).maybeSingle();
   if (!beat) notFound();
-
   const { data: orders, error } = await supabase
     .from("orders")
     .select(`
@@ -60,7 +52,7 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
       customer:customers!inner(id, name, city, beat_id),
       items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
     `)
-    .in("app_status", ["approved", "partially_dispatched"])
+    .in("app_status", ["approved", "partially_dispatched", "loaded"])
     .eq("customer.beat_id", beatId)
     .order("rupyz_created_at", { ascending: false });
   if (error) {
@@ -75,7 +67,6 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     );
   }
   const orderRows = (orders ?? []) as unknown as OrderRow[];
-
   return (
     <BeatDispatchClient
       beat={beat as { id: string; name: string }}

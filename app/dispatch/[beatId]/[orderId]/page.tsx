@@ -35,7 +35,8 @@ export default async function OrderDispatchPage({
     .maybeSingle();
   if (!order) notFound();
 
-  if (!["approved", "partially_dispatched"].includes(order.app_status)) {
+  // CHANGED: also accept 'loaded' so orders coming from /load can be dispatched
+  if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
