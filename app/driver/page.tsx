@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ChevronRight, Truck, MapPin, Clock, Package, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./sign-out-button";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,7 +66,6 @@ export default async function DriverHomePage() {
     .single();
   if (!me?.active) redirect("/login");
 
-  // CHANGED: allow van_helper role too — they see dispatches where helper_user_id = them
   if (!["driver", "van_helper", "admin"].includes(me.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
@@ -78,8 +78,6 @@ export default async function DriverHomePage() {
     );
   }
 
-  // Fetch dispatches where current user is either driver OR helper
-  // Use Supabase .or() filter
   const { data: dispatches, error } = await supabase
     .from("dispatches")
     .select(`
@@ -137,7 +135,6 @@ export default async function DriverHomePage() {
     return order?.rupyz_order_id ?? "—";
   }
 
-  // Role hint for the user
   const roleLabel = me.role === "van_helper" ? "Helper" : "Driver";
 
   return (
@@ -269,6 +266,8 @@ export default async function DriverHomePage() {
         <div className="mt-8 text-center text-2xs text-ink-subtle">
           <Link href="/" className="hover:text-ink-muted">← Main app</Link>
         </div>
+
+        <AutoRefresh />
       </div>
     </div>
   );

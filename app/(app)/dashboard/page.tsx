@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { BriefingCard } from "@/components/ai/briefing-card";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -196,10 +197,8 @@ export default async function DashboardPage() {
 
       <div className="p-3 sm:p-6 max-w-7xl">
 
-        {/* 2-column layout for admins (briefing in sidebar). Other roles: single column. */}
         <div className={isAdmin ? "grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6" : ""}>
 
-          {/* AI sidebar — only for admins. Mobile: top. Desktop: right. */}
           {isAdmin && (
             <aside className="lg:col-span-1 lg:order-2">
               <div className="lg:sticky lg:top-4">
@@ -208,10 +207,8 @@ export default async function DashboardPage() {
             </aside>
           )}
 
-          {/* Main content */}
           <div className={isAdmin ? "lg:col-span-2 lg:order-1 space-y-5 sm:space-y-6" : "space-y-5 sm:space-y-6"}>
 
-            {/* SYSTEM ISSUES */}
             {systemIssues.length > 0 && (
               <div className="bg-danger-soft border border-danger/30 rounded-md p-3 sm:p-4 space-y-1.5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-danger">
@@ -227,7 +224,6 @@ export default async function DashboardPage() {
               </div>
             )}
 
-            {/* TASKS */}
             <section>
               <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today&apos;s tasks</h2>
               {tasks.length === 0 ? (
@@ -247,7 +243,6 @@ export default async function DashboardPage() {
               )}
             </section>
 
-            {/* ADMIN NAV */}
             {isAdmin && (
               <section>
                 <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Manage</h2>
@@ -259,7 +254,6 @@ export default async function DashboardPage() {
               </section>
             )}
 
-            {/* STALE */}
             {stale.length > 0 && (
               <section>
                 <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Catching up on older items</h2>
@@ -277,7 +271,6 @@ export default async function DashboardPage() {
               </section>
             )}
 
-            {/* TODAY SNAPSHOT */}
             <section>
               <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Today at a glance</h2>
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -291,14 +284,12 @@ export default async function DashboardPage() {
           </div>
         </div>
 
+        <AutoRefresh />
+
       </div>
     </>
   );
 }
-
-// =============================================================================
-// COMPONENTS (unchanged from original)
-// =============================================================================
 
 function TaskCard({
   icon: Icon, title, detail, href, accent, badge,

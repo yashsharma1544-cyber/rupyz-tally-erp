@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { bulkDispatchByBeat, dispatchSelectedOrders } from "@/app/(app)/dispatches/actions";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 interface OrderItem {
   id: string;
@@ -49,7 +50,6 @@ export function BeatDispatchClient({
   const [showBulk, setShowBulk] = useState(false);
   const [vehicle, setVehicle] = useState("");
 
-  // Driver state — registered dropdown + ad-hoc fallback (matching wizard)
   const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
     drivers.length > 0 ? "registered" : "adhoc"
   );
@@ -88,8 +88,6 @@ export function BeatDispatchClient({
     if (!confirm(`Dispatch all ${totalOrders} orders for ${beat.name}? This creates ${totalOrders} dispatch records, all with the same vehicle/driver${helperId ? "/helper" : ""}.`)) return;
 
     startTransition(async () => {
-      // For no-beat tile: bulkDispatchByBeat won't work (it filters by beat_id).
-      // Use dispatchSelectedOrders with the explicit list of no-beat order IDs.
       let res;
       if (isNoBeatTile) {
         res = await dispatchSelectedOrders({
@@ -221,6 +219,8 @@ export function BeatDispatchClient({
             ))}
           </div>
         )}
+
+        <AutoRefresh />
       </div>
 
       {showBulk && (
@@ -249,7 +249,6 @@ export function BeatDispatchClient({
               autoFocus
             />
 
-            {/* Driver — dropdown + ad-hoc toggle */}
             <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver *</Label>
             {drivers.length > 0 && (
               <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">

@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Boxes, ChevronRight, MapPin, Package, Hourglass } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +22,6 @@ function formatINR(n: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
-// Jalna-area test. Case-insensitive, trimmed.
 function isJalna(city: string | null | undefined): boolean {
   if (!city) return false;
   return city.trim().toLowerCase() === "jalna";
@@ -62,7 +62,6 @@ export default async function LoadHomePage() {
     );
   }
 
-  // Pull approved + loading orders. Include beat.city for Jalna filter.
   const { data: rawOrders } = await supabase
     .from("orders")
     .select(`
@@ -88,13 +87,10 @@ export default async function LoadHomePage() {
     };
   });
 
-  // Jalna filter: order qualifies if either the customer's beat city OR
-  // the customer's own city is "jalna" (case-insensitive).
   const orders = allOrders.filter(o =>
     isJalna(o.beat?.city) || isJalna(o.customer?.city)
   );
 
-  // Group by beat (orders with no beat are grouped under "No beat assigned")
   const byBeat = new Map<string, { beatName: string; orders: OrderRow[] }>();
   const unassigned: OrderRow[] = [];
   for (const o of orders) {
@@ -158,6 +154,8 @@ export default async function LoadHomePage() {
         <div className="mt-6 text-center text-2xs text-ink-subtle">
           <Link href="/" className="hover:text-ink-muted">← Main app</Link>
         </div>
+
+        <AutoRefresh />
       </div>
     </div>
   );

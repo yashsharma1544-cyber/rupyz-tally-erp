@@ -12,6 +12,7 @@ import Link from "next/link";
 import { Truck, ChevronRight, MapPin, Package, IndianRupee } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { TrucksLoadingPanel } from "./trucks-loading-panel";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -71,8 +72,6 @@ export default async function DispatchHomePage() {
   const beatRows = (kpis ?? []) as BeatRow[];
   const truckRows = (trucks ?? []) as TruckRow[];
 
-  // Pull the actual orders inside each truck's dispatches so the panel can
-  // expand to show customer-level detail. One query, then bucket in JS.
   const allDispatchIds = truckRows.flatMap(t => t.dispatch_ids);
   const truckOrdersByKey = new Map<string, Array<{
     orderId: string;
@@ -128,7 +127,6 @@ export default async function DispatchHomePage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
-        {/* Header */}
         <div className="flex items-center gap-2 mb-1">
           <div className="w-8 h-8 rounded bg-accent text-paper-card flex items-center justify-center shrink-0">
             <Truck size={16} />
@@ -139,7 +137,6 @@ export default async function DispatchHomePage() {
           </div>
         </div>
 
-        {/* Total KPI strip */}
         <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
           <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Approved &amp; ready to dispatch</div>
           <div className="grid grid-cols-3 gap-2">
@@ -152,7 +149,6 @@ export default async function DispatchHomePage() {
           </div>
         </div>
 
-        {/* Cross-beat truck loading entry — visible whenever there are orders */}
         {beatRows.length > 0 && (
           <Link
             href="/dispatch/load-truck"
@@ -162,7 +158,6 @@ export default async function DispatchHomePage() {
           </Link>
         )}
 
-        {/* Trucks currently being loaded — needs "Mark dispatched" action */}
         {truckRows.length > 0 && (
           <TrucksLoadingPanel
             trucks={truckRows.map(t => {
@@ -182,14 +177,12 @@ export default async function DispatchHomePage() {
           />
         )}
 
-        {/* Section heading for beats */}
         {beatRows.length > 0 && (
           <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2 mt-4">
             Approved &mdash; ready to load
           </h2>
         )}
 
-        {/* Beat tiles */}
         {beatRows.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Truck size={28} className="mx-auto text-ink-subtle mb-2"/>
@@ -225,16 +218,16 @@ export default async function DispatchHomePage() {
           </div>
         )}
 
-        {/* Footer */}
         <div className="mt-6 text-center text-2xs text-ink-subtle">
           <Link href="/" className="hover:text-ink-muted">← Main app</Link>
         </div>
+
+        <AutoRefresh />
       </div>
     </div>
   );
 }
 
-// Small tile component for the KPI strip
 function KpiTile({
   icon: Icon, label, value,
 }: { icon: typeof Package; label: string; value: string }) {

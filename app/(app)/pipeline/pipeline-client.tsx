@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Inbox, CheckCircle2, Loader2, PackageCheck, Bus, Truck, BadgeCheck } from "lucide-react";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 interface OrderCard {
   id: string;
@@ -18,9 +19,7 @@ interface StageConfig {
   key: string;
   label: string;
   icon: React.ComponentType<{ size?: string | number; className?: string }>;
-  /** Color hint: pulls from your palette via Tailwind classes. */
   accent: "warn" | "accent" | "ok" | "neutral";
-  /** Where to send "View all" link. Maps to the /orders tab system. */
   ordersTab: string;
 }
 
@@ -89,7 +88,6 @@ export function PipelineClient({
         </Link>
       </div>
 
-      {/* Horizontal scroll container holding the kanban columns */}
       <div className="overflow-x-auto -mx-3 sm:-mx-6 px-3 sm:px-6 pb-3">
         <div className="flex gap-3 min-w-max">
           {STAGES.map(stage => {
@@ -104,7 +102,6 @@ export function PipelineClient({
                 key={stage.key}
                 className="w-72 shrink-0 flex flex-col bg-paper-card/40 border border-paper-line rounded-md overflow-hidden"
               >
-                {/* Column header */}
                 <div className={`px-3 py-2.5 border-b ${colors.headerBorder} ${colors.headerBg}`}>
                   <div className="flex items-center gap-2">
                     <Icon size={14} className={colors.iconColor}/>
@@ -115,7 +112,6 @@ export function PipelineClient({
                   </div>
                 </div>
 
-                {/* Cards — scrollable within the column on tall screens */}
                 <div className="flex-1 min-h-[120px] max-h-[calc(100vh-220px)] overflow-y-auto p-2 space-y-1.5">
                   {cards.length === 0 ? (
                     <div className="text-center py-8 text-2xs text-ink-subtle">
@@ -145,6 +141,8 @@ export function PipelineClient({
       <p className="text-2xs text-ink-subtle text-center mt-3">
         Showing latest {stageLimit} per column. Historical orders excluded.
       </p>
+
+      <AutoRefresh />
     </div>
   );
 }
