@@ -6,6 +6,8 @@
 // customer.city = jalna, case-insensitive).
 //
 // Auth: admin and dispatch only.
+//
+// i18n: server component. Reads language from the rupyz_lang cookie via getT().
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -13,6 +15,7 @@ import Link from "next/link";
 import { Boxes, ChevronRight, MapPin, Package, Hourglass } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,6 +45,8 @@ export default async function LoadHomePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login?from=/load");
 
+  const { t } = await getT();
+
   const { data: me } = await supabase
     .from("app_users")
     .select("full_name, role, active")
@@ -52,11 +57,11 @@ export default async function LoadHomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <h1 className="font-semibold text-base mb-1">Not authorized</h1>
+          <h1 className="font-semibold text-base mb-1">{t("common.not_authorized")}</h1>
           <p className="text-sm text-ink-muted mb-4">
-            Loading app requires the &lsquo;dispatch&rsquo; or &lsquo;admin&rsquo; role.
+            {t("loading.role_required")}
           </p>
-          <Link href="/dashboard" className="text-accent text-sm">Go to dashboard</Link>
+          <Link href="/dashboard" className="text-accent text-sm">{t("common.go_to_dashboard")}</Link>
         </div>
       </div>
     );
@@ -112,6 +117,9 @@ export default async function LoadHomePage() {
   const approvedCount = orders.filter(o => o.app_status === "approved").length;
   const totalValue = orders.reduce((s, o) => s + o.total_amount, 0);
 
+  const inProgressLabel = t("loading.in_progress");
+  const itemsLabel = t("common.items");
+
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
@@ -120,39 +128,50 @@ export default async function LoadHomePage() {
             <Boxes size={16} />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold leading-tight">Loading</h1>
-            <p className="text-2xs text-ink-muted">{me.full_name} · Jalna only</p>
+            <h1 className="text-base font-bold leading-tight">{t("loading.page_title")}</h1>
+            <p className="text-2xs text-ink-muted">{me.full_name} · {t("loading.jalna_only")}</p>
           </div>
         </div>
 
         <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
-          <div className="text-2xs uppercase tracking-wide text-ink-muted mb-2">Loading queue</div>
+          <div className="text-2xs uppercase tracking-wide text-ink-muted mb-2">{t("loading.queue")}</div>
           <div className="grid grid-cols-3 gap-2">
-            <Kpi label="To start" value={approvedCount.toString()} accent="ink"/>
-            <Kpi label="In progress" value={loadingCount.toString()} accent={loadingCount > 0 ? "warn" : "ink"}/>
-            <Kpi label="Total value" value={formatINR(totalValue)} accent="ink"/>
+            <Kpi label={t("loading.to_start")} value={approvedCount.toString()} accent="ink"/>
+            <Kpi label={inProgressLabel} value={loadingCount.toString()} accent={loadingCount > 0 ? "warn" : "ink"}/>
+            <Kpi label={t("loading.total_value")} value={formatINR(totalValue)} accent="ink"/>
           </div>
         </div>
 
         {totalOrders === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Boxes size={28} className="mx-auto text-ink-subtle mb-2"/>
-            <p className="font-semibold text-sm mb-0.5">Nothing to load right now</p>
-            <p className="text-xs text-ink-muted">Only Jalna orders show here. When admin approves Jalna orders, they&apos;ll appear.</p>
+            <p className="font-semibold text-sm mb-0.5">{t("loading.nothing_to_load")}</p>
+            <p className="text-xs text-ink-muted">{t("loading.empty_state_desc")}</p>
           </div>
         ) : (
           <div className="space-y-4">
             {beatGroups.map(([beatId, group]) => (
-              <BeatGroup key={beatId} beatName={group.beatName} orders={group.orders} />
+              <BeatGroup
+                key={beatId}
+                beatName={group.beatName}
+                orders={group.orders}
+                inProgressLabel={inProgressLabel}
+                itemsLabel={itemsLabel}
+              />
             ))}
             {unassigned.length > 0 && (
-              <BeatGroup beatName="No beat assigned" orders={unassigned} />
+              <BeatGroup
+                beatName={t("loading.no_beat_assigned")}
+                orders={unassigned}
+                inProgressLabel={inProgressLabel}
+                itemsLabel={itemsLabel}
+              />
             )}
           </div>
         )}
 
         <div className="mt-6 text-center text-2xs text-ink-subtle">
-          <Link href="/" className="hover:text-ink-muted">← Main app</Link>
+          <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />
@@ -171,7 +190,17 @@ function Kpi({ label, value, accent }: { label: string; value: string; accent: "
   );
 }
 
-function BeatGroup({ beatName, orders }: { beatName: string; orders: OrderRow[] }) {
+function BeatGroup({
+  beatName,
+  orders,
+  inProgressLabel,
+  itemsLabel,
+}: {
+  beatName: string;
+  orders: OrderRow[];
+  inProgressLabel: string;
+  itemsLabel: string;
+}) {
   return (
     <section>
       <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1.5 inline-flex items-center gap-1">
@@ -192,13 +221,13 @@ function BeatGroup({ beatName, orders }: { beatName: string; orders: OrderRow[] 
                   <span className="font-mono">{o.rupyz_order_id}</span>
                   {o.customer?.city && <><span className="text-ink-subtle">·</span><span>{o.customer.city}</span></>}
                   <span className="text-ink-subtle">·</span>
-                  <span className="inline-flex items-center gap-0.5"><Package size={9}/> {o.item_count} item{o.item_count === 1 ? "" : "s"}</span>
+                  <span className="inline-flex items-center gap-0.5"><Package size={9}/> {o.item_count} {itemsLabel}</span>
                   <span className="text-ink-subtle">·</span>
                   <span className="tabular">{formatINR(o.total_amount)}</span>
                 </div>
                 {o.app_status === "loading" && (
                   <div className="mt-1 inline-flex items-center gap-1 text-2xs text-warn font-semibold">
-                    <Hourglass size={9}/> In progress
+                    <Hourglass size={9}/> {inProgressLabel}
                   </div>
                 )}
               </div>

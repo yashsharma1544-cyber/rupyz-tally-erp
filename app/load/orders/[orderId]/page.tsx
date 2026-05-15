@@ -4,6 +4,9 @@
 // Auto-changes status from 'approved' to 'loading' when team opens.
 // Shows order lines with pre-filled qty inputs (ordered qty).
 // Team marks "All loaded" or edits qtys, then submits.
+//
+// i18n: this server-rendered shell reads language from cookie; the client
+// child component reads from the i18n React context.
 // =============================================================================
 
 import { notFound, redirect } from "next/navigation";
@@ -11,6 +14,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { LoadOrderClient } from "./load-order-client";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,6 +28,8 @@ export default async function LoadOrderPage({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/load/orders/${orderId}`);
+
+  const { t } = await getT();
 
   const { data: me } = await supabase
     .from("app_users")
@@ -65,17 +71,18 @@ export default async function LoadOrderPage({
 
   // Show "already handled" if order is past loading state.
   if (!["approved", "loading"].includes(order.app_status)) {
+    const statusText = t(`status.${order.app_status}`);
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
           <Link href="/load" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
-            <ArrowLeft size={11}/> Back to queue
+            <ArrowLeft size={11}/> {t("loading.back_to_queue")}
           </Link>
-          <p className="font-semibold text-sm mb-1">Already handled</p>
+          <p className="font-semibold text-sm mb-1">{t("loading.already_handled")}</p>
           <p className="text-xs text-ink-muted mb-3">
-            This order is &ldquo;{order.app_status}&rdquo; — not in the loading queue anymore.
+            {t("loading.already_handled_desc", { status: statusText })}
           </p>
-          <Link href="/load" className="text-accent text-sm">← Back to loading queue</Link>
+          <Link href="/load" className="text-accent text-sm">← {t("loading.back_to_queue_full")}</Link>
         </div>
       </div>
     );

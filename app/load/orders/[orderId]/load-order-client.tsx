@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, AlertCircle, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n/context";
 import { markOrderLoaded } from "./actions";
 
 interface OrderLine {
@@ -34,6 +35,7 @@ function formatINR(n: number): string {
 
 export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [pending, startTransition] = useTransition();
 
   // Pre-fill inputs: loaded_qty if previously saved, else ordered_qty.
@@ -92,11 +94,14 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
     startTransition(async () => {
       const res = await markOrderLoaded(order.id, buildLines(), { markPartial });
       if (!res.ok) {
+        // Note: res.error comes from server action and remains in English for now.
+        // Server-action errors will be translated in a future pass when we
+        // refactor lib/load/actions.ts to return i18n keys instead of strings.
         toast.error(res.error);
         return;
       }
       toast.success(
-        markPartial ? "Marked as partially loaded" : "Order loaded — ready for dispatch",
+        markPartial ? t("loading.toast_partial_loaded") : t("loading.toast_loaded_ready"),
       );
       setConfirmPartial(false);
       router.push("/load");
@@ -119,6 +124,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   }
 
   const itemCount = order.items.length;
+  const itemsLabel = itemCount === 1 ? t("common.item") : t("common.items");
 
   return (
     <div className="min-h-screen bg-paper pb-32">
@@ -127,7 +133,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           href="/load"
           className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2"
         >
-          <ArrowLeft size={11}/> Back to queue
+          <ArrowLeft size={11}/> {t("loading.back_to_queue")}
         </Link>
 
         <h1 className="text-lg font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
@@ -146,10 +152,10 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
 
         <div className="mt-2 pb-3 border-b border-paper-line text-sm">
           <span className="font-semibold tabular">{itemCount}</span>
-          <span className="text-ink-muted"> item{itemCount === 1 ? "" : "s"} · </span>
+          <span className="text-ink-muted"> {itemsLabel} · </span>
           <span className="font-semibold tabular">{formatINR(order.totalAmount)}</span>
           {order.appStatus === "loading" && (
-            <span className="ml-2 text-2xs text-warn font-semibold">· in progress</span>
+            <span className="ml-2 text-2xs text-warn font-semibold">· {t("loading.in_progress_inline")}</span>
           )}
         </div>
 
@@ -160,20 +166,20 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
             className="w-full"
             size="lg"
           >
-            <CheckCircle2 size={15}/> All loaded as ordered
+            <CheckCircle2 size={15}/> {t("loading.all_loaded_as_ordered")}
           </Button>
           <p className="text-2xs text-ink-muted text-center mt-1">
-            Fills every line with ordered quantity and marks loaded
+            {t("loading.all_loaded_help")}
           </p>
         </div>
 
         <div className="mt-5">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            Or adjust each line
+            {t("loading.or_adjust_each_line")}
           </h2>
           {order.items.length === 0 ? (
             <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center text-sm text-ink-muted">
-              This order has no line items.
+              {t("loading.no_line_items")}
             </div>
           ) : (
             <div className="space-y-3">
@@ -181,6 +187,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                 const cur = parsedQtys.get(it.id) ?? 0;
                 const isLess = cur < it.orderedQty;
                 const isZero = cur === 0;
+                const shortAmount = `${it.orderedQty - cur}${it.unit ? ` ${it.unit}` : ""}`;
                 return (
                   <div
                     key={it.id}
@@ -196,7 +203,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                       {/* Ordered (read-only) */}
                       <div className="bg-paper-subtle/60 border border-paper-line rounded-md p-3 text-center">
                         <div className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1">
-                          Ordered
+                          {t("loading.ordered")}
                         </div>
                         <div className="text-2xl font-bold tabular leading-none">
                           {it.orderedQty}
@@ -217,7 +224,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                         <div className={`text-2xs uppercase tracking-wide font-semibold mb-1 ${
                           isZero ? "text-danger" : isLess ? "text-warn" : "text-accent"
                         }`}>
-                          Loaded
+                          {t("loading.loaded")}
                         </div>
                         <input
                           type="number"
@@ -230,7 +237,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                           className={`w-full text-center text-2xl font-bold tabular leading-none bg-transparent outline-none border-0 focus:outline-none focus:ring-0 p-0 ${
                             isZero ? "text-danger" : isLess ? "text-warn" : "text-ink"
                           }`}
-                          aria-label={`Loaded quantity for ${it.productName}`}
+                          aria-label={t("loading.loaded_qty_aria", { productName: it.productName })}
                         />
                         {it.unit && (
                           <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>
@@ -241,12 +248,12 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                     {/* Status messages below the boxes */}
                     {isLess && cur > 0 && (
                       <div className="text-2xs text-warn mt-2 inline-flex items-center gap-1">
-                        <AlertCircle size={10}/> Short by {it.orderedQty - cur}{it.unit ? ` ${it.unit}` : ""}
+                        <AlertCircle size={10}/> {t("loading.short_by", { amount: shortAmount })}
                       </div>
                     )}
                     {isZero && (
                       <div className="text-2xs text-danger mt-2 inline-flex items-center gap-1">
-                        <AlertCircle size={10}/> Nothing loaded for this line
+                        <AlertCircle size={10}/> {t("loading.nothing_loaded")}
                       </div>
                     )}
                   </div>
@@ -261,12 +268,12 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
         <div className="max-w-md mx-auto space-y-1">
           {isPartial && totalLoaded > 0 && (
             <p className="text-2xs text-warn text-center">
-              ⚠ Some lines are short — you&apos;ll be asked to confirm
+              ⚠ {t("loading.some_lines_short_warn")}
             </p>
           )}
           {totalLoaded === 0 && (
             <p className="text-2xs text-danger text-center">
-              At least one line must have quantity &gt; 0
+              {t("loading.at_least_one_qty")}
             </p>
           )}
           <Button
@@ -276,7 +283,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
             className="w-full"
             size="lg"
           >
-            {pending ? "Saving…" : isPartial ? "Mark loaded with adjustments" : "Mark loaded"}
+            {pending ? t("common.saving") : isPartial ? t("loading.mark_loaded_adjustments") : t("loading.mark_loaded_btn")}
           </Button>
         </div>
       </div>
@@ -292,10 +299,10 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           >
             <div className="flex items-center gap-2 mb-2">
               <AlertCircle size={18} className="text-warn shrink-0"/>
-              <h2 className="font-semibold">Some lines were short</h2>
+              <h2 className="font-semibold">{t("loading.lines_were_short")}</h2>
             </div>
             <p className="text-sm text-ink-muted mb-3">
-              Lines below have less loaded than ordered:
+              {t("loading.lines_short_desc")}
             </p>
             <div className="bg-paper-subtle/50 rounded p-2 mb-4 max-h-40 overflow-y-auto text-xs space-y-0.5">
               {order.items
@@ -311,8 +318,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                 })}
             </div>
             <p className="text-xs text-ink-muted mb-4">
-              Mark this order as <strong>partially dispatched</strong>? You can dispatch the remaining
-              items in a separate run later.
+              {t("loading.partial_confirm_desc")}
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
@@ -321,14 +327,14 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                 disabled={pending}
                 className="sm:flex-1"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 onClick={() => submit(true)}
                 disabled={pending}
                 className="sm:flex-1"
               >
-                {pending ? "Saving…" : "Confirm partial"}
+                {pending ? t("common.saving") : t("loading.confirm_partial")}
               </Button>
             </div>
           </div>
