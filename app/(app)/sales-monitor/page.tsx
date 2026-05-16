@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { SalesMonitorClient } from "./sales-monitor-client";
+import { getSummaryForDate } from "@/lib/sales-monitor/compute";
 
 export const dynamic = "force-dynamic";
 
@@ -35,36 +36,15 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
     ? searchParams.date
     : todayISO;
 
-  // Yesterday — for the "Copy from yesterday" affordance.
   const yest = new Date(viewDate + "T00:00:00Z");
   yest.setUTCDate(yest.getUTCDate() - 1);
   const yesterdayISO = yest.toISOString().slice(0, 10);
 
-  // Fetch everything for the view in parallel.
-  const [
-    { data: salesmen },
-    { data: beats },
-    { data: assignments },
-    { data: targets },
-    { data: checkins },
-  ] = await Promise.all([
-    supabase.from("salesmen")
-      .select("id, name, phone")
-      .eq("active", true)
-      .order("name"),
-    supabase.from("beats")
-      .select("id, name, city")
-      .eq("active", true)
-      .order("name"),
-    supabase.from("salesman_beat_assignments")
-      .select("salesman_id, beat_id")
-      .eq("assignment_date", viewDate),
-    supabase.from("daily_sales_targets")
-      .select("salesman_id, target_kg")
-      .eq("target_date", viewDate),
-    supabase.from("daily_sales_checkins")
-      .select("salesman_id, checked_in_at")
-      .eq("checkin_date", viewDate),
+  // Single bulk fetch — one RPC returns the full per-salesman summary row.
+  // Beats are still needed for the beat-selector dropdown.
+  const [summary, { data: beats }] = await Promise.all([
+    getSummaryForDate(viewDate),
+    supabase.from("beats").select("id, name, city").eq("active", true).order("name"),
   ]);
 
   return (
@@ -72,11 +52,8 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
       viewDate={viewDate}
       yesterdayDate={yesterdayISO}
       isToday={viewDate === todayISO}
-      salesmen={salesmen || []}
+      summary={summary}
       beats={beats || []}
-      assignments={assignments || []}
-      targets={(targets || []).map(t => ({ salesman_id: t.salesman_id, target_kg: Number(t.target_kg) }))}
-      checkins={checkins || []}
     />
   );
 }
