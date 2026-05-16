@@ -21,24 +21,26 @@ import {
   PackageCheck,
   Send,
   Navigation,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { AppUser } from "@/lib/types";
 
 const navItems = [
-  { href: "/dashboard",    label: "Dashboard",  icon: LayoutDashboard, roles: "all" },
-  { href: "/pipeline",     label: "Pipeline",   icon: Kanban,          roles: "all" },
-  { href: "/orders",       label: "Orders",     icon: ShoppingBag,     roles: "all" },
-  { href: "/dispatches",   label: "Dispatches", icon: Truck,           roles: "all" },
-  { href: "/trips",        label: "VAN Trips",  icon: Route,           roles: "all" },
-  { href: "/beats",        label: "Beats",      icon: MapPin,          roles: "all" },
-  { href: "/customers",    label: "Customers",  icon: Users2,          roles: "all" },
-  { href: "/products",     label: "Products",   icon: Package,         roles: "all" },
-  { href: "/salesmen",     label: "Salesmen",   icon: UserCircle2,     roles: "all" },
-  { href: "/drivers",      label: "Drivers",    icon: Truck,           roles: "admin" },
-  { href: "/users",        label: "Users",      icon: Shield,          roles: "admin" },
-  { href: "/settings",     label: "Settings",   icon: Settings,        roles: "admin" },
+  { href: "/dashboard",      label: "Dashboard",     icon: LayoutDashboard, roles: "all" },
+  { href: "/pipeline",       label: "Pipeline",      icon: Kanban,          roles: "all" },
+  { href: "/orders",         label: "Orders",        icon: ShoppingBag,     roles: "all" },
+  { href: "/dispatches",     label: "Dispatches",    icon: Truck,           roles: "all" },
+  { href: "/trips",          label: "VAN Trips",     icon: Route,           roles: "all" },
+  { href: "/beats",          label: "Beats",         icon: MapPin,          roles: "all" },
+  { href: "/customers",      label: "Customers",     icon: Users2,          roles: "all" },
+  { href: "/products",       label: "Products",      icon: Package,         roles: "all" },
+  { href: "/salesmen",       label: "Salesmen",      icon: UserCircle2,     roles: "all" },
+  { href: "/drivers",        label: "Drivers",       icon: Truck,           roles: "admin" },
+  { href: "/sales-monitor",  label: "Sales Monitor", icon: TrendingUp,      roles: "admin" },
+  { href: "/users",          label: "Users",         icon: Shield,          roles: "admin" },
+  { href: "/settings",       label: "Settings",      icon: Settings,        roles: "admin" },
 ] as const;
 
 // Mobile-first workflow apps (warehouse, dispatch desk, drivers in the field).
