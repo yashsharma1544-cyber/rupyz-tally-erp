@@ -4,7 +4,7 @@
  * Usage:
  *   const result = await sendTemplateMessage({
  *     whatsappNumber: "919860748060",
- *     templateName: "sales_morning_briefing_v3",
+ *     templateName: "sales_morning_briefing_v4",
  *     broadcastName: "morning_2026-05-16_akshay",
  *     bodyVariables: ["Akshay", "Chandan Zira", "41", "100"],
  *     headerDocumentUrl: "https://supabase.co/.../signed.pdf",
@@ -169,7 +169,7 @@ function extractErrorMessage(parsed: unknown): string | null {
  * Must match exactly what's approved in the WATi dashboard.
  */
 export const WATI_TEMPLATES = {
-  morning: "sales_morning_briefing_v3",
-  midday: "sales_midday_update_v2",
-  evening: "sales_evening_final",
+  morning: "sales_morning_briefing_v4",
+  midday: "sales_midday_update_v3",
+  evening: "sales_evening_final_v2",
 } as const;
