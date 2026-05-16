@@ -1,9 +1,9 @@
-/**
+﻿/**
  * Server-side PDF rendering helpers. Node runtime only.
  *
  * Used by:
- *   - /api/sales-monitor/pdf/[type]/[salesmanId]    — admin preview/download
- *   - Phase 5 cron jobs (when added)                 — generate + upload to Storage
+ *   - /api/sales-monitor/pdf/[type]/[salesmanId]    â€” admin preview/download
+ *   - Phase 5 cron jobs (when added)                 â€” generate + upload to Storage
  */
 
 import React from "react";
@@ -42,7 +42,7 @@ export async function renderSalesmanPdf(
       : type === "midday"
         ? React.createElement(MiddayReportPDF, props)
         : React.createElement(EveningReportPDF, props);
-  return renderToBuffer(element);
+  return renderToBuffer(element as React.ReactElement<any>);
 }
 
 export function pdfFilename(
