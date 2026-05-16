@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n/context";
 import { dispatchSelectedOrders } from "@/app/(app)/dispatches/actions";
 
 interface OrderItem {
@@ -53,6 +54,7 @@ export function LoadTruckWizard({
   helpers: UserOption[];
 }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [step, setStep] = useState<Step>("pick");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -70,7 +72,6 @@ export function LoadTruckWizard({
   const [driverId, setDriverId] = useState<string>("");
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
-  // Phase 2: helper state
   const [helperId, setHelperId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
@@ -136,15 +137,15 @@ export function LoadTruckWizard({
 
   function handleConfirm() {
     if (!vehicle.trim()) {
-      toast.error("Vehicle # is required");
+      toast.error(t("truck_wizard.toast_vehicle_required"));
       return;
     }
     if (driverMode === "registered" && !driverId) {
-      toast.error("Pick a driver from the list, or use 'Other driver'");
+      toast.error(t("truck_wizard.toast_pick_driver_or_other"));
       return;
     }
     if (!driver.trim()) {
-      toast.error("Driver name is required");
+      toast.error(t("truck_wizard.toast_driver_required"));
       return;
     }
     startTransition(async () => {
@@ -162,20 +163,26 @@ export function LoadTruckWizard({
         return;
       }
       const firstFailureErr = res.results?.find(r => !r.ok)?.error;
-      if (res.succeeded === 0) {
-        toast.error(firstFailureErr ?? `All ${res.total} dispatches failed`, {
+      const total     = res.total     ?? 0;
+      const succeeded = res.succeeded ?? 0;
+      const failed    = res.failed    ?? 0;
+      if (succeeded === 0) {
+        toast.error(firstFailureErr ?? t("truck_wizard.toast_all_failed", { total }), {
           duration: 12000,
-          description: firstFailureErr ? `${res.failed} of ${res.total} orders failed` : undefined,
+          description: firstFailureErr ? t("truck_wizard.toast_n_of_m_failed", { failed, total }) : undefined,
         });
         return;
       }
-      if (res.failed && res.failed > 0) {
+      if (failed > 0) {
         toast.warning(
-          `${res.succeeded} of ${res.total} dispatched · ${res.failed} failed`,
+          t("truck_wizard.toast_n_of_m_dispatched", { succeeded, total, failed }),
           { description: firstFailureErr, duration: 10000 },
         );
       } else {
-        toast.success(`${res.succeeded} order${res.succeeded === 1 ? "" : "s"} dispatched`);
+        const msg = succeeded === 1
+          ? t("truck_wizard.toast_succeeded_one", { n: succeeded })
+          : t("truck_wizard.toast_succeeded_many", { n: succeeded });
+        toast.success(msg);
       }
       router.push(`/dispatch`);
     });
@@ -191,29 +198,29 @@ export function LoadTruckWizard({
       <div className="min-h-screen bg-paper pb-24">
         <div className="max-w-md mx-auto px-3 py-4">
           <Link href="/dispatch" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-            <ArrowLeft size={11}/> Cancel
+            <ArrowLeft size={11}/> {t("truck_wizard.cancel")}
           </Link>
 
-          <div className="text-2xs text-accent mb-1">Step 1 of 2</div>
+          <div className="text-2xs text-accent mb-1">{t("truck_wizard.step_1_of_2")}</div>
           <h1 className="text-base font-semibold leading-tight">
-            Which orders go on this truck?
+            {t("truck_wizard.which_orders")}
           </h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            Pick from any beat. Orders can be combined across beats.
+            {t("truck_wizard.pick_help")}
           </p>
 
           {selected.size > 0 && (
             <div className="flex items-center gap-3 mt-3 mb-1 text-xs">
               <button type="button" onClick={clearAll} className="text-ink-muted hover:underline">
-                Clear all selections
+                {t("truck_wizard.clear_all_selections")}
               </button>
             </div>
           )}
 
           {totalAvailableOrders === 0 ? (
             <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-4">
-              <p className="text-sm font-semibold mb-0.5">Nothing to load</p>
-              <p className="text-xs text-ink-muted">No approved orders right now.</p>
+              <p className="text-sm font-semibold mb-0.5">{t("truck_wizard.nothing_to_load")}</p>
+              <p className="text-xs text-ink-muted">{t("truck_wizard.no_approved_now")}</p>
             </div>
           ) : (
             <div className="space-y-2 mt-3">
@@ -222,6 +229,9 @@ export function LoadTruckWizard({
                 const beatSelectedCount = group.orders.filter(o => selected.has(o.id)).length;
                 const beatTotalKg = group.orders.reduce((s, o) => s + (selected.has(o.id) ? o.kg : 0), 0);
                 const allInBeatSelected = beatSelectedCount === group.orders.length;
+                const availableLabel = group.orders.length === 1
+                  ? t("truck_wizard.n_orders_available_one", { n: group.orders.length })
+                  : t("truck_wizard.n_orders_available_many", { n: group.orders.length });
 
                 return (
                   <div
@@ -246,8 +256,8 @@ export function LoadTruckWizard({
                         <div className="font-semibold text-sm truncate">{group.beatName}</div>
                         <div className="text-2xs text-ink-muted mt-0.5">
                           {beatSelectedCount > 0
-                            ? <><strong className="text-accent tabular">{beatSelectedCount}</strong> of {group.orders.length} selected · <span className="tabular">{formatKg(beatTotalKg)}</span></>
-                            : <>{group.orders.length} order{group.orders.length === 1 ? "" : "s"} available</>
+                            ? <><span className="text-accent tabular font-semibold">{t("truck_wizard.n_of_m_selected", { n: beatSelectedCount, m: group.orders.length })}</span> · <span className="tabular">{formatKg(beatTotalKg)}</span></>
+                            : <>{availableLabel}</>
                           }
                         </div>
                       </div>
@@ -261,7 +271,7 @@ export function LoadTruckWizard({
                             onClick={(e) => { e.stopPropagation(); allInBeatSelected ? clearBeat(group.beatId) : selectAllInBeat(group.beatId); }}
                             className="text-accent hover:underline"
                           >
-                            {allInBeatSelected ? "Clear this beat" : "Select all in this beat"}
+                            {allInBeatSelected ? t("truck_wizard.clear_this_beat") : t("truck_wizard.select_all_in_beat")}
                           </button>
                         </div>
 
@@ -287,8 +297,8 @@ export function LoadTruckWizard({
                                 <div className="text-2xs text-ink-muted mt-0.5">
                                   <span className="font-mono">{o.rupyzOrderId}</span>
                                   {o.customerCity && <> · {o.customerCity}</>}
-                                  {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">partly sent</span></>}
-                                  {o.appStatus === "loaded" && <> · <span className="text-accent">loaded</span></>}
+                                  {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">{t("status.partly_sent_inline")}</span></>}
+                                  {o.appStatus === "loaded" && <> · <span className="text-accent">{t("status.loaded_inline")}</span></>}
                                 </div>
                                 <div className="text-2xs text-ink-muted mt-0.5">
                                   <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
@@ -312,8 +322,8 @@ export function LoadTruckWizard({
           <div className="max-w-md mx-auto">
             <div className="text-2xs text-center text-ink-muted mb-1.5">
               {selected.size === 0
-                ? "Tap orders to add them to the truck"
-                : <><strong className="text-ink tabular">{selected.size}</strong> selected · <strong className="text-ink tabular">{formatKg(totalKg)}</strong> · <strong className="text-ink tabular">{formatINR(totalAmount)}</strong></>
+                ? t("truck_wizard.tap_to_select_truck")
+                : <><strong className="text-ink tabular">{selected.size}</strong> · <strong className="text-ink tabular">{formatKg(totalKg)}</strong> · <strong className="text-ink tabular">{formatINR(totalAmount)}</strong></>
               }
             </div>
             <Button
@@ -322,7 +332,7 @@ export function LoadTruckWizard({
               disabled={selected.size === 0}
               onClick={() => setStep("details")}
             >
-              Next: Truck details <ArrowRight size={14}/>
+              {t("truck_wizard.next_truck_details")} <ArrowRight size={14}/>
             </Button>
           </div>
         </div>
@@ -338,6 +348,8 @@ export function LoadTruckWizard({
     selectedByBeat.get(key)!.orders.push(x.order);
   }
   const previewGroups = Array.from(selectedByBeat.values()).sort((a, b) => a.beatName.localeCompare(b.beatName));
+  const orderWordSingle = t("common.order");
+  const orderWordPlural = t("common.orders");
 
   return (
     <div className="min-h-screen bg-paper pb-24">
@@ -347,27 +359,29 @@ export function LoadTruckWizard({
           onClick={() => setStep("pick")}
           className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2"
         >
-          <ArrowLeft size={11}/> Back to selection
+          <ArrowLeft size={11}/> {t("truck_wizard.back_to_selection")}
         </button>
 
-        <div className="text-2xs text-accent mb-1">Step 2 of 2</div>
-        <h1 className="text-base font-semibold leading-tight">Truck details</h1>
+        <div className="text-2xs text-accent mb-1">{t("truck_wizard.step_2_of_2")}</div>
+        <h1 className="text-base font-semibold leading-tight">{t("truck_wizard.truck_details")}</h1>
         <p className="text-xs text-ink-muted mt-0.5">
-          Loading <strong className="text-ink tabular">{selected.size}</strong> order{selected.size === 1 ? "" : "s"} ·
+          {selected.size === 1
+            ? t("truck_wizard.loading_n_orders_one", { n: selected.size })
+            : t("truck_wizard.loading_n_orders_many", { n: selected.size })} ·
           {" "}<strong className="text-ink tabular">{formatKg(totalKg)}</strong> ·
           {" "}<strong className="text-ink tabular">{formatINR(totalAmount)}</strong>
-          {previewGroups.length > 1 && <> · across <strong className="text-ink">{previewGroups.length}</strong> beats</>}
+          {previewGroups.length > 1 && <> · {t("truck_wizard.across_n_beats", { n: previewGroups.length })}</>}
         </p>
 
         <div className="mt-4">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            Orders on this truck
+            {t("truck_wizard.orders_on_truck")}
           </h2>
           <div className="space-y-2">
             {previewGroups.map(g => (
               <div key={g.beatName} className="bg-paper-card border border-paper-line rounded overflow-hidden">
                 <div className="px-3 py-1.5 bg-paper-subtle/40 text-2xs font-semibold text-ink-muted uppercase tracking-wide">
-                  {g.beatName} · {g.orders.length} order{g.orders.length === 1 ? "" : "s"}
+                  {g.beatName} · {g.orders.length} {g.orders.length === 1 ? orderWordSingle : orderWordPlural}
                 </div>
                 <div className="divide-y divide-paper-line">
                   {g.orders.map(o => (
@@ -386,10 +400,10 @@ export function LoadTruckWizard({
 
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
-            Vehicle &amp; driver
+            {t("truck_wizard.vehicle_and_driver")}
           </h2>
           <div>
-            <Label className="text-xs">Vehicle # <span className="text-danger">*</span></Label>
+            <Label className="text-xs">{t("truck_wizard.vehicle_label")} <span className="text-danger">*</span></Label>
             <Input
               className="mt-1"
               placeholder="MH-20 AB 1234"
@@ -399,7 +413,7 @@ export function LoadTruckWizard({
             />
           </div>
           <div>
-            <Label className="text-xs">Driver <span className="text-danger">*</span></Label>
+            <Label className="text-xs">{t("truck_wizard.driver_label")} <span className="text-danger">*</span></Label>
             {drivers.length > 0 && (
               <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
                 <button
@@ -411,7 +425,7 @@ export function LoadTruckWizard({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Pick driver
+                  {t("truck_wizard.pick_driver")}
                 </button>
                 <button
                   type="button"
@@ -422,7 +436,7 @@ export function LoadTruckWizard({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Other driver
+                  {t("truck_wizard.other_driver")}
                 </button>
               </div>
             )}
@@ -433,7 +447,7 @@ export function LoadTruckWizard({
                 value={driverId}
                 onChange={(e) => pickRegisteredDriver(e.target.value)}
               >
-                <option value="">— Select a driver —</option>
+                <option value="">{t("truck_wizard.select_driver_placeholder")}</option>
                 {drivers.map(d => (
                   <option key={d.id} value={d.id}>
                     {d.name}{d.phone ? ` · ${d.phone}` : ""}
@@ -443,17 +457,17 @@ export function LoadTruckWizard({
             ) : (
               <Input
                 className="mt-1"
-                placeholder="e.g. Ramesh"
+                placeholder={t("truck_wizard.driver_eg")}
                 value={driver}
                 onChange={e => setDriver(e.target.value)}
               />
             )}
           </div>
           <div>
-            <Label className="text-xs text-ink-muted">Driver phone</Label>
+            <Label className="text-xs text-ink-muted">{t("truck_wizard.driver_phone_label")}</Label>
             <Input
               className="mt-1"
-              placeholder={driverMode === "registered" && driverId ? "" : "9876543210 (optional)"}
+              placeholder={driverMode === "registered" && driverId ? "" : t("truck_wizard.driver_phone_placeholder")}
               inputMode="tel"
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
@@ -461,19 +475,18 @@ export function LoadTruckWizard({
             />
           </div>
 
-          {/* Phase 2: Helper picker (optional) */}
           {helpers.length > 0 ? (
             <div>
               <Label className="text-xs inline-flex items-center gap-1">
-                <UserPlus size={11}/> Helper
-                <span className="text-2xs text-ink-subtle font-normal">(optional)</span>
+                <UserPlus size={11}/> {t("truck_wizard.helper_label")}
+                <span className="text-2xs text-ink-subtle font-normal">{t("common.optional_paren")}</span>
               </Label>
               <select
                 className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
                 value={helperId}
                 onChange={(e) => setHelperId(e.target.value)}
               >
-                <option value="">— No helper —</option>
+                <option value="">{t("truck_wizard.no_helper_placeholder")}</option>
                 {helpers.map(h => (
                   <option key={h.id} value={h.id}>
                     {h.name}{h.phone ? ` · ${h.phone}` : ""}
@@ -482,22 +495,22 @@ export function LoadTruckWizard({
               </select>
               {selectedHelper && (
                 <p className="text-2xs text-ink-muted mt-1">
-                  {selectedHelper.name} will see all {selected.size} dispatches on the Driver app.
+                  {t("truck_wizard.helper_will_see", { name: selectedHelper.name, n: selected.size })}
                 </p>
               )}
             </div>
           ) : (
             <div className="text-2xs text-ink-subtle">
-              <em>No helpers configured. Admin can add helpers in Users with role &lsquo;van_helper&rsquo;.</em>
+              <em>{t("truck_wizard.no_helpers_configured")}</em>
             </div>
           )}
 
           <div>
-            <Label className="text-xs text-ink-muted">Notes</Label>
+            <Label className="text-xs text-ink-muted">{t("truck_wizard.notes_label")}</Label>
             <Textarea
               className="mt-1"
               rows={2}
-              placeholder="Any extra info (optional)"
+              placeholder={t("truck_wizard.notes_placeholder")}
               value={notes}
               onChange={e => setNotes(e.target.value)}
             />
@@ -513,7 +526,11 @@ export function LoadTruckWizard({
             onClick={handleConfirm}
             disabled={pending || !vehicle.trim() || !driver.trim()}
           >
-            <Truck size={14}/> {pending ? "Dispatching…" : `Dispatch ${selected.size} order${selected.size === 1 ? "" : "s"}`}
+            <Truck size={14}/> {pending
+              ? t("truck_wizard.dispatching")
+              : selected.size === 1
+                ? t("truck_wizard.dispatch_n_orders_one", { n: selected.size })
+                : t("truck_wizard.dispatch_n_orders_many", { n: selected.size })}
           </Button>
         </div>
       </div>

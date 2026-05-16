@@ -84,9 +84,10 @@ export function TrucksLoadingPanel({ trucks }: { trucks: TruckLoading[] }) {
         toast.error(res.error);
         return;
       }
-      const successMsg = res.dispatchCount === 1
-        ? t("trucks.toast_marked_one", { n: res.dispatchCount })
-        : t("trucks.toast_marked_many", { n: res.dispatchCount });
+      const dispatchCount = res.dispatchCount ?? 0;
+      const successMsg = dispatchCount === 1
+        ? t("trucks.toast_marked_one", { n: dispatchCount })
+        : t("trucks.toast_marked_many", { n: dispatchCount });
       toast.success(successMsg);
       router.refresh();
     });

@@ -99,7 +99,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
           <CheckCircle2 size={48} className="text-ok mx-auto mb-3" />
           <h1 className="text-lg font-bold mb-1">{t("pod.delivered_title")}</h1>
           <p className="text-sm text-ink-muted mb-4">
-            {t("pod.delivered_body", { dispatchNumber: dispatch.dispatch_number })}
+            {t("pod.delivered_body", { dispatchNumber: dispatch.dispatch_number ?? "—" })}
           </p>
           {dispatch.pod?.photo_url && (
             <a href={dispatch.pod.photo_url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline">
@@ -144,7 +144,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
             <Badge variant="accent">{t("pod.in_transit_badge")}</Badge>
           </div>
           <p className="text-xs text-ink-muted">
-            {t("pod.dispatch_number_label", { dispatchNumber: dispatch.dispatch_number })}
+            {t("pod.dispatch_number_label", { dispatchNumber: dispatch.dispatch_number ?? "—" })}
           </p>
         </div>
 

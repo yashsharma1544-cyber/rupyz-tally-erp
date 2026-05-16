@@ -121,22 +121,25 @@ export function BeatDispatchClient({
         return;
       }
       const firstFailureErr = res.results?.find(r => !r.ok)?.error;
-      if (res.succeeded === 0) {
-        toast.error(firstFailureErr ?? t("truck_wizard.toast_all_failed", { total: res.total }), {
+      const total     = res.total     ?? 0;
+      const succeeded = res.succeeded ?? 0;
+      const failed    = res.failed    ?? 0;
+      if (succeeded === 0) {
+        toast.error(firstFailureErr ?? t("truck_wizard.toast_all_failed", { total }), {
           duration: 12000,
-          description: firstFailureErr ? t("truck_wizard.toast_n_of_m_failed", { failed: res.failed, total: res.total }) : undefined,
+          description: firstFailureErr ? t("truck_wizard.toast_n_of_m_failed", { failed, total }) : undefined,
         });
         return;
       }
-      if (res.failed && res.failed > 0) {
+      if (failed > 0) {
         toast.warning(
-          t("truck_wizard.toast_n_of_m_dispatched", { succeeded: res.succeeded, total: res.total, failed: res.failed }),
+          t("truck_wizard.toast_n_of_m_dispatched", { succeeded, total, failed }),
           { description: firstFailureErr, duration: 10000 },
         );
       } else {
-        const msg = res.succeeded === 1
-          ? t("truck_wizard.toast_succeeded_one", { n: res.succeeded })
-          : t("truck_wizard.toast_succeeded_many", { n: res.succeeded });
+        const msg = succeeded === 1
+          ? t("truck_wizard.toast_succeeded_one", { n: succeeded })
+          : t("truck_wizard.toast_succeeded_many", { n: succeeded });
         toast.success(msg);
       }
       setShowBulk(false);

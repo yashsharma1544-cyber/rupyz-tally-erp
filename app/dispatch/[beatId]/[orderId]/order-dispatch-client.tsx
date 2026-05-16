@@ -146,7 +146,7 @@ export function OrderDispatchClient({
         toast.error(res.error);
         return;
       }
-      toast.success(t("order_dispatch.toast_dispatched", { dispatchNumber: res.dispatchNumber }));
+      toast.success(t("order_dispatch.toast_dispatched", { dispatchNumber: res.dispatchNumber ?? "—" }));
       router.push(`/dispatch/${beatId}`);
     });
   }
