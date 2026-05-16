@@ -356,6 +356,7 @@ async function upsertOrder(rupyzOrderId, rows) {
   );
   const salesmanId = await ensureSalesman(first["Order taken by"]);
   const beatId = await ensureBeat(first["Beat Codes"], first["Beat Names"], first["City"]);
+  void beatId; // captured for side effects (caching) only — order header does not store beat_id
 
   if (DRY_RUN) {
     return { id: "DRY-RUN-ORDER-UUID", isNew: true };
