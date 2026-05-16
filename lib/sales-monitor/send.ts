@@ -1,18 +1,13 @@
 /**
  * End-to-end send orchestration for sales monitor reports.
  *
- *   1. Generate PDF via @react-pdf/renderer
- *   2. Upload to Supabase Storage, get a 24h signed URL
- *   3. For each recipient (salesman + admins), call WATi
- *   4. Log every send in daily_sales_reports
+ * Variable counts match each approved WATi template:
+ *   morning  — 4 vars: name, beat, sc, target_kg
+ *   midday   — 4 vars: name, date, calls_str, kg_str (revised 4-var template)
+ *   evening  — 6 vars: name, date, calls, kg_sold, percent, kg_target (original 6-var template)
  *
- * Used by:
- *   - Server actions (manual "Send now" from admin UI)         — Phase 4
- *   - Cron endpoints (8 AM / 1 PM / 7:30 PM IST)                — Phase 5
- *
- * Modes:
- *   "default"    — production behaviour: morning → salesman, midday/evening → salesman + admins
- *   "admin_only" — test send: ignores the salesman, sends to admins only (any report type)
+ * If you later resubmit the evening template as a 4-var version for consistency,
+ * change buildBodyVariables() to match.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -69,6 +64,7 @@ function buildBodyVariables(
     year: "numeric",
   });
 
+  // Morning: 4 vars — name, beat, sc, target_kg
   if (type === "morning") {
     return [
       status.salesman_name,
@@ -78,18 +74,34 @@ function buildBodyVariables(
     ];
   }
 
-  const callsPct = pct(status.calls_done, status.sc);
-  const kgPct = pct(status.kg_done, status.target_kg);
-  const callsStr =
-    status.sc > 0
-      ? `${status.calls_done} of ${status.sc} customers${callsPct !== null ? ` (${callsPct}%)` : ""}`
-      : `${status.calls_done} customers`;
-  const kgStr =
-    status.target_kg != null && status.target_kg > 0
-      ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
-      : `${formatKg(status.kg_done)} kg`;
+  // Midday: 4 vars — name, date, calls_str, kg_str (compound strings)
+  if (type === "midday") {
+    const callsPct = pct(status.calls_done, status.sc);
+    const kgPct = pct(status.kg_done, status.target_kg);
+    const callsStr =
+      status.sc > 0
+        ? `${status.calls_done} of ${status.sc} customers${callsPct !== null ? ` (${callsPct}%)` : ""}`
+        : `${status.calls_done} customers`;
+    const kgStr =
+      status.target_kg != null && status.target_kg > 0
+        ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
+        : `${formatKg(status.kg_done)} kg`;
+    return [status.salesman_name, dateLabel, callsStr, kgStr];
+  }
 
-  return [status.salesman_name, dateLabel, callsStr, kgStr];
+  // Evening: 6 vars — name, date, total_calls, kg_sold, percent, kg_target
+  // Matches the approved 6-variable template body:
+  //   End-of-day report for {{1}} on {{2}}. Total calls: {{3}}.
+  //   Sales: {{4}} kg ({{5}}% of {{6}} kg target). Day statistics attached.
+  const kgPct = pct(status.kg_done, status.target_kg);
+  return [
+    status.salesman_name,                                        // {{1}} name
+    dateLabel,                                                   // {{2}} date
+    String(status.calls_done),                                   // {{3}} total calls
+    formatKg(status.kg_done),                                    // {{4}} kg sold (no unit, template has "kg" literal)
+    kgPct !== null ? String(kgPct) : "0",                        // {{5}} percent (no % sign, template has it)
+    status.target_kg != null ? formatKg(status.target_kg) : "0", // {{6}} kg target
+  ];
 }
 
 function templateNameFor(type: PdfReportType): string {
@@ -124,12 +136,9 @@ export async function sendSalesmanReport(opts: {
     };
   }
 
-  // Build the recipient list per mode.
   const recipients: SendRecipient[] = [];
 
   if (mode === "admin_only") {
-    // Test send — admins only, regardless of report type. Salesman is skipped
-    // even if they have a phone.
     for (const a of admins) {
       if (a.whatsappNumber) {
         recipients.push({ role: "admin", name: a.name, whatsappNumber: a.whatsappNumber });
@@ -148,7 +157,6 @@ export async function sendSalesmanReport(opts: {
       };
     }
   } else {
-    // Default — salesman + (for midday/evening) admins.
     if (!status.salesman_phone) {
       return {
         ok: false,
@@ -175,7 +183,6 @@ export async function sendSalesmanReport(opts: {
     }
   }
 
-  // Render + upload
   let storagePath = "";
   let signedUrl = "";
   try {
@@ -198,7 +205,6 @@ export async function sendSalesmanReport(opts: {
     };
   }
 
-  // Send to each recipient
   const bodyVars = buildBodyVariables(reportType, status);
   if (!bodyVars) {
     return {
@@ -238,9 +244,6 @@ export async function sendSalesmanReport(opts: {
   const allOk = results.every((r) => r.ok);
   const someFailed = results.some((r) => !r.ok);
 
-  // Log: only for default mode. Admin-only sends are test deliveries and we
-  // don't want them to pollute the official daily_sales_reports log (which
-  // Phase 6 dashboards will read).
   if (mode === "default") {
     const salesmanResult = results.find((r) => r.recipient.role === "salesman");
     await logReport({
