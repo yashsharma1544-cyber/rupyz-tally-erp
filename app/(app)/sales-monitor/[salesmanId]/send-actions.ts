@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { sendSalesmanReport, getAdminRecipients } from "@/lib/sales-monitor/send";
+import { sendSalesmanReport, getAdminRecipients, type SendMode } from "@/lib/sales-monitor/send";
 import type { PdfReportType } from "@/lib/sales-monitor/pdf/render";
 
 async function requireAdmin() {
@@ -27,6 +27,7 @@ export type SendActionRecipient = {
 export type SendActionResult = {
   ok: boolean;
   reportType?: PdfReportType;
+  mode?: SendMode;
   recipients?: SendActionRecipient[];
   error?: string;
 };
@@ -35,6 +36,7 @@ export async function sendReportNow(
   salesmanId: string,
   date: string,
   reportType: PdfReportType,
+  mode: SendMode = "default",
 ): Promise<SendActionResult> {
   try {
     await requireAdmin();
@@ -44,6 +46,9 @@ export async function sendReportNow(
     if (!["morning", "midday", "evening"].includes(reportType)) {
       return { ok: false, error: "Invalid report type" };
     }
+    if (!["default", "admin_only"].includes(mode)) {
+      return { ok: false, error: "Invalid send mode" };
+    }
 
     const admins = await getAdminRecipients();
     const outcome = await sendSalesmanReport({
@@ -51,21 +56,20 @@ export async function sendReportNow(
       date,
       reportType,
       admins,
+      mode,
     });
 
     revalidatePath(`/sales-monitor/${salesmanId}`);
     revalidatePath("/sales-monitor");
 
-    // Hard failure — no recipients attempted (e.g. PDF render failed, no phone).
     if (outcome.recipients.length === 0) {
-      return { ok: false, error: outcome.error || "Send failed", reportType };
+      return { ok: false, error: outcome.error || "Send failed", reportType, mode };
     }
 
-    // Attempted — may have partial failure. Include recipients so the UI can
-    // show per-recipient status.
     return {
       ok: outcome.ok,
       reportType,
+      mode,
       recipients: outcome.recipients.map((r) => ({
         role: r.recipient.role,
         name: r.recipient.name,

@@ -9,6 +9,10 @@
  * Used by:
  *   - Server actions (manual "Send now" from admin UI)         — Phase 4
  *   - Cron endpoints (8 AM / 1 PM / 7:30 PM IST)                — Phase 5
+ *
+ * Modes:
+ *   "default"    — production behaviour: morning → salesman, midday/evening → salesman + admins
+ *   "admin_only" — test send: ignores the salesman, sends to admins only (any report type)
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -27,6 +31,8 @@ function getAdminClient(): SupabaseClient {
   adminClientCache = createClient(url, serviceRole, { auth: { persistSession: false } });
   return adminClientCache;
 }
+
+export type SendMode = "default" | "admin_only";
 
 export type SendRecipient = {
   role: "salesman" | "admin";
@@ -52,14 +58,6 @@ export type SendReportOutcome = {
   error: string | null;
 };
 
-/**
- * Build the body variable list for a given template + status.
- *
- * Templates approved with WATi:
- *   sales_morning_briefing   — 4 vars: name, beat, sc, target_kg
- *   sales_midday_update      — 4 vars: name, date, calls_summary, kg_summary
- *   sales_evening_final      — 4 vars: name, date, calls_summary, kg_summary
- */
 function buildBodyVariables(
   type: PdfReportType,
   status: Awaited<ReturnType<typeof getSalesmanDayStatus>>,
@@ -91,7 +89,6 @@ function buildBodyVariables(
       ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
       : `${formatKg(status.kg_done)} kg`;
 
-  // Mid-day and evening use the same 4-variable shape
   return [status.salesman_name, dateLabel, callsStr, kgStr];
 }
 
@@ -103,22 +100,16 @@ function templateNameFor(type: PdfReportType): string {
       : WATI_TEMPLATES.evening;
 }
 
-/**
- * Send a single report for a single salesman to all relevant recipients.
- *
- * Morning: salesman only.
- * Mid-day / Evening: salesman + provided admins.
- */
 export async function sendSalesmanReport(opts: {
   salesmanId: string;
   date: string;
   reportType: PdfReportType;
   admins: { name: string; whatsappNumber: string }[];
+  mode?: SendMode;
 }): Promise<SendReportOutcome> {
   const { salesmanId, date, reportType, admins } = opts;
-  const admin = getAdminClient();
+  const mode: SendMode = opts.mode || "default";
 
-  // 1. Status data
   const status = await getSalesmanDayStatus(salesmanId, date);
   if (!status) {
     return {
@@ -133,32 +124,58 @@ export async function sendSalesmanReport(opts: {
     };
   }
 
-  if (!status.salesman_phone) {
-    return {
-      ok: false,
-      salesmanId,
-      date,
-      reportType,
-      storagePath: null,
-      signedUrl: null,
-      recipients: [],
-      error: "Salesman has no phone — cannot send WhatsApp",
-    };
-  }
+  // Build the recipient list per mode.
+  const recipients: SendRecipient[] = [];
 
-  // Build recipient list. Morning = salesman only. Mid-day + evening = salesman + admins.
-  const recipients: SendRecipient[] = [
-    { role: "salesman", name: status.salesman_name, whatsappNumber: status.salesman_phone },
-  ];
-  if (reportType !== "morning") {
+  if (mode === "admin_only") {
+    // Test send — admins only, regardless of report type. Salesman is skipped
+    // even if they have a phone.
     for (const a of admins) {
       if (a.whatsappNumber) {
         recipients.push({ role: "admin", name: a.name, whatsappNumber: a.whatsappNumber });
       }
     }
+    if (recipients.length === 0) {
+      return {
+        ok: false,
+        salesmanId,
+        date,
+        reportType,
+        storagePath: null,
+        signedUrl: null,
+        recipients: [],
+        error: "No admin recipients with phone — set phone on your app_users row",
+      };
+    }
+  } else {
+    // Default — salesman + (for midday/evening) admins.
+    if (!status.salesman_phone) {
+      return {
+        ok: false,
+        salesmanId,
+        date,
+        reportType,
+        storagePath: null,
+        signedUrl: null,
+        recipients: [],
+        error: "Salesman has no phone — cannot send WhatsApp",
+      };
+    }
+    recipients.push({
+      role: "salesman",
+      name: status.salesman_name,
+      whatsappNumber: status.salesman_phone,
+    });
+    if (reportType !== "morning") {
+      for (const a of admins) {
+        if (a.whatsappNumber) {
+          recipients.push({ role: "admin", name: a.name, whatsappNumber: a.whatsappNumber });
+        }
+      }
+    }
   }
 
-  // 2. PDF + upload
+  // Render + upload
   let storagePath = "";
   let signedUrl = "";
   try {
@@ -181,7 +198,7 @@ export async function sendSalesmanReport(opts: {
     };
   }
 
-  // 3. WATi sends
+  // Send to each recipient
   const bodyVars = buildBodyVariables(reportType, status);
   if (!bodyVars) {
     return {
@@ -198,7 +215,7 @@ export async function sendSalesmanReport(opts: {
 
   const templateName = templateNameFor(reportType);
   const filename = pdfFilename(reportType, status.salesman_name, date);
-  const broadcastName = `${reportType}_${date}_${salesmanId.slice(0, 8)}`;
+  const broadcastName = `${reportType}_${date}_${salesmanId.slice(0, 8)}${mode === "admin_only" ? "_test" : ""}`;
 
   const results: SendResult[] = [];
   for (const r of recipients) {
@@ -221,20 +238,23 @@ export async function sendSalesmanReport(opts: {
   const allOk = results.every((r) => r.ok);
   const someFailed = results.some((r) => !r.ok);
 
-  // 4. Log to daily_sales_reports — one row per (salesman, date, type).
-  //    Status reflects the salesman-recipient outcome (the primary one).
-  const salesmanResult = results.find((r) => r.recipient.role === "salesman");
-  await logReport({
-    salesmanId,
-    date,
-    reportType,
-    status: salesmanResult?.ok ? "sent" : "failed",
-    storagePath,
-    messageId: salesmanResult?.messageId ?? null,
-    error: someFailed
-      ? results.filter((r) => !r.ok).map((r) => `${r.recipient.role}: ${r.error}`).join("; ")
-      : null,
-  });
+  // Log: only for default mode. Admin-only sends are test deliveries and we
+  // don't want them to pollute the official daily_sales_reports log (which
+  // Phase 6 dashboards will read).
+  if (mode === "default") {
+    const salesmanResult = results.find((r) => r.recipient.role === "salesman");
+    await logReport({
+      salesmanId,
+      date,
+      reportType,
+      status: salesmanResult?.ok ? "sent" : "failed",
+      storagePath,
+      messageId: salesmanResult?.messageId ?? null,
+      error: someFailed
+        ? results.filter((r) => !r.ok).map((r) => `${r.recipient.role}: ${r.error}`).join("; ")
+        : null,
+    });
+  }
 
   return {
     ok: allOk,
@@ -272,8 +292,6 @@ async function logReport(opts: {
     { onConflict: "salesman_id,report_date,report_type" },
   );
 
-  // Bump attempts via a small RPC-less update (read + write).
-  // Simpler: increment via .update with arithmetic done client-side.
   const { data: existing } = await admin
     .from("daily_sales_reports")
     .select("attempts")
@@ -291,9 +309,6 @@ async function logReport(opts: {
   }
 }
 
-/**
- * Fetch all admin recipients (app_users with role='admin' and phone set).
- */
 export async function getAdminRecipients(): Promise<
   { name: string; whatsappNumber: string }[]
 > {
