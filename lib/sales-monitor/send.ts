@@ -1,13 +1,15 @@
 /**
  * End-to-end send orchestration for sales monitor reports.
  *
- * Variable counts match each approved WATi template:
- *   morning  — 4 vars: name, beat, sc, target_kg
- *   midday   — 4 vars: name, date, calls_str, kg_str (revised 4-var template)
- *   evening  — 6 vars: name, date, calls, kg_sold, percent, kg_target (original 6-var template)
+ * All three templates are 4 variables:
+ *   morning  — name, beat, scheduled_calls, target_kg
+ *   midday   — name, date, calls_compound, volume_compound
+ *   evening  — name, date, calls_compound, volume_compound (identical shape to midday)
  *
- * If you later resubmit the evening template as a 4-var version for consistency,
- * change buildBodyVariables() to match.
+ * Live template names (approved as Utility):
+ *   sales_morning_briefing_v4
+ *   sales_midday_update_v3
+ *   sales_evening_final_v2
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -64,7 +66,7 @@ function buildBodyVariables(
     year: "numeric",
   });
 
-  // Morning: 4 vars — name, beat, sc, target_kg
+  // Morning: 4 vars — name, beat, scheduled_calls, target_kg
   if (type === "morning") {
     return [
       status.salesman_name,
@@ -74,34 +76,18 @@ function buildBodyVariables(
     ];
   }
 
-  // Midday: 4 vars — name, date, calls_str, kg_str (compound strings)
-  if (type === "midday") {
-    const callsPct = pct(status.calls_done, status.sc);
-    const kgPct = pct(status.kg_done, status.target_kg);
-    const callsStr =
-      status.sc > 0
-        ? `${status.calls_done} of ${status.sc} customers${callsPct !== null ? ` (${callsPct}%)` : ""}`
-        : `${status.calls_done} customers`;
-    const kgStr =
-      status.target_kg != null && status.target_kg > 0
-        ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
-        : `${formatKg(status.kg_done)} kg`;
-    return [status.salesman_name, dateLabel, callsStr, kgStr];
-  }
-
-  // Evening: 6 vars — name, date, total_calls, kg_sold, percent, kg_target
-  // Matches the approved 6-variable template body:
-  //   End-of-day report for {{1}} on {{2}}. Total calls: {{3}}.
-  //   Sales: {{4}} kg ({{5}}% of {{6}} kg target). Day statistics attached.
+  // Midday + Evening: identical 4-var shape — name, date, calls compound, volume compound
+  const callsPct = pct(status.calls_done, status.sc);
   const kgPct = pct(status.kg_done, status.target_kg);
-  return [
-    status.salesman_name,                                        // {{1}} name
-    dateLabel,                                                   // {{2}} date
-    String(status.calls_done),                                   // {{3}} total calls
-    formatKg(status.kg_done),                                    // {{4}} kg sold (no unit, template has "kg" literal)
-    kgPct !== null ? String(kgPct) : "0",                        // {{5}} percent (no % sign, template has it)
-    status.target_kg != null ? formatKg(status.target_kg) : "0", // {{6}} kg target
-  ];
+  const callsStr =
+    status.sc > 0
+      ? `${status.calls_done} of ${status.sc} customers${callsPct !== null ? ` (${callsPct}%)` : ""}`
+      : `${status.calls_done} customers`;
+  const kgStr =
+    status.target_kg != null && status.target_kg > 0
+      ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
+      : `${formatKg(status.kg_done)} kg`;
+  return [status.salesman_name, dateLabel, callsStr, kgStr];
 }
 
 function templateNameFor(type: PdfReportType): string {
