@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Check, AlertCircle, Phone, MapPin, Target, Users, TrendingUp } from "lucide-react";
-import { getSalesmanDayStatus, formatKg, pct, type FocusCustomer } from "@/lib/sales-monitor/compute";
+import { getSalesmanDayStatus } from "@/lib/sales-monitor/compute";
+import { formatKg, pct, type FocusCustomer } from "@/lib/sales-monitor/format";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,6 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
     );
   }
 
-  // Resolve date
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const todayISO = istNow.toISOString().slice(0, 10);
   const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)
@@ -81,7 +81,6 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
         </div>
       ) : (
         <>
-          {/* Beat + target summary */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
             <BigStat
               icon={<MapPin size={14} />}
@@ -104,7 +103,6 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
             />
           </div>
 
-          {/* Progress */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
             <Progress
               icon={<Users size={14} />}
@@ -124,7 +122,6 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
             />
           </div>
 
-          {/* Check-in */}
           <div className="border border-paper-line rounded p-3 bg-paper-card mb-5 flex items-center gap-3">
             {status.checked_in_at ? (
               <>
@@ -149,7 +146,6 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
             )}
           </div>
 
-          {/* Focus customer lists */}
           <FocusList
             title="Focus: didn't order on last beat visit"
             subtitle={

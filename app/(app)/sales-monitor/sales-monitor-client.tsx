@@ -11,8 +11,8 @@ import {
   deleteTarget,
   copyFromYesterday,
 } from "./actions";
-import type { SalesmanSummaryRow } from "@/lib/sales-monitor/compute";
-import { formatKg, pct } from "@/lib/sales-monitor/compute";
+import type { SalesmanSummaryRow } from "@/lib/sales-monitor/format";
+import { formatKg, pct } from "@/lib/sales-monitor/format";
 
 type Beat = { id: string; name: string; city: string | null };
 
@@ -34,7 +34,6 @@ export function SalesMonitorClient({
   const router = useRouter();
   const [, startTransition] = useTransition();
 
-  // Local edit state — only set when the user has changed something.
   const [beatEdits, setBeatEdits] = useState<Record<string, string>>({});
   const [targetEdits, setTargetEdits] = useState<Record<string, string>>({});
   const [flash, setFlash] = useState<Record<string, "saved" | "error">>({});
@@ -141,7 +140,6 @@ export function SalesMonitorClient({
     });
   }
 
-  // Roll-up stats
   const totalAssigned = summary.filter(r => r.beat_id).length;
   const totalTargets  = summary.filter(r => r.target_kg != null).length;
   const totalCheckedIn = summary.filter(r => r.checked_in_at).length;
