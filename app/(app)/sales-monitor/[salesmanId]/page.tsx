@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { getSalesmanDayStatus } from "@/lib/sales-monitor/compute";
 import { formatKg, pct, type FocusCustomer } from "@/lib/sales-monitor/format";
+import { SendButtons } from "./send-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,9 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
         ))}
       </div>
 
+      {/* Send Now (WhatsApp via WATi) */}
+      <SendButtons salesmanId={params.salesmanId} date={date} />
+
       {!status.has_assignment ? (
         <div className="border border-paper-line rounded p-6 text-center bg-paper-card">
           <AlertCircle size={20} className="text-ink-subtle mx-auto mb-2" />
@@ -184,7 +188,7 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
                 </div>
                 <div>
                   <div className="text-sm font-medium">Not checked in {isToday ? "yet" : "on this day"}</div>
-                  <div className="text-xs text-ink-subtle">Triggered when salesman taps "Checked in" on morning WhatsApp (Phase 4).</div>
+                  <div className="text-xs text-ink-subtle">Triggered when salesman taps "Checked in" on morning WhatsApp.</div>
                 </div>
               </>
             )}
@@ -216,9 +220,9 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
       )}
 
       <div className="mt-6 p-3 border border-dashed border-paper-line rounded text-2xs text-ink-subtle leading-relaxed">
-        <strong className="text-ink-muted">Phase 3 live.</strong>{" "}
-        Click any PDF button above to preview the exact file that'll be sent via WhatsApp (Phase 4). Once you sign off
-        on the layouts, we wire WATi.
+        <strong className="text-ink-muted">Phase 4 live.</strong>{" "}
+        "Send now" triggers a real WhatsApp delivery via WATi. Once you've confirmed delivery, Phase 5 wires automatic
+        sends at 8 AM / 1 PM / 7:30 PM IST.
       </div>
     </div>
   );
