@@ -1,7 +1,19 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Check, AlertCircle, Phone, MapPin, Target, Users, TrendingUp } from "lucide-react";
+import {
+  ArrowLeft,
+  Calendar,
+  Check,
+  AlertCircle,
+  Phone,
+  MapPin,
+  Target,
+  Users,
+  TrendingUp,
+  FileText,
+  Download,
+} from "lucide-react";
 import { getSalesmanDayStatus } from "@/lib/sales-monitor/compute";
 import { formatKg, pct, type FocusCustomer } from "@/lib/sales-monitor/format";
 
@@ -44,6 +56,14 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
   const callsPct = pct(status.calls_done, status.sc);
   const kgPct    = pct(status.kg_done, status.target_kg);
 
+  const pdfBase = `/api/sales-monitor/pdf`;
+  const pdfQuery = `?date=${date}`;
+  const pdfLinks = [
+    { type: "morning", label: "Morning briefing" },
+    { type: "midday",  label: "Mid-day report" },
+    { type: "evening", label: "Evening report" },
+  ] as const;
+
   return (
     <div className="max-w-4xl mx-auto p-4 lg:p-6">
       <Link
@@ -67,6 +87,30 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
             )}
           </div>
         </div>
+      </div>
+
+      {/* PDF preview bar */}
+      <div className="mb-5 flex items-center gap-2 flex-wrap p-2 border border-paper-line rounded bg-paper-card">
+        <span className="text-xs text-ink-subtle px-1.5">PDF preview:</span>
+        {pdfLinks.map(({ type, label }) => (
+          <div key={type} className="flex items-center">
+            <a
+              href={`${pdfBase}/${type}/${params.salesmanId}${pdfQuery}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-paper-line rounded-l hover:bg-paper-subtle transition-colors"
+            >
+              <FileText size={12} className="text-ink-subtle" /> {label}
+            </a>
+            <a
+              href={`${pdfBase}/${type}/${params.salesmanId}${pdfQuery}&download=1`}
+              className="inline-flex items-center text-xs px-2 py-1.5 border border-paper-line border-l-0 rounded-r hover:bg-paper-subtle transition-colors"
+              title="Download"
+            >
+              <Download size={12} className="text-ink-subtle" />
+            </a>
+          </div>
+        ))}
       </div>
 
       {!status.has_assignment ? (
@@ -172,8 +216,9 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
       )}
 
       <div className="mt-6 p-3 border border-dashed border-paper-line rounded text-2xs text-ink-subtle leading-relaxed">
-        This page previews exactly what'll go into <strong>morning briefing</strong> and{" "}
-        <strong>end-of-day</strong> PDF reports (Phase 3). Sanity-check the focus lists, then we ship the PDF generator.
+        <strong className="text-ink-muted">Phase 3 live.</strong>{" "}
+        Click any PDF button above to preview the exact file that'll be sent via WhatsApp (Phase 4). Once you sign off
+        on the layouts, we wire WATi.
       </div>
     </div>
   );
