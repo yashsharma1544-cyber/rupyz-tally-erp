@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n/context";
 import { bulkDispatchByBeat, dispatchSelectedOrders } from "@/app/(app)/dispatches/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 
@@ -47,6 +48,7 @@ export function BeatDispatchClient({
   isNoBeatTile?: boolean;
 }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [showBulk, setShowBulk] = useState(false);
   const [vehicle, setVehicle] = useState("");
 
@@ -79,13 +81,18 @@ export function BeatDispatchClient({
   const totalAmount = orders.reduce((s, o) => s + o.totalAmount, 0);
 
   const selectedHelper = helpers.find(h => h.id === helperId);
+  const orderWordSingle = t("common.order");
+  const orderWordPlural = t("common.orders");
 
   function handleBulk() {
     if (!canBulk) {
-      toast.error("Vehicle # and driver are required");
+      toast.error(t("beat.toast_vehicle_driver_required"));
       return;
     }
-    if (!confirm(`Dispatch all ${totalOrders} orders for ${beat.name}? This creates ${totalOrders} dispatch records, all with the same vehicle/driver${helperId ? "/helper" : ""}.`)) return;
+    const confirmMsg = helperId
+      ? t("beat.bulk_confirm_with_helper", { n: totalOrders, beat: beat.name })
+      : t("beat.bulk_confirm", { n: totalOrders, beat: beat.name });
+    if (!confirm(confirmMsg)) return;
 
     startTransition(async () => {
       let res;
@@ -115,19 +122,22 @@ export function BeatDispatchClient({
       }
       const firstFailureErr = res.results?.find(r => !r.ok)?.error;
       if (res.succeeded === 0) {
-        toast.error(firstFailureErr ?? `All ${res.total} dispatches failed`, {
+        toast.error(firstFailureErr ?? t("truck_wizard.toast_all_failed", { total: res.total }), {
           duration: 12000,
-          description: firstFailureErr ? `${res.failed} of ${res.total} orders failed` : undefined,
+          description: firstFailureErr ? t("truck_wizard.toast_n_of_m_failed", { failed: res.failed, total: res.total }) : undefined,
         });
         return;
       }
       if (res.failed && res.failed > 0) {
         toast.warning(
-          `${res.succeeded} of ${res.total} dispatched · ${res.failed} failed`,
+          t("truck_wizard.toast_n_of_m_dispatched", { succeeded: res.succeeded, total: res.total, failed: res.failed }),
           { description: firstFailureErr, duration: 10000 },
         );
       } else {
-        toast.success(`${res.succeeded} orders dispatched`);
+        const msg = res.succeeded === 1
+          ? t("truck_wizard.toast_succeeded_one", { n: res.succeeded })
+          : t("truck_wizard.toast_succeeded_many", { n: res.succeeded });
+        toast.success(msg);
       }
       setShowBulk(false);
       router.refresh();
@@ -139,24 +149,30 @@ export function BeatDispatchClient({
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
         <Link href="/dispatch" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-          <ArrowLeft size={11}/> All beats
+          <ArrowLeft size={11}/> {t("beat.all_beats")}
         </Link>
         <h1 className="text-base font-bold leading-tight inline-flex items-center gap-1.5">
           {isNoBeatTile && <AlertTriangle size={14} className="text-warn"/>}
           {beat.name}
         </h1>
         <p className="text-2xs text-ink-muted mb-3">
-          {totalOrders} order{totalOrders === 1 ? "" : "s"} · {formatKg(totalKg)} · {formatINR(totalAmount)}
+          {totalOrders} {totalOrders === 1 ? orderWordSingle : orderWordPlural} · {formatKg(totalKg)} · {formatINR(totalAmount)}
         </p>
 
         {isNoBeatTile && (
           <div className="bg-warn-soft border border-warn/40 rounded-md p-2.5 mb-3 text-xs">
             <div className="font-semibold inline-flex items-center gap-1 mb-1">
-              <AlertTriangle size={11} className="text-warn"/> Customers without beat assignment
+              <AlertTriangle size={11} className="text-warn"/> {t("beat.no_beat_warn_title")}
             </div>
             <p className="text-ink-muted">
-              These customers don&apos;t belong to any beat yet. Dispatch them one at a time below, in bulk, or use &ldquo;Load a truck&rdquo;.
-              Fix beat assignment in <Link href="/customers" className="text-accent hover:underline">Customers</Link>.
+              {t("beat.no_beat_warn_body", { customersLink: "__CUSTOMERS_LINK__" }).split("__CUSTOMERS_LINK__").map((part, i, arr) => (
+                <span key={i}>
+                  {part}
+                  {i < arr.length - 1 && (
+                    <Link href="/customers" className="text-accent hover:underline">{t("beat.customers_link")}</Link>
+                  )}
+                </span>
+              ))}
             </p>
           </div>
         )}
@@ -168,13 +184,15 @@ export function BeatDispatchClient({
               onClick={() => setShowBulk(true)}
               disabled={pending}
             >
-              <Truck size={13}/> Dispatch all {totalOrders} orders
+              <Truck size={13}/> {totalOrders === 1
+                ? t("beat.dispatch_all_n_one", { n: totalOrders })
+                : t("beat.dispatch_all_n_many", { n: totalOrders })}
             </Button>
             <Link
               href={`/dispatch/load-truck${!isNoBeatTile ? `?beat=${beat.id}` : ""}`}
               className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-accent/40 text-accent text-sm font-medium hover:bg-accent-soft active:bg-accent-soft/80 transition-colors"
             >
-              <Truck size={13}/> Load a truck (pick orders)
+              <Truck size={13}/> {t("beat.load_truck_pick")}
             </Link>
           </>
         )}
@@ -182,13 +200,13 @@ export function BeatDispatchClient({
         {orders.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Package size={28} className="mx-auto text-ink-subtle mb-2"/>
-            <p className="font-semibold text-sm mb-0.5">Nothing to dispatch in this beat</p>
-            <p className="text-xs text-ink-muted">When admin approves orders, they&apos;ll show here.</p>
+            <p className="font-semibold text-sm mb-0.5">{t("beat.nothing_in_beat")}</p>
+            <p className="text-xs text-ink-muted">{t("beat.empty_desc")}</p>
           </div>
         ) : (
           <div className="space-y-2">
             <p className="text-2xs uppercase tracking-wide text-ink-muted">
-              Or dispatch one at a time
+              {t("beat.or_dispatch_one")}
             </p>
             {orders.map(o => (
               <Link
@@ -202,15 +220,15 @@ export function BeatDispatchClient({
                     <div className="text-2xs text-ink-muted mt-0.5">
                       <span className="font-mono">{o.rupyzOrderId}</span>
                       {o.customerCity && <> · {o.customerCity}</>}
-                      {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">partly sent</span></>}
-                      {o.appStatus === "loaded" && <> · <span className="text-accent">loaded</span></>}
+                      {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">{t("status.partly_sent_inline")}</span></>}
+                      {o.appStatus === "loaded" && <> · <span className="text-accent">{t("status.loaded_inline")}</span></>}
                     </div>
                     <div className="text-2xs text-ink-muted mt-0.5">
                       <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
                       <span className="text-ink-subtle"> · </span>
                       <span className="tabular">{formatINR(o.totalAmount)}</span>
                       <span className="text-ink-subtle"> · </span>
-                      <span>{o.itemCount} item{o.itemCount === 1 ? "" : "s"}</span>
+                      <span>{o.itemCount} {o.itemCount === 1 ? t("common.item") : t("common.items")}</span>
                     </div>
                   </div>
                   <ChevronRight size={14} className="text-ink-subtle shrink-0"/>
@@ -234,13 +252,19 @@ export function BeatDispatchClient({
           >
             <div className="flex items-center gap-2 mb-1">
               <Truck size={16} className="text-accent"/>
-              <h2 className="font-semibold">Dispatch all orders</h2>
+              <h2 className="font-semibold">{t("beat.bulk_title")}</h2>
             </div>
             <p className="text-xs text-ink-muted mb-3">
-              Creates {totalOrders} dispatch{totalOrders === 1 ? "" : "es"} with full quantities, all with the same vehicle{helperId ? ", driver, and helper" : " and driver"}.
+              {helperId
+                ? (totalOrders === 1
+                  ? t("beat.bulk_desc_with_helper_one", { n: totalOrders })
+                  : t("beat.bulk_desc_with_helper_many", { n: totalOrders }))
+                : (totalOrders === 1
+                  ? t("beat.bulk_desc_one", { n: totalOrders })
+                  : t("beat.bulk_desc_many", { n: totalOrders }))}
             </p>
 
-            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Vehicle # *</Label>
+            <Label className="text-2xs uppercase tracking-wide text-ink-muted">{t("truck_wizard.vehicle_label")} *</Label>
             <Input
               className="mt-1 mb-3"
               placeholder="MH-20 AB 1234"
@@ -249,7 +273,7 @@ export function BeatDispatchClient({
               autoFocus
             />
 
-            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver *</Label>
+            <Label className="text-2xs uppercase tracking-wide text-ink-muted">{t("truck_wizard.driver_label")} *</Label>
             {drivers.length > 0 && (
               <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
                 <button
@@ -261,7 +285,7 @@ export function BeatDispatchClient({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Pick driver
+                  {t("truck_wizard.pick_driver")}
                 </button>
                 <button
                   type="button"
@@ -272,7 +296,7 @@ export function BeatDispatchClient({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Other driver
+                  {t("truck_wizard.other_driver")}
                 </button>
               </div>
             )}
@@ -283,7 +307,7 @@ export function BeatDispatchClient({
                 value={driverId}
                 onChange={(e) => pickRegisteredDriver(e.target.value)}
               >
-                <option value="">— Select a driver —</option>
+                <option value="">{t("truck_wizard.select_driver_placeholder")}</option>
                 {drivers.map(d => (
                   <option key={d.id} value={d.id}>
                     {d.name}{d.phone ? ` · ${d.phone}` : ""}
@@ -293,13 +317,13 @@ export function BeatDispatchClient({
             ) : (
               <Input
                 className="mt-1 mb-3"
-                placeholder="e.g. Ramesh"
+                placeholder={t("truck_wizard.driver_eg")}
                 value={driver}
                 onChange={e => setDriver(e.target.value)}
               />
             )}
 
-            <Label className="text-2xs uppercase tracking-wide text-ink-muted">Driver phone (optional)</Label>
+            <Label className="text-2xs uppercase tracking-wide text-ink-muted">{t("truck_wizard.driver_phone_label")} {t("common.optional_paren")}</Label>
             <Input
               className="mt-1 mb-4"
               placeholder={driverMode === "registered" && driverId ? "" : "9876543210"}
@@ -312,14 +336,14 @@ export function BeatDispatchClient({
             {helpers.length > 0 ? (
               <>
                 <Label className="text-2xs uppercase tracking-wide text-ink-muted inline-flex items-center gap-1">
-                  <UserPlus size={10}/> Helper (optional)
+                  <UserPlus size={10}/> {t("truck_wizard.helper_label")} {t("common.optional_paren")}
                 </Label>
                 <select
                   className="w-full mt-1 mb-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
                   value={helperId}
                   onChange={(e) => setHelperId(e.target.value)}
                 >
-                  <option value="">— No helper —</option>
+                  <option value="">{t("truck_wizard.no_helper_placeholder")}</option>
                   {helpers.map(h => (
                     <option key={h.id} value={h.id}>
                       {h.name}{h.phone ? ` · ${h.phone}` : ""}
@@ -328,14 +352,14 @@ export function BeatDispatchClient({
                 </select>
                 {selectedHelper && (
                   <p className="text-2xs text-ink-muted mb-3">
-                    {selectedHelper.name} will see all {totalOrders} dispatches.
+                    {t("beat.helper_will_see_n", { name: selectedHelper.name, n: totalOrders })}
                   </p>
                 )}
                 {!selectedHelper && <div className="mb-3"/>}
               </>
             ) : (
               <p className="text-2xs text-ink-subtle italic mb-3">
-                No helpers configured. Add helpers in Users with role &lsquo;van_helper&rsquo;.
+                {t("beat.no_helpers_add")}
               </p>
             )}
 
@@ -346,14 +370,14 @@ export function BeatDispatchClient({
                 disabled={pending}
                 className="sm:flex-1"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 disabled={!canBulk || pending}
                 onClick={handleBulk}
                 className="sm:flex-1"
               >
-                <Truck size={11}/> {pending ? "Dispatching…" : `Dispatch ${totalOrders}`}
+                <Truck size={11}/> {pending ? t("truck_wizard.dispatching") : t("beat.dispatch_n", { n: totalOrders })}
               </Button>
             </div>
           </div>

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/input";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { useTranslation } from "@/lib/i18n/context";
 import { getPhotoUploadUrl, markDelivered } from "@/app/(app)/dispatches/actions";
 
 interface DispatchStop {
@@ -44,6 +45,7 @@ function formatINR(n: number): string {
 
 export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -87,11 +89,11 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
 
   function handleMarkDelivered() {
     if (!photoFile) {
-      toast.error("Please capture a photo first");
+      toast.error(t("driver_stop.toast_capture_photo_first"));
       return;
     }
     if (!isShipped) {
-      toast.error("This delivery isn't ready — wait for dispatcher to dispatch the truck");
+      toast.error(t("driver_stop.toast_not_ready"));
       return;
     }
 
@@ -103,12 +105,12 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         // 2. Get signed upload URL
         const uploadInfo = await getPhotoUploadUrl(dispatch.id);
         if ("error" in uploadInfo && uploadInfo.error) {
-          toast.error(`Upload prep failed: ${uploadInfo.error}`);
+          toast.error(t("driver_stop.toast_upload_prep_failed", { error: uploadInfo.error }));
           return;
         }
         // After the guard, narrow to success branch
         if (!("ok" in uploadInfo) || !uploadInfo.objectName || !uploadInfo.token) {
-          toast.error("Upload prep returned an unexpected response");
+          toast.error(t("driver_stop.toast_upload_prep_unexpected"));
           return;
         }
         const { objectName, token } = uploadInfo;
@@ -121,7 +123,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
             contentType: photoFile.type || "image/jpeg",
           });
         if (upErr) {
-          toast.error(`Photo upload failed: ${upErr.message}`);
+          toast.error(t("driver_stop.toast_photo_upload_failed", { error: upErr.message }));
           return;
         }
 
@@ -142,10 +144,10 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           toast.error(res.error);
           return;
         }
-        toast.success(`${dispatch.customer.name} marked delivered`);
+        toast.success(t("driver_stop.toast_marked_delivered", { customer: dispatch.customer.name }));
         router.push("/driver");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Something went wrong");
+        toast.error(e instanceof Error ? e.message : t("driver_stop.toast_something_wrong"));
       }
     });
   }
@@ -154,7 +156,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
     <div className="min-h-screen bg-paper pb-32">
       <div className="max-w-md mx-auto px-3 py-4">
         <Link href="/driver" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-          <ArrowLeft size={11}/> Back to deliveries
+          <ArrowLeft size={11}/> {t("driver_stop.back_to_deliveries")}
         </Link>
 
         {/* Customer header */}
@@ -183,15 +185,15 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         {/* Status banner if pending */}
         {!isShipped && (
           <div className="mt-3 bg-warn-soft border border-warn/40 rounded-md p-3 text-xs text-ink">
-            <strong className="block mb-0.5">Truck still loading</strong>
-            This stop isn&apos;t ready to deliver yet. Wait for the dispatcher to mark the truck dispatched.
+            <strong className="block mb-0.5">{t("driver_stop.truck_still_loading_title")}</strong>
+            {t("driver_stop.truck_still_loading_body")}
           </div>
         )}
 
         {/* Items */}
         <div className="mt-4">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            Items on this stop · {dispatch.totalQty} units · {formatINR(dispatch.totalAmount)}
+            {t("driver_stop.items_header", { qty: dispatch.totalQty, amount: formatINR(dispatch.totalAmount) })}
           </h2>
           <div className="bg-paper-card border border-paper-line rounded divide-y divide-paper-line">
             {dispatch.items.map(it => (
@@ -204,7 +206,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
               </div>
             ))}
             {dispatch.items.length === 0 && (
-              <div className="px-3 py-4 text-center text-sm text-ink-muted">No items.</div>
+              <div className="px-3 py-4 text-center text-sm text-ink-muted">{t("driver_stop.no_items")}</div>
             )}
           </div>
         </div>
@@ -212,24 +214,24 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         {/* Optional fields */}
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
-            Delivery details
+            {t("driver_stop.delivery_details")}
           </h2>
           <div>
-            <Label className="text-xs text-ink-muted">Receiver name</Label>
+            <Label className="text-xs text-ink-muted">{t("driver_stop.receiver_name")}</Label>
             <Input
               className="mt-1"
-              placeholder="Who received it? (optional)"
+              placeholder={t("driver_stop.receiver_name_placeholder")}
               value={receiverName}
               onChange={e => setReceiverName(e.target.value)}
               disabled={!isShipped || pending}
             />
           </div>
           <div>
-            <Label className="text-xs text-ink-muted">Notes</Label>
+            <Label className="text-xs text-ink-muted">{t("common.notes")}</Label>
             <Textarea
               className="mt-1"
               rows={2}
-              placeholder="Anything to note (optional)"
+              placeholder={t("driver_stop.notes_placeholder")}
               value={notes}
               onChange={e => setNotes(e.target.value)}
               disabled={!isShipped || pending}
@@ -240,7 +242,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         {/* Photo capture */}
         <div className="mt-5 pt-4 border-t border-paper-line">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            Proof of delivery photo
+            {t("driver_stop.pod_photo")}
           </h2>
 
           {/* Hidden file input — opens native camera on phone */}
@@ -261,8 +263,8 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
               className="w-full bg-paper-card border-2 border-dashed border-paper-line rounded-md p-8 hover:bg-paper-subtle/40 active:bg-paper-subtle disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center"
             >
               <Camera size={32} className="mx-auto text-ink-subtle mb-2"/>
-              <p className="text-sm font-semibold">Tap to take photo</p>
-              <p className="text-2xs text-ink-muted mt-1">Required to mark delivered</p>
+              <p className="text-sm font-semibold">{t("driver_stop.tap_to_take_photo")}</p>
+              <p className="text-2xs text-ink-muted mt-1">{t("driver_stop.required_to_mark")}</p>
             </button>
           ) : (
             <div className="relative bg-paper-card border border-paper-line rounded-md overflow-hidden">
@@ -275,7 +277,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
                   disabled={pending}
                   className="flex-1 text-xs text-ink-muted hover:text-ink inline-flex items-center justify-center gap-1 py-2"
                 >
-                  <RotateCcw size={11}/> Retake
+                  <RotateCcw size={11}/> {t("driver_stop.retake")}
                 </button>
                 <button
                   type="button"
@@ -283,7 +285,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
                   disabled={pending}
                   className="flex-1 text-xs text-danger hover:text-danger inline-flex items-center justify-center gap-1 py-2"
                 >
-                  Remove
+                  {t("driver_stop.remove")}
                 </button>
               </div>
             </div>
@@ -302,10 +304,10 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           >
             <CheckCircle2 size={14}/>
             {pending
-              ? "Saving…"
+              ? t("common.saving")
               : !photoFile
-                ? "Take photo to enable"
-                : `Mark delivered`}
+                ? t("driver_stop.take_photo_to_enable")
+                : t("driver_stop.mark_delivered")}
           </Button>
           {dispatch.vehicleNumber && (
             <p className="text-2xs text-ink-muted text-center mt-1.5 inline-flex items-center justify-center gap-1 w-full">

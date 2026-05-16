@@ -2,11 +2,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PODCapture } from "./pod-capture";
 import type { Dispatch, AppUser } from "@/lib/types";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function PODPage({ params }: { params: Promise<{ dispatchId: string }> }) {
   const { dispatchId } = await params;
+  const t = await getT();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/pod/${dispatchId}`);
@@ -20,8 +22,22 @@ export default async function PODPage({ params }: { params: Promise<{ dispatchId
       .maybeSingle(),
   ]);
 
-  if (!me) return <div className="min-h-screen flex items-center justify-center px-6 text-center"><div><h1 className="text-lg font-semibold mb-2">Account not provisioned</h1><a href="/login" className="text-accent text-sm hover:underline">Sign in</a></div></div>;
-  if (!dispatch) return <div className="min-h-screen flex items-center justify-center px-6 text-center"><div><h1 className="text-lg font-semibold">Dispatch not found</h1><p className="text-sm text-ink-muted mt-1">Bad link?</p></div></div>;
+  if (!me) return (
+    <div className="min-h-screen flex items-center justify-center px-6 text-center">
+      <div>
+        <h1 className="text-lg font-semibold mb-2">{t("pod.account_not_provisioned")}</h1>
+        <a href="/login" className="text-accent text-sm hover:underline">{t("pod.sign_in")}</a>
+      </div>
+    </div>
+  );
+  if (!dispatch) return (
+    <div className="min-h-screen flex items-center justify-center px-6 text-center">
+      <div>
+        <h1 className="text-lg font-semibold">{t("pod.dispatch_not_found")}</h1>
+        <p className="text-sm text-ink-muted mt-1">{t("pod.bad_link")}</p>
+      </div>
+    </div>
+  );
 
   // Normalize pod (Supabase returns array; we want single since pods.dispatch_id is unique)
   const rawPod = (dispatch as unknown as { pod: unknown }).pod;

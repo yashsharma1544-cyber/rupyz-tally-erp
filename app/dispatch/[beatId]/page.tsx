@@ -1,16 +1,12 @@
 // =============================================================================
 // /dispatch/[beatId] — orders list for one beat
-//
-// Special case: beatId = '00000000-0000-0000-0000-000000000000' is a synthetic
-// UUID for the "No beat assigned" tile. We don't look that up in beats table;
-// instead we fetch orders where customer.beat_id IS NULL.
-//
-// Filtered to Jalna area only.
 // =============================================================================
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { BeatDispatchClient } from "./beat-dispatch-client";
+import { getT } from "@/lib/i18n/server";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -52,6 +48,7 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/dispatch/${beatId}`);
+  const { t } = await getT();
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
 
@@ -59,7 +56,7 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
 
   let beat: { id: string; name: string; city: string | null };
   if (isNoBeatTile) {
-    beat = { id: NO_BEAT_ID, name: "No beat assigned", city: null };
+    beat = { id: NO_BEAT_ID, name: t("loading.no_beat_assigned"), city: null };
   } else {
     const { data } = await supabase.from("beats").select("id, name, city").eq("id", beatId).maybeSingle();
     if (!data) notFound();
@@ -81,7 +78,6 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     ordersQuery = ordersQuery.eq("customer.beat_id", beatId);
   }
 
-  // Phase: fetch drivers + helpers alongside orders
   const [{ data: orders, error }, { data: drivers }, { data: helpers }] = await Promise.all([
     ordersQuery.order("rupyz_created_at", { ascending: false }),
     supabase
@@ -100,9 +96,9 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <p className="font-semibold text-sm mb-1">Couldn&apos;t load orders</p>
+          <p className="font-semibold text-sm mb-1">{t("truck_wizard.couldnt_load")}</p>
           <p className="text-xs text-ink-muted mb-3">{error.message}</p>
-          <Link href="/dispatch" className="text-accent text-sm">← Back to beats</Link>
+          <Link href="/dispatch" className="text-accent text-sm">← {t("beat.back_to_beats")}</Link>
         </div>
       </div>
     );

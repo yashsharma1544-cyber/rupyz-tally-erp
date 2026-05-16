@@ -8,6 +8,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { DriverStopClient } from "./stop-client";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,6 +19,7 @@ export default async function DriverStopPage({
   params: Promise<{ dispatchId: string }>;
 }) {
   const { dispatchId } = await params;
+  const t = await getT();
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,7 +31,6 @@ export default async function DriverStopPage({
     .eq("id", user.id)
     .single();
   if (!me?.active) redirect("/login");
-  // CHANGED: allow van_helper too
   if (!["driver", "van_helper", "admin"].includes(me.role)) redirect("/dashboard");
 
   const { data: dispatch } = await supabase
@@ -51,7 +52,6 @@ export default async function DriverStopPage({
 
   if (!dispatch) notFound();
 
-  // CHANGED: authz allows driver OR helper assignment, plus admin
   const isAssigned =
     me.role === "admin" ||
     dispatch.driver_user_id === user.id ||
@@ -61,9 +61,9 @@ export default async function DriverStopPage({
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <p className="font-semibold text-sm mb-1">Not assigned to you</p>
-          <p className="text-xs text-ink-muted mb-3">This delivery isn&apos;t on your truck.</p>
-          <Link href="/driver" className="text-accent text-sm">← Back to my deliveries</Link>
+          <p className="font-semibold text-sm mb-1">{t("driver_stop.not_assigned_title")}</p>
+          <p className="text-xs text-ink-muted mb-3">{t("driver_stop.not_assigned_body")}</p>
+          <Link href="/driver" className="text-accent text-sm">← {t("driver_stop.back_to_my_deliveries")}</Link>
         </div>
       </div>
     );
@@ -74,9 +74,9 @@ export default async function DriverStopPage({
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
           <p className="font-semibold text-sm mb-1">
-            {dispatch.status === "delivered" ? "Already delivered" : "Cancelled"}
+            {dispatch.status === "delivered" ? t("driver_stop.already_delivered") : t("driver_stop.cancelled")}
           </p>
-          <Link href="/driver" className="text-accent text-sm">← Back to my deliveries</Link>
+          <Link href="/driver" className="text-accent text-sm">← {t("driver_stop.back_to_my_deliveries")}</Link>
         </div>
       </div>
     );

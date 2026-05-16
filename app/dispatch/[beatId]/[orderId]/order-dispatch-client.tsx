@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n/context";
 import { createDispatch } from "@/app/(app)/dispatches/actions";
 
 interface OrderLine {
@@ -50,6 +51,7 @@ export function OrderDispatchClient({
   helpers: UserOption[];
 }) {
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [qtys, setQtys] = useState<Map<string, number>>(() => {
     const m = new Map<string, number>();
@@ -60,7 +62,6 @@ export function OrderDispatchClient({
 
   const [vehicle, setVehicle] = useState("");
 
-  // Driver state
   const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
     drivers.length > 0 ? "registered" : "adhoc"
   );
@@ -68,7 +69,6 @@ export function OrderDispatchClient({
   const [driver, setDriver] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
 
-  // Helper state — optional
   const [helperId, setHelperId] = useState<string>("");
 
   const [notes, setNotes] = useState("");
@@ -126,7 +126,7 @@ export function OrderDispatchClient({
 
   function handleConfirm() {
     if (!canDispatch) {
-      toast.error("Vehicle # and driver are required");
+      toast.error(t("beat.toast_vehicle_driver_required"));
       return;
     }
     startTransition(async () => {
@@ -146,19 +146,20 @@ export function OrderDispatchClient({
         toast.error(res.error);
         return;
       }
-      toast.success(`Dispatched · ${res.dispatchNumber}`);
+      toast.success(t("order_dispatch.toast_dispatched", { dispatchNumber: res.dispatchNumber }));
       router.push(`/dispatch/${beatId}`);
     });
   }
 
   const itemCount = order.items.filter(it => it.remaining > 0).length;
   const selectedHelper = helpers.find(h => h.id === helperId);
+  const itemsLabel = itemCount === 1 ? t("common.item") : t("common.items");
 
   return (
     <div className="min-h-screen bg-paper pb-24">
       <div className="max-w-md mx-auto px-3 py-4">
         <Link href={`/dispatch/${beatId}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-          <ArrowLeft size={11}/> Back
+          <ArrowLeft size={11}/> {t("common.back")}
         </Link>
 
         <h1 className="text-lg font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
@@ -169,20 +170,20 @@ export function OrderDispatchClient({
 
         <div className="mt-3 pb-3 border-b border-paper-line text-sm">
           <span className="font-semibold tabular">{itemCount}</span>
-          <span className="text-ink-muted"> item{itemCount === 1 ? "" : "s"} · </span>
+          <span className="text-ink-muted"> {itemsLabel} · </span>
           <span className="font-semibold tabular">{formatINR(totalAmt)}</span>
           {order.appStatus === "partially_dispatched" && (
-            <span className="ml-2 text-2xs text-warn">· partly sent already</span>
+            <span className="ml-2 text-2xs text-warn">· {t("order_dispatch.partly_sent_already")}</span>
           )}
           {order.appStatus === "loaded" && (
-            <span className="ml-2 text-2xs text-accent">· loaded by warehouse</span>
+            <span className="ml-2 text-2xs text-accent">· {t("order_dispatch.loaded_by_warehouse")}</span>
           )}
         </div>
 
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
-              Items in this order
+              {t("order_dispatch.items_in_order")}
             </h2>
             {!editMode ? (
               <button
@@ -190,7 +191,7 @@ export function OrderDispatchClient({
                 onClick={() => setEditMode(true)}
                 className="text-xs text-accent inline-flex items-center gap-1 hover:underline"
               >
-                <Pencil size={10}/> Edit quantities
+                <Pencil size={10}/> {t("order_dispatch.edit_quantities")}
               </button>
             ) : (
               <button
@@ -203,7 +204,7 @@ export function OrderDispatchClient({
                 }}
                 className="text-xs text-ink-muted inline-flex items-center gap-1 hover:underline"
               >
-                <X size={10}/> Reset all
+                <X size={10}/> {t("order_dispatch.reset_all")}
               </button>
             )}
           </div>
@@ -227,7 +228,7 @@ export function OrderDispatchClient({
                   </div>
 
                   {!editMode && noRemaining && (
-                    <div className="text-2xs text-ok mt-0.5">Fully sent earlier</div>
+                    <div className="text-2xs text-ok mt-0.5">{t("order_dispatch.fully_sent_earlier")}</div>
                   )}
 
                   {editMode && !noRemaining && (
@@ -237,7 +238,7 @@ export function OrderDispatchClient({
                         onClick={() => bumpQty(it.id, -1, max)}
                         disabled={dispatching <= 0}
                         className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
-                        aria-label="Decrease"
+                        aria-label={t("order_dispatch.decrease_aria")}
                       >
                         <Minus size={14}/>
                       </button>
@@ -256,12 +257,12 @@ export function OrderDispatchClient({
                         onClick={() => bumpQty(it.id, 1, max)}
                         disabled={dispatching >= max}
                         className="w-9 h-9 rounded border border-paper-line flex items-center justify-center disabled:opacity-30 active:bg-paper-subtle"
-                        aria-label="Increase"
+                        aria-label={t("order_dispatch.increase_aria")}
                       >
                         <Plus size={14}/>
                       </button>
                       <span className="text-2xs text-ink-muted whitespace-nowrap">
-                        / {max} max
+                        {t("order_dispatch.n_max", { max })}
                       </span>
                     </div>
                   )}
@@ -270,7 +271,7 @@ export function OrderDispatchClient({
             })}
             {order.items.length === 0 && (
               <div className="px-3 py-6 text-center text-sm text-ink-muted">
-                This order has no line items.
+                {t("order_dispatch.no_line_items")}
               </div>
             )}
           </div>
@@ -278,10 +279,10 @@ export function OrderDispatchClient({
 
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
-            Truck details
+            {t("truck_wizard.truck_details")}
           </h2>
           <div>
-            <Label className="text-xs">Vehicle # <span className="text-danger">*</span></Label>
+            <Label className="text-xs">{t("truck_wizard.vehicle_label")} <span className="text-danger">*</span></Label>
             <Input
               className="mt-1"
               placeholder="MH-20 AB 1234"
@@ -292,7 +293,7 @@ export function OrderDispatchClient({
 
           {/* DRIVER */}
           <div>
-            <Label className="text-xs">Driver <span className="text-danger">*</span></Label>
+            <Label className="text-xs">{t("truck_wizard.driver_label")} <span className="text-danger">*</span></Label>
             {drivers.length > 0 && (
               <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
                 <button
@@ -304,7 +305,7 @@ export function OrderDispatchClient({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Pick driver
+                  {t("truck_wizard.pick_driver")}
                 </button>
                 <button
                   type="button"
@@ -315,7 +316,7 @@ export function OrderDispatchClient({
                       : "border-paper-line bg-paper-card hover:bg-paper-subtle"
                   }`}
                 >
-                  Other driver
+                  {t("truck_wizard.other_driver")}
                 </button>
               </div>
             )}
@@ -326,7 +327,7 @@ export function OrderDispatchClient({
                 value={driverId}
                 onChange={(e) => pickRegisteredDriver(e.target.value)}
               >
-                <option value="">— Select a driver —</option>
+                <option value="">{t("truck_wizard.select_driver_placeholder")}</option>
                 {drivers.map(d => (
                   <option key={d.id} value={d.id}>
                     {d.name}{d.phone ? ` · ${d.phone}` : ""}
@@ -336,7 +337,7 @@ export function OrderDispatchClient({
             ) : (
               <Input
                 className="mt-1"
-                placeholder="e.g. Ramesh"
+                placeholder={t("truck_wizard.driver_eg")}
                 value={driver}
                 onChange={e => setDriver(e.target.value)}
               />
@@ -344,10 +345,10 @@ export function OrderDispatchClient({
           </div>
 
           <div>
-            <Label className="text-xs text-ink-muted">Driver phone</Label>
+            <Label className="text-xs text-ink-muted">{t("truck_wizard.driver_phone_label")}</Label>
             <Input
               className="mt-1"
-              placeholder={driverMode === "registered" && driverId ? "" : "9876543210 (optional)"}
+              placeholder={driverMode === "registered" && driverId ? "" : t("truck_wizard.driver_phone_placeholder")}
               inputMode="tel"
               value={driverPhone}
               onChange={e => setDriverPhone(e.target.value)}
@@ -359,15 +360,15 @@ export function OrderDispatchClient({
           {helpers.length > 0 ? (
             <div>
               <Label className="text-xs inline-flex items-center gap-1">
-                <UserPlus size={11}/> Helper
-                <span className="text-2xs text-ink-subtle font-normal">(optional)</span>
+                <UserPlus size={11}/> {t("truck_wizard.helper_label")}
+                <span className="text-2xs text-ink-subtle font-normal">{t("common.optional_paren")}</span>
               </Label>
               <select
                 className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
                 value={helperId}
                 onChange={(e) => setHelperId(e.target.value)}
               >
-                <option value="">— No helper —</option>
+                <option value="">{t("truck_wizard.no_helper_placeholder")}</option>
                 {helpers.map(h => (
                   <option key={h.id} value={h.id}>
                     {h.name}{h.phone ? ` · ${h.phone}` : ""}
@@ -376,22 +377,22 @@ export function OrderDispatchClient({
               </select>
               {selectedHelper && (
                 <p className="text-2xs text-ink-muted mt-1">
-                  {selectedHelper.name} will see this delivery on the Driver app and can mark it delivered.
+                  {t("order_dispatch.helper_will_see_delivery", { name: selectedHelper.name })}
                 </p>
               )}
             </div>
           ) : (
             <div className="text-2xs text-ink-subtle">
-              <em>No helpers configured. Admin can add helpers in Users → Invite User with role &lsquo;van_helper&rsquo;.</em>
+              <em>{t("order_dispatch.no_helpers_users_invite")}</em>
             </div>
           )}
 
           <div>
-            <Label className="text-xs text-ink-muted">Notes</Label>
+            <Label className="text-xs text-ink-muted">{t("truck_wizard.notes_label")}</Label>
             <Textarea
               className="mt-1"
               rows={2}
-              placeholder="Any extra info (optional)"
+              placeholder={t("truck_wizard.notes_placeholder")}
               value={notes}
               onChange={e => setNotes(e.target.value)}
             />
@@ -403,7 +404,7 @@ export function OrderDispatchClient({
         <div className="max-w-md mx-auto">
           {isPartial && dispatchableLines.length > 0 && (
             <p className="text-2xs text-warn text-center mb-2">
-              ⚠ Some lines reduced — order will be marked &ldquo;partly sent&rdquo;
+              {t("order_dispatch.some_reduced_warn")}
             </p>
           )}
           <Button
@@ -414,10 +415,10 @@ export function OrderDispatchClient({
           >
             <Truck size={14}/>
             {pending
-              ? "Dispatching…"
+              ? t("truck_wizard.dispatching")
               : isPartial
-                ? `Confirm partial dispatch · ${formatINR(totalAmt)}`
-                : `Dispatch full order · ${formatINR(totalAmt)}`}
+                ? t("order_dispatch.confirm_partial_amt", { amount: formatINR(totalAmt) })
+                : t("order_dispatch.dispatch_full_amt", { amount: formatINR(totalAmt) })}
           </Button>
         </div>
       </div>

@@ -5,6 +5,7 @@
 // big tappable tile with order count + kg + amount.
 //
 // Auth: admin and dispatch only.
+// i18n: server component, reads cookie via getT().
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -13,6 +14,7 @@ import { Truck, ChevronRight, MapPin, Package, IndianRupee } from "lucide-react"
 import { createClient } from "@/lib/supabase/server";
 import { TrucksLoadingPanel } from "./trucks-loading-panel";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,15 +53,17 @@ export default async function DispatchHomePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login?from=/dispatch");
 
+  const { t } = await getT();
+
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active) redirect("/login");
   if (!["admin", "dispatch"].includes(me.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <h1 className="font-semibold text-base mb-1">Not authorized</h1>
-          <p className="text-sm text-ink-muted mb-4">Dispatch app requires the &lsquo;dispatch&rsquo; or &lsquo;admin&rsquo; role.</p>
-          <Link href="/dashboard" className="text-accent text-sm">Go to dashboard</Link>
+          <h1 className="font-semibold text-base mb-1">{t("common.not_authorized")}</h1>
+          <p className="text-sm text-ink-muted mb-4">{t("dispatch.role_required")}</p>
+          <Link href="/dashboard" className="text-accent text-sm">{t("common.go_to_dashboard")}</Link>
         </div>
       </div>
     );
@@ -124,6 +128,13 @@ export default async function DispatchHomePage() {
   const totalKg     = beatRows.reduce((s, b) => s + Number(b.total_kg), 0);
   const totalAmount = beatRows.reduce((s, b) => s + Number(b.total_amount), 0);
 
+  const beatsCount = beatRows.length;
+  const acrossBeatsLabel = beatsCount === 1
+    ? t("dispatch.across_n_beats_one", { n: beatsCount.toLocaleString("en-IN") })
+    : t("dispatch.across_n_beats", { n: beatsCount.toLocaleString("en-IN") });
+
+  const ordersWord = t("dispatch.orders_word");
+
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
@@ -132,20 +143,20 @@ export default async function DispatchHomePage() {
             <Truck size={16} />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold leading-tight">Dispatch</h1>
+            <h1 className="text-base font-bold leading-tight">{t("dispatch.page_title")}</h1>
             <p className="text-2xs text-ink-muted">{me.full_name}</p>
           </div>
         </div>
 
         <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
-          <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Approved &amp; ready to dispatch</div>
+          <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">{t("dispatch.approved_ready")}</div>
           <div className="grid grid-cols-3 gap-2">
-            <KpiTile icon={Package}   label="Orders" value={totalOrders.toLocaleString("en-IN")} />
-            <KpiTile icon={Package}   label="Total" value={formatKg(totalKg)} />
-            <KpiTile icon={IndianRupee} label="Value" value={formatINR(totalAmount)} />
+            <KpiTile icon={Package}   label={t("dispatch.kpi_orders")} value={totalOrders.toLocaleString("en-IN")} />
+            <KpiTile icon={Package}   label={t("dispatch.kpi_total")} value={formatKg(totalKg)} />
+            <KpiTile icon={IndianRupee} label={t("dispatch.kpi_value")} value={formatINR(totalAmount)} />
           </div>
           <div className="text-2xs text-ink-subtle mt-2 text-center">
-            across {beatRows.length} beat{beatRows.length === 1 ? "" : "s"}
+            {acrossBeatsLabel}
           </div>
         </div>
 
@@ -154,7 +165,7 @@ export default async function DispatchHomePage() {
             href="/dispatch/load-truck"
             className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-11 rounded-md bg-accent text-paper-card text-sm font-semibold hover:bg-accent/90 active:bg-accent/80 transition-colors"
           >
-            <Truck size={14}/> Load a truck
+            <Truck size={14}/> {t("dispatch.load_a_truck")}
           </Link>
         )}
 
@@ -179,15 +190,15 @@ export default async function DispatchHomePage() {
 
         {beatRows.length > 0 && (
           <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2 mt-4">
-            Approved &mdash; ready to load
+            {t("dispatch.approved_ready_to_load")}
           </h2>
         )}
 
         {beatRows.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
             <Truck size={28} className="mx-auto text-ink-subtle mb-2"/>
-            <p className="font-semibold text-sm mb-0.5">Nothing to dispatch right now</p>
-            <p className="text-xs text-ink-muted">When admin approves orders, the beats will appear here.</p>
+            <p className="font-semibold text-sm mb-0.5">{t("dispatch.nothing_to_dispatch")}</p>
+            <p className="text-xs text-ink-muted">{t("dispatch.empty_desc")}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -204,7 +215,7 @@ export default async function DispatchHomePage() {
                   <div className="flex-1 min-w-0">
                     <h2 className="font-semibold text-sm truncate">{b.beat_name}</h2>
                     <div className="text-2xs text-ink-muted flex items-center gap-2 mt-0.5">
-                      <span className="tabular"><strong className="text-ink">{b.order_count}</strong> orders</span>
+                      <span className="tabular"><strong className="text-ink">{b.order_count}</strong> {ordersWord}</span>
                       <span className="text-ink-subtle">·</span>
                       <span className="tabular"><strong className="text-ink">{formatKg(b.total_kg)}</strong></span>
                       <span className="text-ink-subtle">·</span>
@@ -219,7 +230,7 @@ export default async function DispatchHomePage() {
         )}
 
         <div className="mt-6 text-center text-2xs text-ink-subtle">
-          <Link href="/" className="hover:text-ink-muted">← Main app</Link>
+          <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />

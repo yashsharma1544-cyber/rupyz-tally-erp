@@ -11,10 +11,12 @@ import { createClient } from "@/lib/supabase/client";
 import type { Dispatch, AppUser } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n/context";
 import { markDelivered } from "@/app/(app)/dispatches/actions";
 
 export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }) {
   const supabase = createClient();
+  const { t } = useTranslation();
   const alreadyDelivered = dispatch.status === "delivered";
   const cantCapture = dispatch.status !== "shipped";
 
@@ -30,12 +32,13 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
   // Auto-fetch geolocation on mount
   useEffect(() => {
     if (alreadyDelivered) return;
-    if (!navigator.geolocation) { setCoordsErr("Geolocation not supported on this device"); return; }
+    if (!navigator.geolocation) { setCoordsErr(t("pod.geolocation_unsupported")); return; }
     navigator.geolocation.getCurrentPosition(
       (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
       (err) => setCoordsErr(err.message),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alreadyDelivered]);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -57,8 +60,8 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
   }
 
   function handleSubmit() {
-    if (!photo) { toast.error("Capture a photo first"); return; }
-    if (!coords) { toast.error("Wait for location to lock, or refresh"); return; }
+    if (!photo) { toast.error(t("pod.toast_capture_photo_first")); return; }
+    if (!coords) { toast.error(t("pod.toast_wait_location")); return; }
 
     const photoFile = photo;
     const c = coords;
@@ -69,7 +72,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
       const { error: upErr } = await supabase.storage
         .from("pod-photos")
         .upload(objectName, photoFile, { contentType: photoFile.type, upsert: false });
-      if (upErr) { toast.error(`Upload failed: ${upErr.message}`); return; }
+      if (upErr) { toast.error(t("pod.toast_upload_failed", { error: upErr.message })); return; }
 
       // 2. Get public URL
       const { data: { publicUrl } } = supabase.storage.from("pod-photos").getPublicUrl(objectName);
@@ -84,7 +87,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
         notes: notes.trim() || undefined,
       });
       if (res.error) { toast.error(res.error); return; }
-      toast.success("Delivery confirmed");
+      toast.success(t("pod.toast_delivery_confirmed"));
       setSubmitted(true);
     });
   }
@@ -94,17 +97,17 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
       <div className="min-h-screen flex items-center justify-center bg-paper px-4">
         <div className="bg-paper-card border border-paper-line rounded-lg p-6 max-w-sm text-center">
           <CheckCircle2 size={48} className="text-ok mx-auto mb-3" />
-          <h1 className="text-lg font-bold mb-1">Delivered ✓</h1>
+          <h1 className="text-lg font-bold mb-1">{t("pod.delivered_title")}</h1>
           <p className="text-sm text-ink-muted mb-4">
-            Dispatch <span className="font-mono">{dispatch.dispatch_number}</span> is marked delivered.
+            {t("pod.delivered_body", { dispatchNumber: dispatch.dispatch_number })}
           </p>
           {dispatch.pod?.photo_url && (
             <a href={dispatch.pod.photo_url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline">
-              View receipt photo
+              {t("pod.view_receipt_photo")}
             </a>
           )}
           <div className="mt-4">
-            <Link href="/dispatches" className="text-xs text-ink-muted hover:text-ink"><ArrowLeft size={11} className="inline"/> Back to dispatches</Link>
+            <Link href="/dispatches" className="text-xs text-ink-muted hover:text-ink"><ArrowLeft size={11} className="inline"/> {t("pod.back_to_dispatches")}</Link>
           </div>
         </div>
       </div>
@@ -116,11 +119,11 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
       <div className="min-h-screen flex items-center justify-center bg-paper px-4">
         <div className="bg-paper-card border border-paper-line rounded-lg p-6 max-w-sm text-center">
           <AlertCircle size={36} className="text-warn mx-auto mb-3" />
-          <h1 className="text-lg font-bold mb-1">Not ready for POD</h1>
+          <h1 className="text-lg font-bold mb-1">{t("pod.not_ready_title")}</h1>
           <p className="text-sm text-ink-muted mb-4">
-            This dispatch is in "<span className="font-medium">{dispatch.status}</span>" status. POD can only be captured after the dispatch is marked Shipped.
+            {t("pod.not_ready_body", { status: dispatch.status })}
           </p>
-          <Link href="/dispatches" className="text-sm text-accent hover:underline">Back to dispatches</Link>
+          <Link href="/dispatches" className="text-sm text-accent hover:underline">{t("pod.back_to_dispatches")}</Link>
         </div>
       </div>
     );
@@ -134,18 +137,20 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
         {/* Header */}
         <div className="mb-4">
           <Link href="/dispatches" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-            <ArrowLeft size={11}/> Dispatches
+            <ArrowLeft size={11}/> {t("pod.dispatches")}
           </Link>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold">Capture POD</h1>
-            <Badge variant="accent">In transit</Badge>
+            <h1 className="text-xl font-bold">{t("pod.capture_pod")}</h1>
+            <Badge variant="accent">{t("pod.in_transit_badge")}</Badge>
           </div>
-          <p className="text-xs text-ink-muted">Dispatch <span className="font-mono">{dispatch.dispatch_number}</span></p>
+          <p className="text-xs text-ink-muted">
+            {t("pod.dispatch_number_label", { dispatchNumber: dispatch.dispatch_number })}
+          </p>
         </div>
 
         {/* Customer + delivery info */}
         <div className="bg-paper-card border border-paper-line rounded p-3 mb-4">
-          <div className="text-2xs uppercase tracking-wide text-ink-subtle mb-1">Deliver to</div>
+          <div className="text-2xs uppercase tracking-wide text-ink-subtle mb-1">{t("pod.deliver_to")}</div>
           <div className="font-semibold">{order?.customer?.name ?? "—"}</div>
           <div className="text-xs text-ink-muted mt-0.5">{order?.delivery_address_line}</div>
           <div className="text-xs text-ink-muted">{order?.delivery_city} {order?.delivery_pincode}</div>
@@ -153,13 +158,18 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
             <a href={`tel:${order.customer.mobile}`} className="text-xs text-accent hover:underline mt-1.5 inline-block">📞 {order.customer.mobile}</a>
           )}
           <div className="text-xs text-ink-muted mt-2 pt-2 border-t border-paper-line">
-            Order: <a href={`/orders`} className="text-accent">#{order?.rupyz_order_id}</a> · Total: <span className="tabular">{formatINR(dispatch.total_amount ?? 0)}</span>
+            {t("pod.order_total_line", {
+              rupyzOrderId: order?.rupyz_order_id ?? "—",
+              amount: formatINR(dispatch.total_amount ?? 0),
+            })}
           </div>
         </div>
 
         {/* Items being delivered */}
         <div className="bg-paper-card border border-paper-line rounded p-3 mb-4">
-          <div className="text-2xs uppercase tracking-wide text-ink-subtle mb-2">Items in this dispatch ({dispatch.items?.length ?? 0})</div>
+          <div className="text-2xs uppercase tracking-wide text-ink-subtle mb-2">
+            {t("pod.items_in_dispatch_count", { count: dispatch.items?.length ?? 0 })}
+          </div>
           <div className="space-y-1">
             {dispatch.items?.map((di) => (
               <div key={di.id} className="flex justify-between text-sm">
@@ -172,21 +182,22 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
 
         {/* Photo capture */}
         <div className="bg-paper-card border border-paper-line rounded p-3 mb-4">
-          <Label className="block mb-2">Photo of signed receipt or delivered goods</Label>
+          <Label className="block mb-2">{t("pod.photo_label")}</Label>
           {photoPreview ? (
             <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={photoPreview} alt="POD" className="w-full rounded border border-paper-line"/>
               <button
                 onClick={() => { setPhoto(null); setPhotoPreview(null); }}
                 className="absolute top-2 right-2 bg-paper-card/90 backdrop-blur px-2 py-1 rounded text-xs hover:bg-paper-card"
               >
-                Retake
+                {t("pod.retake")}
               </button>
             </div>
           ) : (
             <label className="block border-2 border-dashed border-paper-line rounded-lg p-8 text-center cursor-pointer hover:border-accent">
               <Camera size={32} className="mx-auto mb-2 text-ink-subtle"/>
-              <span className="text-sm text-ink-muted">Tap to take photo</span>
+              <span className="text-sm text-ink-muted">{t("driver_stop.tap_to_take_photo")}</span>
               <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
             </label>
           )}
@@ -195,9 +206,9 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
         {/* Geolocation */}
         <div className="bg-paper-card border border-paper-line rounded p-3 mb-4">
           <div className="flex items-center justify-between mb-1">
-            <Label>Location</Label>
+            <Label>{t("pod.location_label")}</Label>
             <button onClick={refreshLocation} className="text-xs text-accent hover:underline inline-flex items-center gap-1">
-              <RefreshCw size={11}/> Refresh
+              <RefreshCw size={11}/> {t("common.refresh")}
             </button>
           </div>
           {coords ? (
@@ -209,19 +220,19 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
           ) : coordsErr ? (
             <div className="text-xs text-danger flex items-center gap-1.5"><AlertCircle size={12}/>{coordsErr}</div>
           ) : (
-            <div className="text-xs text-ink-muted">Getting location…</div>
+            <div className="text-xs text-ink-muted">{t("pod.getting_location")}</div>
           )}
         </div>
 
         {/* Receiver name + notes */}
         <div className="space-y-3 mb-5">
           <div>
-            <Label className="block mb-1">Received by (optional)</Label>
-            <Input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} placeholder="Name of person who received" />
+            <Label className="block mb-1">{t("pod.received_by_label")}</Label>
+            <Input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} placeholder={t("pod.received_by_placeholder")} />
           </div>
           <div>
-            <Label className="block mb-1">Notes (optional)</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any issues, partial acceptance, etc." rows={2} />
+            <Label className="block mb-1">{t("pod.notes_label")}</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t("pod.notes_placeholder")} rows={2} />
           </div>
         </div>
 
@@ -231,7 +242,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
           onClick={handleSubmit}
           disabled={pending || !photo || !coords}
         >
-          {pending ? "Submitting…" : "Confirm Delivery"}
+          {pending ? t("pod.submitting") : t("pod.confirm_delivery")}
         </Button>
 
         <p className="text-2xs text-ink-subtle text-center mt-3">

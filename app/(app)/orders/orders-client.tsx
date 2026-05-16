@@ -66,8 +66,6 @@ const TABS: TabDef[] = [
     icon: AlertCircle,   accent: "neutral" },
 ];
 
-// Lookup table: which underlying statuses belong to each tab key.
-// Used for aggregating KPI rows.
 function tabForStatus(s: OrderAppStatus): TabKey | null {
   if (s === "received") return "approval";
   if (s === "approved" || s === "partially_dispatched") return "dispatch";
@@ -76,7 +74,7 @@ function tabForStatus(s: OrderAppStatus): TabKey | null {
   if (s === "dispatched") return "transit";
   if (s === "delivered") return "delivered";
   if (s === "rejected" || s === "cancelled") return "rejected";
-  return null; // 'closed' doesn't fit any KPI card
+  return null;
 }
 
 function defaultTabForRole(role: string): TabKey {
@@ -87,20 +85,16 @@ function defaultTabForRole(role: string): TabKey {
     case "van_helper": return "van";
     case "delivery": return "transit";
     case "accounts": return "delivered";
-    default:         return "all"; // admin, salesman, others
+    default:         return "all";
   }
 }
 
-// All statuses, in workflow order — used when tab='all'
 const ALL_STATUSES: OrderAppStatus[] = [
     "received", "approved", "loading", "loaded", "on_van_trip",
     "partially_dispatched", "dispatched", "delivered",
     "rejected", "cancelled", "closed",
   ];
 
-// What status options does the dropdown show for a given tab?
-// For specific tabs: only the statuses that belong to that tab (if >1).
-// For 'all' tab: every status.
 function statusOptionsForTab(tab: TabKey): OrderAppStatus[] {
   const def = TABS.find(t => t.key === tab);
   if (!def) return [];
@@ -108,7 +102,6 @@ function statusOptionsForTab(tab: TabKey): OrderAppStatus[] {
   return def.statuses.length > 1 ? def.statuses : [];
 }
 
-// Plain-language labels — everywhere we show a status to a user, route through here.
 function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
@@ -141,6 +134,79 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
   }
 }
 
+// =============================================================================
+// DATE RANGE FILTER
+//
+// 8 options: today / yesterday / 7d / 30d / this_month / last_month / custom / all
+// Output of computeDateRange is [since, until) — since is inclusive (.gte),
+// until is EXCLUSIVE (.lt). For custom we pass `customTo + 1 day` as `until`,
+// so the chosen end date is fully covered through 23:59:59 without millisecond
+// games. All math is in the user's local timezone (so "today" is local
+// midnight, not UTC midnight — important for IST users).
+// =============================================================================
+
+type DatePresetKey =
+  | "today" | "yesterday" | "7d" | "30d"
+  | "this_month" | "last_month" | "custom" | "all";
+
+function toLocalISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function computeDateRange(
+  preset: DatePresetKey,
+  customFrom: string,
+  customTo: string,
+): { since: string | null; until: string | null } {
+  if (preset === "all") return { since: null, until: null };
+
+  const now = new Date();
+  if (preset === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return { since: start.toISOString(), until: null };
+  }
+  if (preset === "yesterday") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return { since: start.toISOString(), until: end.toISOString() };
+  }
+  if (preset === "7d") {
+    return { since: new Date(Date.now() - 7  * 86400 * 1000).toISOString(), until: null };
+  }
+  if (preset === "30d") {
+    return { since: new Date(Date.now() - 30 * 86400 * 1000).toISOString(), until: null };
+  }
+  if (preset === "this_month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { since: start.toISOString(), until: null };
+  }
+  if (preset === "last_month") {
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const end   = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { since: start.toISOString(), until: end.toISOString() };
+  }
+  // custom
+  let since: string | null = null;
+  let until: string | null = null;
+  if (customFrom) since = new Date(`${customFrom}T00:00:00`).toISOString();
+  if (customTo) {
+    const d = new Date(`${customTo}T00:00:00`);
+    d.setDate(d.getDate() + 1); // make inclusive of the chosen end date
+    until = d.toISOString();
+  }
+  return { since, until };
+}
+
+function defaultCustomRange(): { from: string; to: string } {
+  const today = new Date();
+  const thirtyAgo = new Date(today);
+  thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+  return { from: toLocalISODate(thirtyAgo), to: toLocalISODate(today) };
+}
+
 export function OrdersClient({
   salesmen,
   beats,
@@ -157,8 +223,6 @@ export function OrdersClient({
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Bulk-selection state — Set of selected order IDs.
-  // selectionMode flips on when user enters bulk mode, off when they leave or clear.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -167,7 +231,6 @@ export function OrdersClient({
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [tab, setTab] = useState<TabKey>(() => {
-    // If ?tab= is in the URL (e.g., from dashboard task links), use it.
     const urlTab = searchParams?.get("tab");
     const validKeys: TabKey[] = ["approval", "dispatch", "loading", "van", "transit", "delivered", "rejected", "all"];
     if (urlTab && (validKeys as string[]).includes(urlTab)) return urlTab as TabKey;
@@ -176,16 +239,33 @@ export function OrdersClient({
   const [salesmanF, setSalesmanF] = useState<string>("all");
   const [beatF, setBeatF] = useState<string>("all");
   const [statusF, setStatusF] = useState<string>("all");
-  const [dateF, setDateF] = useState<string>("all");
+  const [dateF, setDateF] = useState<DatePresetKey>("all");
+  const [customFrom, setCustomFrom] = useState<string>(""); // YYYY-MM-DD
+  const [customTo, setCustomTo] = useState<string>("");
 
-  // Filters are hidden by default — most days the tab pills do the job. Revealed
-  // by clicking "Filters". When any advanced filter is non-default, the panel
-  // auto-opens so users can see what's filtering their results.
+  const dateRange = useMemo(
+    () => computeDateRange(dateF, customFrom, customTo),
+    [dateF, customFrom, customTo],
+  );
+  const customRangeInvalid =
+    dateF === "custom" && !!customFrom && !!customTo && customFrom > customTo;
+
+  function handleDateChange(v: string) {
+    const next = v as DatePresetKey;
+    setDateF(next);
+    // First time picking Custom: seed with a sensible 30-day window so the
+    // user doesn't see "Custom" with empty inputs and silently get all data.
+    if (next === "custom" && !customFrom && !customTo) {
+      const { from, to } = defaultCustomRange();
+      setCustomFrom(from);
+      setCustomTo(to);
+    }
+  }
+
   const advFilterActive = salesmanF !== "all" || beatF !== "all" || statusF !== "all" || dateF !== "all";
   const [showAdvanced, setShowAdvanced] = useState(false);
   useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
 
-  // KPIs per status group (count + kg + amount)
   type KpiAgg = { count: number; kg: number; amount: number };
   const emptyKpi: Record<TabKey, KpiAgg> = {
     approval:  { count: 0, kg: 0, amount: 0 },
@@ -199,11 +279,8 @@ export function OrdersClient({
   };
   const [kpis, setKpis] = useState<Record<TabKey, KpiAgg>>(emptyKpi);
 
-  // Bumped when an action happens in the drawer; triggers list + counts refresh
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Live polling — refresh every 30s when tab is visible. Catches status changes
-  // pushed from the mobile billing app (pre-order delivered, bill cancelled, etc.).
   useEffect(() => {
     function tick() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
@@ -228,7 +305,6 @@ export function OrdersClient({
   const [activeTrips, setActiveTrips] = useState<ActiveTrip[]>([]);
   const [pickedTripId, setPickedTripId] = useState("");
 
-  // Page-level checkbox state
   const allOnPageSelected = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
   const someOnPageSelected = rows.some(r => selectedIds.has(r.id)) && !allOnPageSelected;
 
@@ -242,17 +318,12 @@ export function OrdersClient({
   function togglePage() {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (allOnPageSelected) {
-        rows.forEach(r => next.delete(r.id));
-      } else {
-        rows.forEach(r => next.add(r.id));
-      }
+      if (allOnPageSelected) rows.forEach(r => next.delete(r.id));
+      else rows.forEach(r => next.add(r.id));
       return next;
     });
   }
   async function selectAllMatchingFilter() {
-    // Build the same query that drives the rows fetch, but select only id and skip paging.
-    // Hard cap at 500.
     const tabDef = TABS.find(t => t.key === tab)!;
     const term = searchDebounced.trim();
     const safeTerm = term.replace(/[,()]/g, "");
@@ -261,13 +332,10 @@ export function OrdersClient({
     if (tabDef.statuses !== "all") q = q.in("app_status", tabDef.statuses);
     if (statusF !== "all") q = q.eq("app_status", statusF);
     if (salesmanF !== "all") q = q.eq("salesman_id", salesmanF);
-    if (dateF !== "all") {
-      const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
-      const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
-      q = q.gte("rupyz_created_at", since);
-    }
 
-    // Beat filter — narrows by customer_id
+    if (dateRange.since) q = q.gte("rupyz_created_at", dateRange.since);
+    if (dateRange.until) q = q.lt ("rupyz_created_at", dateRange.until);
+
     if (beatF !== "all") {
       const { data: cs } = await supabase.from("customers").select("id").eq("beat_id", beatF);
       const ids = (cs ?? []).map((c: { id: string }) => c.id);
@@ -275,12 +343,9 @@ export function OrdersClient({
       q = q.in("customer_id", ids);
     }
 
-    if (safeTerm) {
-      // Search filter — same logic as the row fetch (just on rupyz_order_id for simplicity here)
-      q = q.ilike("rupyz_order_id", `%${safeTerm}%`);
-    }
+    if (safeTerm) q = q.ilike("rupyz_order_id", `%${safeTerm}%`);
 
-    q = q.limit(501); // pull one extra to detect overflow
+    q = q.limit(501);
 
     const { data, error } = await q;
     if (error) { toast.error(error.message); return; }
@@ -294,16 +359,13 @@ export function OrdersClient({
     toast.success(`Selected ${ids.length} order${ids.length === 1 ? "" : "s"}`);
   }
 
-  function clearSelection() {
-    setSelectedIds(new Set());
-  }
+  function clearSelection() { setSelectedIds(new Set()); }
   function exitSelectionMode() {
     setSelectionMode(false);
     setSelectedIds(new Set());
     setShowAttachPicker(false);
   }
 
-  // Bulk approve
   function handleBulkApprove() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) { toast.error("No orders selected"); return; }
@@ -323,7 +385,6 @@ export function OrdersClient({
     });
   }
 
-  // Bulk attach to trip — open picker first
   async function startBulkAttach() {
     if (selectedIds.size === 0) { toast.error("No orders selected"); return; }
     setShowAttachPicker(true);
@@ -350,8 +411,8 @@ export function OrdersClient({
     if (!pickedTripId) { toast.error("Pick a trip"); return; }
     const trip = activeTrips.find(t => t.id === pickedTripId);
     if (!trip) { toast.error("Trip not found"); return; }
-    const statusLabel = trip.status === "in_progress" ? "on-route" : trip.status;
-    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name}, ${statusLabel})? Orders may be from any beat — admin override is enabled.`)) return;
+    const statusLbl = trip.status === "in_progress" ? "on-route" : trip.status;
+    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name}, ${statusLbl})? Orders may be from any beat — admin override is enabled.`)) return;
     startBulkTransition(async () => {
       const res = await bulkAttachOrdersToTrip(ids, pickedTripId);
       if (res.error) { toast.error(res.error); return; }
@@ -376,9 +437,9 @@ export function OrdersClient({
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(0); setSelectedIds(new Set()); }, [searchDebounced, tab, salesmanF, beatF, statusF, dateF]);
+  useEffect(() => { setPage(0); setSelectedIds(new Set()); },
+    [searchDebounced, tab, salesmanF, beatF, statusF, dateF, customFrom, customTo]);
 
-  // Reset statusF when tab changes if the current value isn't valid for the new tab
   useEffect(() => {
     if (statusF === "all") return;
     const valid = statusOptionsForTab(tab);
@@ -386,17 +447,15 @@ export function OrdersClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Fetch KPIs (count, kg, amount) per status group via RPC
+  // Fetch KPIs
   useEffect(() => {
+    if (customRangeInvalid) return; // don't hammer the RPC with broken input
+
     let cancelled = false;
     (async () => {
-      let sinceTs: string | null = null;
-      if (dateF !== "all") {
-        const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
-        sinceTs = new Date(Date.now() - days * 86400 * 1000).toISOString();
-      }
       const { data, error } = await supabase.rpc("orders_kpis_by_status", {
-        since_ts: sinceTs,
+        since_ts: dateRange.since,
+        until_ts: dateRange.until,
         beat_id_filter: beatF !== "all" ? beatF : null,
       });
       if (cancelled || error) {
@@ -431,40 +490,37 @@ export function OrdersClient({
       setKpis(next);
     })();
     return () => { cancelled = true; };
-  }, [supabase, dateF, beatF, reloadKey]);
+  }, [supabase, dateRange.since, dateRange.until, beatF, reloadKey, customRangeInvalid]);
 
-  // Fetch rows for the active tab
+  // Fetch rows
   const prevReloadKeyRef = useRef(reloadKey);
   useEffect(() => {
+    if (customRangeInvalid) {
+      setRows([]); setTotal(0); setLoading(false);
+      return;
+    }
     let cancelled = false;
-    // Only show the loading skeleton for user-initiated changes (filters, tab,
-    // search, paging). Background polling silently swaps data when ready —
-    // otherwise the whole list flickers every 30 seconds.
     const isPollingRefresh = prevReloadKeyRef.current !== reloadKey;
     prevReloadKeyRef.current = reloadKey;
     if (!isPollingRefresh) setLoading(true);
     (async () => {
       const tabDef = TABS.find(t => t.key === tab)!;
       const term = searchDebounced.trim();
-      // Strip chars that would break Supabase's .or() filter syntax
       const safeTerm = term.replace(/[,()]/g, "");
 
-      // Step 1: if beat filter active, get the customer IDs in that beat (the base set)
-      let beatCustomerIds: string[] | null = null; // null = no beat filter
+      let beatCustomerIds: string[] | null = null;
       if (beatF !== "all") {
         const { data: cs } = await supabase
           .from("customers")
           .select("id")
           .eq("beat_id", beatF);
         beatCustomerIds = (cs ?? []).map((c: { id: string }) => c.id);
-        // No customers in this beat → bail out early with empty list
         if (beatCustomerIds.length === 0) {
           if (!cancelled) { setRows([]); setTotal(0); setLoading(false); }
           return;
         }
       }
 
-      // Step 2: if searching, find matching customer IDs (constrained to beat if active)
       let customerIds: string[] = [];
       if (safeTerm) {
         let cq = supabase
@@ -481,18 +537,9 @@ export function OrdersClient({
         .from("orders")
         .select("*, customer:customers(id,name,customer_type,city,beat_overridden_at,beat:beats(id,name)), salesman:salesmen(id,name)", { count: "exact" });
 
-      if (tabDef.statuses !== "all") {
-        q = q.in("app_status", tabDef.statuses);
-      }
-      // Status filter narrows further within the tab. The dropdown only shows
-      // statuses that are part of the current tab, so we just intersect.
-      if (statusF !== "all") {
-        q = q.eq("app_status", statusF);
-      }
-      // Apply beat narrowing to the orders query (always, when active)
-      if (beatCustomerIds !== null) {
-        q = q.in("customer_id", beatCustomerIds);
-      }
+      if (tabDef.statuses !== "all") q = q.in("app_status", tabDef.statuses);
+      if (statusF !== "all") q = q.eq("app_status", statusF);
+      if (beatCustomerIds !== null) q = q.in("customer_id", beatCustomerIds);
       if (safeTerm) {
         if (customerIds.length > 0) {
           q = q.or(`rupyz_order_id.ilike.%${safeTerm}%,customer_id.in.(${customerIds.join(",")})`);
@@ -501,11 +548,10 @@ export function OrdersClient({
         }
       }
       if (salesmanF !== "all") q = q.eq("salesman_id", salesmanF);
-      if (dateF !== "all") {
-        const days = dateF === "today" ? 1 : dateF === "7d" ? 7 : 30;
-        const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
-        q = q.gte("rupyz_created_at", since);
-      }
+
+      if (dateRange.since) q = q.gte("rupyz_created_at", dateRange.since);
+      if (dateRange.until) q = q.lt ("rupyz_created_at", dateRange.until);
+
       q = q.order("rupyz_created_at", { ascending: false })
            .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
       const { data, error, count } = await q;
@@ -518,13 +564,15 @@ export function OrdersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, tab, searchDebounced, salesmanF, beatF, statusF, dateF, page, reloadKey]);
+  }, [supabase, tab, searchDebounced, salesmanF, beatF, statusF,
+      dateRange.since, dateRange.until, customRangeInvalid,
+      page, reloadKey]);
 
   const activeTabDef = TABS.find(t => t.key === tab)!;
 
   return (
     <div className="p-3 sm:p-6">
-      {/* KPI cards — also serve as tab switchers */}
+      {/* KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-2.5 mb-3 sm:mb-4">
         {TABS.filter(t => t.key !== "all").map((t) => (
           <KpiCard
@@ -537,19 +585,14 @@ export function OrdersClient({
         ))}
       </div>
 
-      {/* Big primary action callout — surfaces the most likely action for the
-          current tab so new users don't have to discover bulk select. */}
       <PrimaryActionCallout
         tab={tab}
         kpis={kpis}
         meRole={me.role}
         onApproveAll={async () => {
-          // Switch to bulk mode + approve all matching the current filter
           setSelectionMode(true);
-          // tiny delay so selection mode UI settles
           await new Promise(r => setTimeout(r, 40));
           await selectAllMatchingFilter();
-          // small delay for state propagation
           await new Promise(r => setTimeout(r, 40));
           handleBulkApprove();
         }}
@@ -562,7 +605,7 @@ export function OrdersClient({
         }}
       />
 
-      {/* Filter bar — basic by default, advanced revealed on click */}
+      {/* Filter bar */}
       <div className="bg-paper-card border border-paper-line rounded-md p-3 mb-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-full sm:min-w-[220px]">
@@ -602,55 +645,104 @@ export function OrdersClient({
         </div>
 
         {showAdvanced && (
-          <div className="mt-3 pt-3 border-t border-paper-line flex flex-wrap items-center gap-2">
-            <Select value={salesmanF} onValueChange={setSalesmanF}>
-              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Salesman" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All salesmen</SelectItem>
-                {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <>
+            <div className="mt-3 pt-3 border-t border-paper-line flex flex-wrap items-center gap-2">
+              <Select value={salesmanF} onValueChange={setSalesmanF}>
+                <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Salesman" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All salesmen</SelectItem>
+                  {salesmen.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
 
-            <Select value={beatF} onValueChange={setBeatF}>
-              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Beat" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All beats</SelectItem>
-                {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+              <Select value={beatF} onValueChange={setBeatF}>
+                <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Beat" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All beats</SelectItem>
+                  {beats.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
 
-            <Select value={statusF} onValueChange={setStatusF}>
-              <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                {statusOptionsForTab(tab).map(s => (
-                  <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <Select value={statusF} onValueChange={setStatusF}>
+                <SelectTrigger className="flex-1 min-w-[120px] sm:w-[160px] sm:flex-none"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {statusOptionsForTab(tab).map(s => (
+                    <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <Select value={dateF} onValueChange={setDateF}>
-              <SelectTrigger className="flex-1 min-w-[120px] sm:flex-none sm:w-[140px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
+              <Select value={dateF} onValueChange={handleDateChange}>
+                <SelectTrigger className="flex-1 min-w-[140px] sm:flex-none sm:w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="yesterday">Yesterday</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="this_month">This month</SelectItem>
+                  <SelectItem value="last_month">Last month</SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                </SelectContent>
+              </Select>
 
-            {advFilterActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setSalesmanF("all"); setBeatF("all"); setStatusF("all"); setDateF("today");
-                }}
-              >
-                <X size={11}/> Clear filters
-              </Button>
+              {advFilterActive && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSalesmanF("all"); setBeatF("all"); setStatusF("all");
+                    setDateF("all"); setCustomFrom(""); setCustomTo("");
+                  }}
+                >
+                  <X size={11}/> Clear filters
+                </Button>
+              )}
+            </div>
+
+            {dateF === "custom" && (
+              <div className="mt-2 pt-2 border-t border-paper-line/60 flex flex-wrap items-center gap-2">
+                <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Range:</span>
+                <Input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  max={customTo || undefined}
+                  className="w-auto flex-1 min-w-[140px] sm:flex-none sm:w-[150px]"
+                  aria-label="From date"
+                />
+                <span className="text-2xs text-ink-muted">to</span>
+                <Input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  min={customFrom || undefined}
+                  className="w-auto flex-1 min-w-[140px] sm:flex-none sm:w-[150px]"
+                  aria-label="To date"
+                />
+                {(customFrom || customTo) && (
+                  <button
+                    type="button"
+                    onClick={() => { setCustomFrom(""); setCustomTo(""); }}
+                    className="text-2xs text-ink-muted hover:text-ink"
+                  >
+                    Clear dates
+                  </button>
+                )}
+                {customRangeInvalid && (
+                  <span className="text-2xs text-danger w-full sm:w-auto">
+                    “To” must be on or after “From”.
+                  </span>
+                )}
+                {!customFrom && !customTo && (
+                  <span className="text-2xs text-ink-subtle italic w-full sm:w-auto">
+                    Pick a range — leaving both blank shows everything.
+                  </span>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 
@@ -694,8 +786,6 @@ export function OrdersClient({
                     <tr
                       key={o.id}
                       onClick={(e) => {
-                        // In selection mode, clicking the row toggles the checkbox
-                        // unless it was the checkbox itself (already handled).
                         if (selectionMode) {
                           if ((e.target as HTMLElement).tagName !== "INPUT") toggleOne(o.id);
                         } else {
@@ -755,7 +845,6 @@ export function OrdersClient({
         </div>
       </div>
 
-      {/* Bulk action bar — floats above page when any orders are selected */}
       {selectionMode && selectedIds.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-paper-card border border-paper-line rounded-md shadow-lg px-4 py-2.5 flex items-center gap-3">
           <div className="flex items-baseline gap-2">
@@ -790,7 +879,6 @@ export function OrdersClient({
         </div>
       )}
 
-      {/* Bulk attach picker — overlay */}
       {showAttachPicker && (
         <div className="fixed inset-0 bg-ink/40 backdrop-blur-[2px] z-40 flex items-center justify-center px-4">
           <div className="bg-paper-card border border-paper-line rounded-md shadow-xl max-w-md w-full p-4">
@@ -925,16 +1013,7 @@ function formatINRcompact(amt: number): string {
 }
 
 // =============================================================================
-// INLINE STATUS BADGE
-//
-// Click the status pill in a row to change it without opening the drawer.
-//
-// Behavior depends on the order's current status and the user's role:
-//   - received: Approve / Reject (admin, approver) — confirm dialog
-//   - approved: Cancel order (admin, approver) — confirm with reason
-//   - everything else: badge is read-only; user opens the drawer for changes
-//
-// Reject/Cancel collect a reason inline (small textarea below the buttons).
+// INLINE STATUS BADGE (unchanged)
 // =============================================================================
 
 interface StatusBadgeActionProps {
@@ -951,7 +1030,6 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
 
   const isApprover = ["admin", "approver"].includes(meRole);
 
-  // Compute available actions for this row's status
   const canApprove = isApprover && order.app_status === "received";
   const canReject  = isApprover && order.app_status === "received";
   const canCancel  = isApprover && order.app_status === "approved";
@@ -988,7 +1066,6 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
     });
   }
 
-  // Read-only badge — no actions available
   if (!hasActions) {
     return <Badge variant={statusBadgeVariant(order.app_status)}>{statusLabel(order.app_status)}</Badge>;
   }
@@ -1101,9 +1178,7 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
 }
 
 // =============================================================================
-// PRIMARY ACTION CALLOUT
-// Surfaces the most likely action for the current tab, so basic users don't
-// have to discover bulk select. Only shows when there's actually work to do.
+// PRIMARY ACTION CALLOUT (unchanged)
 // =============================================================================
 
 function PrimaryActionCallout({
@@ -1118,7 +1193,6 @@ function PrimaryActionCallout({
   const isApprover = ["admin", "approver"].includes(meRole);
   const isVanLead = ["admin", "van_lead"].includes(meRole);
 
-  // Approve all — only on the approval tab when there's pending work
   if (tab === "approval" && isApprover && kpis.approval.count > 0) {
     return (
       <div className="bg-warn-soft border border-warn/40 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">
@@ -1140,7 +1214,6 @@ function PrimaryActionCallout({
     );
   }
 
-  // Add to active trip — on the dispatch tab for VAN leads/admin
   if (tab === "dispatch" && isVanLead && kpis.dispatch.count > 0) {
     return (
       <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">

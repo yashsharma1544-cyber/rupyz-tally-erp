@@ -15,6 +15,7 @@ import { ChevronRight, Truck, MapPin, Clock, Package, UserPlus } from "lucide-re
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./sign-out-button";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,19 +43,22 @@ function formatINR(n: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
-function formatRelative(iso: string): string {
+type TFunc = (key: string, vars?: Record<string, string | number>) => string;
+
+function formatRelative(iso: string, t: TFunc): string {
   const ts = new Date(iso).getTime();
   const now = Date.now();
   const mins = Math.floor((now - ts) / 60000);
-  if (mins < 1)  return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1)  return t("driver.just_now");
+  if (mins < 60) return t("driver.mins_ago", { n: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24)  return `${hrs}h ago`;
+  if (hrs < 24)  return t("driver.hours_ago", { n: hrs });
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return t("driver.days_ago", { n: days });
 }
 
 export default async function DriverHomePage() {
+  const t = await getT();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login?from=/driver");
@@ -70,9 +74,9 @@ export default async function DriverHomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <h1 className="font-semibold text-base mb-1">Not authorized</h1>
-          <p className="text-sm text-ink-muted mb-4">Driver app is for drivers and helpers only.</p>
-          <Link href="/dashboard" className="text-accent text-sm">Go to dashboard</Link>
+          <h1 className="font-semibold text-base mb-1">{t("common.not_authorized")}</h1>
+          <p className="text-sm text-ink-muted mb-4">{t("driver.not_authorized_body")}</p>
+          <Link href="/dashboard" className="text-accent text-sm">{t("common.go_to_dashboard")}</Link>
         </div>
       </div>
     );
@@ -95,7 +99,7 @@ export default async function DriverHomePage() {
   if (error) {
     return (
       <div className="min-h-screen bg-paper p-4">
-        <p className="text-sm font-semibold mb-1">Couldn&apos;t load deliveries</p>
+        <p className="text-sm font-semibold mb-1">{t("driver.cant_load_deliveries")}</p>
         <p className="text-xs text-ink-muted">{error.message}</p>
       </div>
     );
@@ -110,7 +114,7 @@ export default async function DriverHomePage() {
   };
   const buckets = new Map<string, TruckBucket>();
   for (const d of dispatchRows) {
-    const v = d.vehicle_number ?? "(no vehicle)";
+    const v = d.vehicle_number ?? t("driver.no_vehicle_placeholder");
     if (!buckets.has(v)) buckets.set(v, { vehicleNumber: v, pending: [], shipped: [] });
     const b = buckets.get(v)!;
     if (d.status === "pending") b.pending.push(d);
@@ -135,17 +139,18 @@ export default async function DriverHomePage() {
     return order?.rupyz_order_id ?? "—";
   }
 
-  const roleLabel = me.role === "van_helper" ? "Helper" : "Driver";
+  const isHelperRole = me.role === "van_helper";
+  const roleLabel = isHelperRole ? t("driver.role_helper") : t("driver.role_driver");
 
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-md mx-auto px-3 py-4">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-full bg-accent text-paper-card flex items-center justify-center shrink-0">
-            {me.role === "van_helper" ? <UserPlus size={16}/> : <Truck size={16}/>}
+            {isHelperRole ? <UserPlus size={16}/> : <Truck size={16}/>}
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="font-bold text-base leading-tight">Hi, {me.full_name}</h1>
+            <h1 className="font-bold text-base leading-tight">{t("driver.hi_name", { name: me.full_name })}</h1>
             <p className="text-2xs text-ink-muted">{roleLabel}{me.phone ? ` · ${me.phone}` : ""}</p>
           </div>
           <SignOutButton />
@@ -154,42 +159,42 @@ export default async function DriverHomePage() {
         {trucks.length === 0 ? (
           <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-6">
             <Truck size={32} className="mx-auto text-ink-subtle mb-2"/>
-            <p className="font-semibold text-sm mb-0.5">No deliveries assigned</p>
+            <p className="font-semibold text-sm mb-0.5">{t("driver.no_deliveries_assigned")}</p>
             <p className="text-xs text-ink-muted">
-              When you&apos;re assigned to a truck as {me.role === "van_helper" ? "helper" : "driver"}, it&apos;ll appear here.
+              {isHelperRole ? t("driver.no_deliveries_body_helper") : t("driver.no_deliveries_body_driver")}
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            {trucks.map(t => {
-              const totalQtyShipped  = t.shipped.reduce((s, d) => s + Number(d.total_qty), 0);
-              const totalAmtShipped  = t.shipped.reduce((s, d) => s + Number(d.total_amount), 0);
-              const totalQtyPending  = t.pending.reduce((s, d) => s + Number(d.total_qty), 0);
-              const allDispatches = [...t.shipped, ...t.pending];
+            {trucks.map(truck => {
+              const totalQtyShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_qty), 0);
+              const totalAmtShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_amount), 0);
+              const totalQtyPending  = truck.pending.reduce((s, d) => s + Number(d.total_qty), 0);
+              const allDispatches = [...truck.shipped, ...truck.pending];
               const oldestTs = allDispatches.reduce((ts, d) => {
-                const t = new Date(d.created_at).getTime();
-                return t < ts ? t : ts;
+                const cur = new Date(d.created_at).getTime();
+                return cur < ts ? cur : ts;
               }, Date.now());
 
               return (
-                <section key={t.vehicleNumber}>
+                <section key={truck.vehicleNumber}>
                   <div className="bg-accent text-paper-card rounded-md p-3 mb-2">
-                    <div className="font-mono font-semibold text-base">{t.vehicleNumber}</div>
+                    <div className="font-mono font-semibold text-base">{truck.vehicleNumber}</div>
                     <div className="text-2xs opacity-90 mt-0.5 inline-flex items-center gap-1">
-                      <Clock size={9}/> Loaded {formatRelative(new Date(oldestTs).toISOString())}
+                      <Clock size={9}/> {t("driver.loaded_relative", { relative: formatRelative(new Date(oldestTs).toISOString(), t) })}
                     </div>
                     <div className="text-2xs opacity-90 mt-0.5">
-                      <strong className="tabular">{t.shipped.length}</strong> ready to deliver
-                      {t.pending.length > 0 && <> · <strong className="tabular">{t.pending.length}</strong> still loading</>}
+                      <strong className="tabular">{truck.shipped.length}</strong> {t("driver.ready_to_deliver_suffix")}
+                      {truck.pending.length > 0 && <> · <strong className="tabular">{truck.pending.length}</strong> {t("driver.still_loading_suffix")}</>}
                     </div>
                   </div>
 
-                  {t.shipped.length > 0 && (
+                  {truck.shipped.length > 0 && (
                     <div className="space-y-2">
                       <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold">
-                        Ready to deliver · {totalQtyShipped} units · {formatINR(totalAmtShipped)}
+                        {t("driver.ready_header", { qty: totalQtyShipped, amount: formatINR(totalAmtShipped) })}
                       </h2>
-                      {t.shipped.map(d => {
+                      {truck.shipped.map(d => {
                         const c = customerOf(d);
                         const asHelper = d.helper_user_id === user.id && d.driver_user_id !== user.id;
                         return (
@@ -210,12 +215,12 @@ export default async function DriverHomePage() {
                                   {c.beatName && <> · {c.beatName}</>}
                                 </div>
                                 <div className="text-2xs text-ink-muted mt-0.5">
-                                  <span className="tabular"><strong className="text-ink">{Number(d.total_qty)}</strong> units</span>
+                                  <span className="tabular"><strong className="text-ink">{Number(d.total_qty)}</strong> {t("common.units")}</span>
                                   <span className="text-ink-subtle"> · </span>
                                   <span className="tabular">{formatINR(Number(d.total_amount))}</span>
                                   {asHelper && (
                                     <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
-                                      <UserPlus size={9}/> as helper
+                                      <UserPlus size={9}/> {t("driver.as_helper_badge")}
                                     </span>
                                   )}
                                 </div>
@@ -228,12 +233,14 @@ export default async function DriverHomePage() {
                     </div>
                   )}
 
-                  {t.pending.length > 0 && (
+                  {truck.pending.length > 0 && (
                     <div className="mt-3 space-y-1.5">
                       <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold inline-flex items-center gap-1">
-                        <Package size={9}/> Still loading · {t.pending.length} stop{t.pending.length === 1 ? "" : "s"} · {totalQtyPending} units
+                        <Package size={9}/> {truck.pending.length === 1
+                          ? t("driver.still_loading_header_one", { n: truck.pending.length, qty: totalQtyPending })
+                          : t("driver.still_loading_header_many", { n: truck.pending.length, qty: totalQtyPending })}
                       </h2>
-                      {t.pending.map(d => {
+                      {truck.pending.map(d => {
                         const c = customerOf(d);
                         return (
                           <div
@@ -244,7 +251,7 @@ export default async function DriverHomePage() {
                             <div className="text-2xs text-ink-muted mt-0.5">
                               <span className="font-mono">{rupyzOrderIdOf(d)}</span>
                               {c.city && <> · {c.city}</>}
-                              <span className="text-ink-subtle"> · waiting to leave godown</span>
+                              <span className="text-ink-subtle"> · {t("driver.waiting_to_leave_godown")}</span>
                             </div>
                           </div>
                         );
@@ -252,9 +259,9 @@ export default async function DriverHomePage() {
                     </div>
                   )}
 
-                  {t.shipped.length === 0 && t.pending.length > 0 && (
+                  {truck.shipped.length === 0 && truck.pending.length > 0 && (
                     <p className="text-2xs text-ink-muted text-center mt-3 italic">
-                      Nothing ready to deliver yet — wait for dispatcher to dispatch this truck.
+                      {t("driver.nothing_ready_yet")}
                     </p>
                   )}
                 </section>
@@ -264,7 +271,7 @@ export default async function DriverHomePage() {
         )}
 
         <div className="mt-8 text-center text-2xs text-ink-subtle">
-          <Link href="/" className="hover:text-ink-muted">← Main app</Link>
+          <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />

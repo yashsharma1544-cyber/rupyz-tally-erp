@@ -6,6 +6,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { OrderDispatchClient } from "./order-dispatch-client";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,10 +22,11 @@ export default async function OrderDispatchPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/dispatch/${beatId}/${orderId}`);
 
+  const { t } = await getT();
+
   const { data: me } = await supabase.from("app_users").select("full_name, role, active").eq("id", user.id).single();
   if (!me?.active || !["admin", "dispatch"].includes(me.role)) redirect("/dispatch");
 
-  // Fetch order + drivers + helpers in parallel
   const [{ data: order }, { data: drivers }, { data: helpers }] = await Promise.all([
     supabase
       .from("orders")
@@ -52,14 +54,15 @@ export default async function OrderDispatchPage({
   if (!order) notFound();
 
   if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status)) {
+    const statusText = t(`status.${order.app_status}`);
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
         <div>
-          <p className="font-semibold text-sm mb-1">Already handled</p>
+          <p className="font-semibold text-sm mb-1">{t("order_dispatch.already_handled")}</p>
           <p className="text-xs text-ink-muted mb-3">
-            This order is &ldquo;{order.app_status}&rdquo; — nothing to dispatch.
+            {t("order_dispatch.already_handled_desc", { status: statusText })}
           </p>
-          <Link href={`/dispatch/${beatId}`} className="text-accent text-sm">← Back to beat</Link>
+          <Link href={`/dispatch/${beatId}`} className="text-accent text-sm">← {t("order_dispatch.back_to_beat")}</Link>
         </div>
       </div>
     );
