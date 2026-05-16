@@ -17,13 +17,19 @@ async function requireAdmin() {
   if (!appUser || appUser.role !== "admin") throw new Error("Not authorized");
 }
 
-export type SendActionResult =
-  | {
-      ok: true;
-      reportType: PdfReportType;
-      recipients: { role: "salesman" | "admin"; name: string; ok: boolean; error: string | null }[];
-    }
-  | { ok: false; error: string };
+export type SendActionRecipient = {
+  role: "salesman" | "admin";
+  name: string;
+  ok: boolean;
+  error: string | null;
+};
+
+export type SendActionResult = {
+  ok: boolean;
+  reportType?: PdfReportType;
+  recipients?: SendActionRecipient[];
+  error?: string;
+};
 
 export async function sendReportNow(
   salesmanId: string,
@@ -50,10 +56,13 @@ export async function sendReportNow(
     revalidatePath(`/sales-monitor/${salesmanId}`);
     revalidatePath("/sales-monitor");
 
-    if (!outcome.ok && outcome.recipients.length === 0) {
-      return { ok: false, error: outcome.error || "Send failed" };
+    // Hard failure — no recipients attempted (e.g. PDF render failed, no phone).
+    if (outcome.recipients.length === 0) {
+      return { ok: false, error: outcome.error || "Send failed", reportType };
     }
 
+    // Attempted — may have partial failure. Include recipients so the UI can
+    // show per-recipient status.
     return {
       ok: outcome.ok,
       reportType,
@@ -63,6 +72,7 @@ export async function sendReportNow(
         ok: r.ok,
         error: r.error,
       })),
+      error: outcome.ok ? undefined : (outcome.error || undefined),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

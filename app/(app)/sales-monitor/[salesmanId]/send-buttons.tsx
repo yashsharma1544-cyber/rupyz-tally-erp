@@ -88,14 +88,17 @@ export function SendButtons({ salesmanId, date }: Props) {
 }
 
 function ResultLine({ result }: { result: SendActionResult }) {
-  if (!result.ok) {
+  // Hard failure path — no recipients were even attempted.
+  if (!result.recipients || result.recipients.length === 0) {
     return (
       <div className="text-2xs text-danger mt-1 inline-flex items-start gap-1">
         <AlertCircle size={11} className="shrink-0 mt-0.5" />
-        <span>{result.error}</span>
+        <span>{result.error || "Send failed"}</span>
       </div>
     );
   }
+  // At least one recipient was attempted — show per-recipient status. Some
+  // may have failed; the UI shows ✓ or ✗ for each.
   return (
     <div className="text-2xs text-ink-subtle mt-1 space-y-0.5">
       {result.recipients.map((r, i) => (
