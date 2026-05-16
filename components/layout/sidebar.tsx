@@ -18,6 +18,9 @@ import {
   Menu,
   X,
   Kanban,
+  PackageCheck,
+  Send,
+  Navigation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -36,6 +39,15 @@ const navItems = [
   { href: "/drivers",      label: "Drivers",    icon: Truck,           roles: "admin" },
   { href: "/users",        label: "Users",      icon: Shield,          roles: "admin" },
   { href: "/settings",     label: "Settings",   icon: Settings,        roles: "admin" },
+] as const;
+
+// Mobile-first workflow apps (warehouse, dispatch desk, drivers in the field).
+// These live OUTSIDE the (app) layout group so clicking takes you out of the
+// admin shell entirely. Use the "← Main app" link inside each app to return.
+const opsItems = [
+  { href: "/load",     label: "Load",     icon: PackageCheck },
+  { href: "/dispatch", label: "Dispatch", icon: Send },
+  { href: "/driver",   label: "Driver",   icon: Navigation },
 ] as const;
 
 export function Sidebar({ user }: { user: AppUser }) {
@@ -61,6 +73,8 @@ export function Sidebar({ user }: { user: AppUser }) {
     return !moreSpecific;
   }
 
+  const isAdmin = user.role === "admin";
+
   const navContent = (
     <>
       <div className="px-4 pt-4 pb-3 border-b border-paper-line flex items-center justify-between">
@@ -84,7 +98,7 @@ export function Sidebar({ user }: { user: AppUser }) {
 
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
-          if (item.roles === "admin" && user.role !== "admin") return null;
+          if (item.roles === "admin" && !isAdmin) return null;
           const active = isActive(item.href);
           const Icon = item.icon;
           return (
@@ -104,6 +118,27 @@ export function Sidebar({ user }: { user: AppUser }) {
             </Link>
           );
         })}
+
+        {isAdmin && (
+          <>
+            <div className="pt-4 pb-1 px-2.5 text-2xs uppercase tracking-wider text-ink-subtle font-semibold">
+              Workflow apps
+            </div>
+            {opsItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-2.5 px-2.5 py-2.5 lg:py-1.5 rounded text-sm text-ink-muted hover:text-ink hover:bg-paper-subtle transition-all"
+                >
+                  <Icon size={15} className="text-ink-subtle" />
+                  <span className="font-medium">{item.label}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
 
       <div className="border-t border-paper-line p-3">
