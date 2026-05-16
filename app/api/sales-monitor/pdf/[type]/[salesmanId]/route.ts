@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSalesmanDayStatus } from "@/lib/sales-monitor/compute";
 import {
@@ -8,7 +8,7 @@ import {
   type PdfReportType,
 } from "@/lib/sales-monitor/pdf/render";
 
-// @react-pdf/renderer needs Node runtime — won't run on Edge.
+// @react-pdf/renderer needs Node runtime â€” won't run on Edge.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { type: string; salesmanId: string } },
 ) {
-  // Auth — admin only
+  // Auth â€” admin only
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
@@ -60,7 +60,7 @@ export async function GET(
     const filename = pdfFilename(type, status.salesman_name, date);
     const wantDownload = url.searchParams.get("download") === "1";
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
