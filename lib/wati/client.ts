@@ -1,10 +1,10 @@
-/**
+﻿/**
  * WATi WhatsApp Business API client.
  *
  * Usage:
  *   const result = await sendTemplateMessage({
  *     whatsappNumber: "919860748060",
- *     templateName: "sales_morning_briefing",
+ *     templateName: "sales_morning_briefing_v3",
  *     broadcastName: "morning_2026-05-16_akshay",
  *     bodyVariables: ["Akshay", "Chandan Zira", "41", "100"],
  *     headerDocumentUrl: "https://supabase.co/.../signed.pdf",
@@ -12,8 +12,8 @@
  *   });
  *
  * Env:
- *   WATI_API_ENDPOINT  — tenant URL, e.g. https://live-mt-server.wati.io/<tenant-id>
- *   WATI_ACCESS_TOKEN  — bearer token from WATi → API Docs
+ *   WATI_API_ENDPOINT  â€” tenant URL, e.g. https://live-mt-server.wati.io/<tenant-id>
+ *   WATI_ACCESS_TOKEN  â€” bearer token from WATi â†’ API Docs
  *
  * The exact request shape varies a bit across WATi tenants. This client uses
  * the most common v1 sendTemplateMessage pattern with a header_handle for the
@@ -165,11 +165,11 @@ function extractErrorMessage(parsed: unknown): string | null {
 }
 
 /**
- * Template names — single source of truth so we don't typo them across files.
+ * Template names â€” single source of truth so we don't typo them across files.
  * Must match exactly what's approved in the WATi dashboard.
  */
 export const WATI_TEMPLATES = {
-  morning: "sales_morning_briefing",
-  midday: "sales_midday_update",
+  morning: "sales_morning_briefing_v3",
+  midday: "sales_midday_update_v2",
   evening: "sales_evening_final",
 } as const;
