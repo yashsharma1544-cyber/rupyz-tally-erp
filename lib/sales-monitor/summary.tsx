@@ -1,16 +1,12 @@
 /**
  * Daily summary send orchestration.
  *
- * Fires at the end of each runSalesmanCron call (morning/midday/evening).
- * Sends a single PDF to each admin recipient (Yash + any other admins) with
- * the full salesman table inside the PDF, and a short aggregate-totals body.
+ * Fires at the end of each runSalesmanCron call (morning/midday/evening)
+ * AND from the admin "Test ▾" → "Send all admin summaries" menu.
  *
- * Reuses the existing approved WATi templates (morning/midday/evening) — the
- * body just gets aggregate values instead of per-salesman ones. PDF carries
- * the actual breakdown.
- *
- * If you later want a dedicated "Daily Summary" template for cleaner copy,
- * submit one and add it to WATI_TEMPLATES, then point `templateNameFor` here.
+ * PDF carries per-salesman info; body vars are generic placeholders since
+ * (a) the approved templates expect 4 variables in a per-salesman shape and
+ * (b) per request, we don't put aggregate totals in any message.
  */
 
 import React from "react";
@@ -22,7 +18,7 @@ import {
 } from "@/lib/wati/client";
 import { getAdminRecipients } from "@/lib/sales-monitor/send";
 import { getSummaryForDate } from "@/lib/sales-monitor/compute";
-import { formatKg, type SalesmanSummaryRow } from "@/lib/sales-monitor/format";
+import type { SalesmanSummaryRow } from "@/lib/sales-monitor/format";
 import type { PdfReportType } from "@/lib/sales-monitor/pdf/render";
 import { SummaryDocument } from "@/lib/sales-monitor/pdf/summary-document";
 
@@ -47,10 +43,6 @@ export type SummarySendResult = {
   storagePath: string | null;
 };
 
-/**
- * Render the summary PDF for a date+reportType, upload to storage, and send
- * to all admins via WATi.
- */
 export async function runSummaryCron(
   reportType: PdfReportType,
   date: string,
@@ -77,12 +69,11 @@ export async function runSummaryCron(
     return { ...baseResult, ok: false, failed: 1 };
   }
 
-  // Render the PDF
   let pdfBuffer: Buffer;
   try {
-  const stream = await pdf(
-  <SummaryDocument reportType={reportType} date={date} rows={rows} />,
-).toBuffer();
+    const stream = await pdf(
+      <SummaryDocument reportType={reportType} date={date} rows={rows} />,
+    ).toBuffer();
     pdfBuffer = await streamToBuffer(stream);
   } catch (e) {
     errors.push({
@@ -92,7 +83,6 @@ export async function runSummaryCron(
     return { ...baseResult, ok: false, failed: 1 };
   }
 
-  // Upload to storage + sign URL
   let storagePath: string;
   let signedUrl: string;
   try {
@@ -107,20 +97,17 @@ export async function runSummaryCron(
     return { ...baseResult, ok: false, failed: 1 };
   }
 
-  // Recipients
   const admins = await getAdminRecipients();
   if (admins.length === 0) {
     errors.push({ name: "system", error: "no admin recipients" });
     return { ...baseResult, ok: false, failed: 1, storagePath };
   }
 
-  // Body vars
-  const bodyVars = buildSummaryBodyVariables(reportType, rows, date);
+  const bodyVars = buildSummaryBodyVariables(reportType, date);
   const templateName = templateNameFor(reportType);
   const filename = summaryPdfFilename(reportType, date);
   const broadcastName = `summary_${reportType}_${date}`;
 
-  // Send to each admin
   let succeeded = 0;
   let failed = 0;
   for (const a of admins) {
@@ -187,7 +174,7 @@ async function uploadSummaryPdf(opts: {
 
   const { data, error: urlErr } = await admin.storage
     .from("sales-reports")
-    .createSignedUrl(path, 60 * 60 * 24); // 24h
+    .createSignedUrl(path, 60 * 60 * 24);
   if (urlErr || !data?.signedUrl) {
     throw new Error(urlErr?.message || "could not create signed url");
   }
@@ -212,49 +199,36 @@ function templateNameFor(type: PdfReportType): string {
 }
 
 /**
- * Build the body variables for the WhatsApp template.
- * Morning template:  name, beat, sc, target_kg
- * Midday/Evening:    name, date, calls_compound, kg_compound
+ * No aggregate values — body slots are filled with generic placeholders.
+ * The PDF (document header) carries the per-salesman breakdown.
  *
- * For the summary message we put aggregate totals in the per-salesman slots.
- * The body reads slightly oddly ("Your beat today: Daily summary across 5 beats")
- * but it works, and the PDF below has the real breakdown.
+ * Body reads slightly awkwardly because we're using per-salesman templates
+ * for an admin-summary purpose. If you ever want clean copy, submit a
+ * dedicated "daily_summary" template to WATi.
  */
 function buildSummaryBodyVariables(
   type: PdfReportType,
-  rows: SalesmanSummaryRow[],
   date: string,
 ): string[] {
-  const totalSC = rows.reduce((s, r) => s + r.sc, 0);
-  const totalCalls = rows.reduce((s, r) => s + r.calls_done, 0);
-  const totalTarget = rows.reduce((s, r) => s + Number(r.target_kg || 0), 0);
-  const totalKg = rows.reduce((s, r) => s + Number(r.kg_done || 0), 0);
-  const beatsCovered = rows.filter((r) => r.beat_id).length;
-
-  const dateLabel = new Date(date).toLocaleDateString("en-IN", {
+  const dLabel = new Date(date).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
   });
 
   if (type === "morning") {
+    // Approved body: "Good morning {{1}}. Your beat today: {{2}} ({{3}} customers). Target: {{4}} kg…"
     return [
-      "Sushil Agencies",
-      `Team summary across ${beatsCovered} beat${beatsCovered === 1 ? "" : "s"}`,
-      String(totalSC),
-      totalTarget > 0 ? formatKg(totalTarget) : "—",
+      "Sushil Agencies (Admin)",
+      "Daily Summary",
+      "see attached PDF",
+      "see attached PDF",
     ];
   }
 
-  // midday / evening
-  const callsPct = totalSC > 0 ? Math.round((totalCalls / totalSC) * 100) : null;
-  const kgPct = totalTarget > 0 ? Math.round((totalKg / totalTarget) * 100) : null;
-  const callsStr =
-    totalSC > 0
-      ? `${totalCalls} of ${totalSC} customers${callsPct !== null ? ` (${callsPct}%)` : ""}`
-      : `${totalCalls} customers`;
-  const kgStr =
-    totalTarget > 0
-      ? `${formatKg(totalKg)} kg of ${formatKg(totalTarget)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
-      : `${formatKg(totalKg)} kg`;
-
-  return ["Sushil Agencies (Team)", dateLabel, callsStr, kgStr];
+  // Midday/Evening approved body: "{Mid-day update | End-of-day} for {{1}} on {{2}}. Calls: {{3}}. Sales: {{4}}…"
+  return [
+    "Sushil Agencies (Admin)",
+    dLabel,
+    "see attached PDF",
+    "see attached PDF",
+  ];
 }
