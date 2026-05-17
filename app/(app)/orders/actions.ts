@@ -71,9 +71,6 @@ export async function approveOrder(orderId: string, comment?: string) {
 
 // =============================================================================
 // BULK APPROVE
-// Process orders one by one. Returns per-order results so the client can
-// display a "X of Y succeeded" summary with reasons for any failures.
-// Hard cap at 500 to prevent runaway operations.
 // =============================================================================
 export interface BulkOrderResult {
   orderId: string;
@@ -179,7 +176,6 @@ export async function editOrder(orderId: string, payload: EditPayload) {
     const actor = await requireRoles(["admin", "approver"]);
     const admin = createAdminClient();
 
-    // Validate order can be edited
     const { data: order, error: oErr } = await admin
       .from("orders").select("*").eq("id", orderId).single();
     if (oErr || !order) return { error: "Order not found" };
@@ -193,7 +189,6 @@ export async function editOrder(orderId: string, payload: EditPayload) {
     const summaryLines: string[] = [];
     const itemsByID = new Map((items ?? []).map((it) => [it.id, it]));
 
-    // 1. Apply removals
     for (const lineId of payload.lineRemovals) {
       const it = itemsByID.get(lineId);
       if (!it) continue;
@@ -202,7 +197,6 @@ export async function editOrder(orderId: string, payload: EditPayload) {
       summaryLines.push(`Removed: ${it.product_name} (${it.qty} ${it.unit ?? ""})`);
     }
 
-    // 2. Apply updates (qty / price)
     for (const upd of payload.lineUpdates) {
       const it = itemsByID.get(upd.lineId);
       if (!it) continue;
@@ -236,7 +230,6 @@ export async function editOrder(orderId: string, payload: EditPayload) {
       if (changes.length) summaryLines.push(`${it.product_name}: ${changes.join(", ")}`);
     }
 
-    // 3. Apply additions (require existing product_id)
     for (const add of payload.lineAdditions) {
       if (add.qty <= 0 || add.price < 0) return { error: "Invalid qty or price on new line" };
       const { data: prod, error: pErr } = await admin
@@ -270,20 +263,17 @@ export async function editOrder(orderId: string, payload: EditPayload) {
       summaryLines.push(`Added: ${prod.name} (${add.qty} ${prod.unit ?? ""} @ ₹${add.price})`);
     }
 
-    // 4. Recompute order totals
     const { data: freshItems } = await admin.from("order_items").select("*").eq("order_id", orderId);
     const newAmount = (freshItems ?? []).reduce((s, it) => s + Number(it.total_price_without_gst ?? 0), 0);
     const newGst = (freshItems ?? []).reduce((s, it) => s + Number(it.total_gst_amount ?? 0), 0);
     const newTotal = newAmount + newGst;
 
-    // 5. Compute next revision number
     const { data: maxRev } = await admin
       .from("order_revisions").select("revision_number")
       .eq("order_id", orderId)
       .order("revision_number", { ascending: false }).limit(1).maybeSingle();
     const nextRev = (maxRev?.revision_number ?? 0) + 1;
 
-    // 6. Save snapshot
     await admin.from("order_revisions").insert({
       order_id: orderId,
       revision_number: nextRev,
@@ -293,7 +283,6 @@ export async function editOrder(orderId: string, payload: EditPayload) {
       change_summary: summaryLines.join(" · ") || "(no summary)",
     });
 
-    // 7. Update order header
     const { error: hdrErr } = await admin.from("orders").update({
       amount: newAmount,
       gst_amount: newGst,
@@ -313,7 +302,7 @@ export async function editOrder(orderId: string, payload: EditPayload) {
 }
 
 // =============================================================================
-// CANCEL ORDER (soft cancel; usable by admin only)
+// CANCEL ORDER
 // =============================================================================
 export async function cancelOrder(orderId: string, reason: string) {
   try {
@@ -332,6 +321,111 @@ export async function cancelOrder(orderId: string, reason: string) {
     if (error) return { error: error.message };
 
     await logEvent(admin, orderId, "order_cancelled", actor, reason);
+    revalidatePath("/orders");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// SET INVOICE NUMBER — Billing/admin marks an approved order as invoiced
+// =============================================================================
+// Transitions: approved -> invoiced (also overwrites if already invoiced).
+// Required before the order can be Loaded. Locked once loading starts.
+// =============================================================================
+export async function setInvoiceNumber(orderId: string, rawInvoiceNumber: string) {
+  try {
+    const actor = await requireRoles(["admin", "billing"]);
+    const admin = createAdminClient();
+
+    const invoiceNumber = (rawInvoiceNumber ?? "").trim();
+    if (!invoiceNumber) return { error: "Invoice number is required" };
+    if (invoiceNumber.length > 50) return { error: "Invoice number too long (max 50 chars)" };
+
+    const { data: order, error: fetchErr } = await admin
+      .from("orders")
+      .select("id, app_status, invoice_number")
+      .eq("id", orderId)
+      .single();
+    if (fetchErr || !order) return { error: "Order not found" };
+    if (order.app_status !== "approved" && order.app_status !== "invoiced") {
+      return {
+        error: `Cannot set invoice — order is "${order.app_status}". Allowed only when approved or invoiced.`,
+      };
+    }
+
+    const wasEdit = order.app_status === "invoiced";
+    const now = new Date().toISOString();
+    const { error: updErr } = await admin
+      .from("orders")
+      .update({
+        invoice_number: invoiceNumber,
+        invoiced_at: now,
+        invoiced_by: actor.userId,
+        app_status: "invoiced",
+      })
+      .eq("id", orderId);
+    if (updErr) return { error: updErr.message };
+
+    await logEvent(
+      admin,
+      orderId,
+      wasEdit ? "invoice_updated" : "invoiced",
+      actor,
+      wasEdit
+        ? `Invoice number changed from ${order.invoice_number ?? "—"} to ${invoiceNumber}`
+        : `Invoice number ${invoiceNumber} entered (from Tally)`,
+      { invoice_number: invoiceNumber, previous: order.invoice_number ?? null },
+    );
+
+    revalidatePath("/orders");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// CLEAR INVOICE NUMBER — Reverts an invoiced order back to approved
+// =============================================================================
+// Only allowed while still in 'invoiced' status (i.e. before loading starts).
+// =============================================================================
+export async function clearInvoiceNumber(orderId: string) {
+  try {
+    const actor = await requireRoles(["admin", "billing"]);
+    const admin = createAdminClient();
+
+    const { data: order, error: fetchErr } = await admin
+      .from("orders")
+      .select("id, app_status, invoice_number")
+      .eq("id", orderId)
+      .single();
+    if (fetchErr || !order) return { error: "Order not found" };
+    if (order.app_status !== "invoiced") {
+      return { error: `Cannot clear invoice — order is "${order.app_status}". Loading has already started.` };
+    }
+
+    const { error: updErr } = await admin
+      .from("orders")
+      .update({
+        invoice_number: null,
+        invoiced_at: null,
+        invoiced_by: null,
+        app_status: "approved",
+      })
+      .eq("id", orderId);
+    if (updErr) return { error: updErr.message };
+
+    await logEvent(
+      admin,
+      orderId,
+      "invoice_cleared",
+      actor,
+      `Invoice ${order.invoice_number ?? "—"} cleared; order reverted to approved`,
+      { previous_invoice_number: order.invoice_number ?? null },
+    );
+
     revalidatePath("/orders");
     return { ok: true };
   } catch (e: unknown) {

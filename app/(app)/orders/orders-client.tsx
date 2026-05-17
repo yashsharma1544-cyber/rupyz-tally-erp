@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
-import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, ChevronDown, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { Search, AlertCircle, PackageCheck, Truck, Route, CheckCircle2, XCircle, CheckSquare, X, ChevronDown, SlidersHorizontal, Receipt, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,14 @@ import type { Order, Salesman, Beat, OrderAppStatus, AppUser } from "@/lib/types
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import { OrderDrawer } from "./order-drawer";
-import { bulkApproveOrders, approveOrder, rejectOrder, cancelOrder } from "./actions";
+import {
+  bulkApproveOrders,
+  approveOrder,
+  rejectOrder,
+  cancelOrder,
+  setInvoiceNumber,
+  clearInvoiceNumber,
+} from "./actions";
 import { bulkAttachOrdersToTrip, listAllActiveTrips } from "../trips/actions";
 
 const PAGE_SIZE = 50;
@@ -28,7 +35,7 @@ interface KpiRow {
 }
 
 // Status tabs — each maps a list of underlying app_status values
-type TabKey = "approval" | "dispatch" | "loading" | "van" | "transit" | "delivered" | "rejected" | "all";
+type TabKey = "approval" | "dispatch" | "invoiced" | "loading" | "van" | "transit" | "delivered" | "rejected" | "all";
 
 interface TabDef {
   key: TabKey;
@@ -44,9 +51,12 @@ const TABS: TabDef[] = [
     emptyHint: "Nothing waiting for your approval. Nice work.",
     icon: AlertCircle,   accent: "warn" },
   { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
-    emptyHint: "Nothing to send out right now.",
+    emptyHint: "Nothing waiting for an invoice.",
     icon: PackageCheck,  accent: "accent" },
- { key: "loading",   label: "Loading",  statuses: ["loading", "loaded"],
+  { key: "invoiced",  label: "Invoiced",  statuses: ["invoiced"],
+    emptyHint: "No invoiced orders waiting to load.",
+    icon: Receipt,       accent: "accent" },
+  { key: "loading",   label: "Loading",  statuses: ["loading", "loaded"],
     emptyHint: "No trucks currently loading.",
     icon: Truck,         accent: "warn" },
   { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
@@ -69,7 +79,8 @@ const TABS: TabDef[] = [
 function tabForStatus(s: OrderAppStatus): TabKey | null {
   if (s === "received") return "approval";
   if (s === "approved" || s === "partially_dispatched") return "dispatch";
-  if (s === "loading") return "loading";
+  if (s === "invoiced") return "invoiced";
+  if (s === "loading" || s === "loaded") return "loading";
   if (s === "on_van_trip") return "van";
   if (s === "dispatched") return "transit";
   if (s === "delivered") return "delivered";
@@ -80,7 +91,8 @@ function tabForStatus(s: OrderAppStatus): TabKey | null {
 function defaultTabForRole(role: string): TabKey {
   switch (role) {
     case "approver": return "approval";
-    case "dispatch": return "dispatch";
+    case "billing":  return "dispatch";  // billing lands on the approved-waiting-for-invoice tab
+    case "dispatch": return "invoiced";  // dispatch lands on invoiced-waiting-to-load
     case "van_lead": return "van";
     case "van_helper": return "van";
     case "delivery": return "transit";
@@ -90,7 +102,7 @@ function defaultTabForRole(role: string): TabKey {
 }
 
 const ALL_STATUSES: OrderAppStatus[] = [
-    "received", "approved", "loading", "loaded", "on_van_trip",
+    "received", "approved", "invoiced", "loading", "loaded", "on_van_trip",
     "partially_dispatched", "dispatched", "delivered",
     "rejected", "cancelled", "closed",
   ];
@@ -106,9 +118,10 @@ function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
     case "approved":              return "Approved";
- case "loading":               return "Loading";
-      case "loaded":                return "Loaded";
-      case "on_van_trip":           return "On VAN";
+    case "invoiced":              return "Invoiced";
+    case "loading":               return "Loading";
+    case "loaded":                return "Loaded";
+    case "on_van_trip":           return "On VAN";
     case "partially_dispatched":  return "Partly sent";
     case "dispatched":            return "Sent";
     case "delivered":             return "Done";
@@ -121,9 +134,10 @@ function statusLabel(s: OrderAppStatus): string {
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
   switch (s) {
     case "received": return "warn";
-      case "loading":  return "warn";
-      case "loaded":   return "accent";
-      case "approved":
+    case "loading":  return "warn";
+    case "loaded":   return "accent";
+    case "invoiced": return "accent";
+    case "approved":
     case "on_van_trip":
     case "partially_dispatched":
     case "dispatched": return "accent";
@@ -135,14 +149,7 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
 }
 
 // =============================================================================
-// DATE RANGE FILTER
-//
-// 8 options: today / yesterday / 7d / 30d / this_month / last_month / custom / all
-// Output of computeDateRange is [since, until) — since is inclusive (.gte),
-// until is EXCLUSIVE (.lt). For custom we pass `customTo + 1 day` as `until`,
-// so the chosen end date is fully covered through 23:59:59 without millisecond
-// games. All math is in the user's local timezone (so "today" is local
-// midnight, not UTC midnight — important for IST users).
+// DATE RANGE FILTER (unchanged)
 // =============================================================================
 
 type DatePresetKey =
@@ -188,13 +195,12 @@ function computeDateRange(
     const end   = new Date(now.getFullYear(), now.getMonth(), 1);
     return { since: start.toISOString(), until: end.toISOString() };
   }
-  // custom
   let since: string | null = null;
   let until: string | null = null;
   if (customFrom) since = new Date(`${customFrom}T00:00:00`).toISOString();
   if (customTo) {
     const d = new Date(`${customTo}T00:00:00`);
-    d.setDate(d.getDate() + 1); // make inclusive of the chosen end date
+    d.setDate(d.getDate() + 1);
     until = d.toISOString();
   }
   return { since, until };
@@ -206,6 +212,20 @@ function defaultCustomRange(): { from: string; to: string } {
   thirtyAgo.setDate(thirtyAgo.getDate() - 30);
   return { from: toLocalISODate(thirtyAgo), to: toLocalISODate(today) };
 }
+
+type KpiAgg = { count: number; kg: number; amount: number };
+
+const EMPTY_KPI: Record<TabKey, KpiAgg> = {
+  approval:  { count: 0, kg: 0, amount: 0 },
+  dispatch:  { count: 0, kg: 0, amount: 0 },
+  invoiced:  { count: 0, kg: 0, amount: 0 },
+  loading:   { count: 0, kg: 0, amount: 0 },
+  van:       { count: 0, kg: 0, amount: 0 },
+  transit:   { count: 0, kg: 0, amount: 0 },
+  delivered: { count: 0, kg: 0, amount: 0 },
+  rejected:  { count: 0, kg: 0, amount: 0 },
+  all:       { count: 0, kg: 0, amount: 0 },
+};
 
 export function OrdersClient({
   salesmen,
@@ -232,7 +252,7 @@ export function OrdersClient({
   const [searchDebounced, setSearchDebounced] = useState("");
   const [tab, setTab] = useState<TabKey>(() => {
     const urlTab = searchParams?.get("tab");
-    const validKeys: TabKey[] = ["approval", "dispatch", "loading", "van", "transit", "delivered", "rejected", "all"];
+    const validKeys: TabKey[] = ["approval", "dispatch", "invoiced", "loading", "van", "transit", "delivered", "rejected", "all"];
     if (urlTab && (validKeys as string[]).includes(urlTab)) return urlTab as TabKey;
     return defaultTabForRole(me.role);
   });
@@ -240,7 +260,7 @@ export function OrdersClient({
   const [beatF, setBeatF] = useState<string>("all");
   const [statusF, setStatusF] = useState<string>("all");
   const [dateF, setDateF] = useState<DatePresetKey>("all");
-  const [customFrom, setCustomFrom] = useState<string>(""); // YYYY-MM-DD
+  const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
 
   const dateRange = useMemo(
@@ -253,8 +273,6 @@ export function OrdersClient({
   function handleDateChange(v: string) {
     const next = v as DatePresetKey;
     setDateF(next);
-    // First time picking Custom: seed with a sensible 30-day window so the
-    // user doesn't see "Custom" with empty inputs and silently get all data.
     if (next === "custom" && !customFrom && !customTo) {
       const { from, to } = defaultCustomRange();
       setCustomFrom(from);
@@ -266,18 +284,7 @@ export function OrdersClient({
   const [showAdvanced, setShowAdvanced] = useState(false);
   useEffect(() => { if (advFilterActive) setShowAdvanced(true); }, [advFilterActive]);
 
-  type KpiAgg = { count: number; kg: number; amount: number };
-  const emptyKpi: Record<TabKey, KpiAgg> = {
-    approval:  { count: 0, kg: 0, amount: 0 },
-    dispatch:  { count: 0, kg: 0, amount: 0 },
-    loading:   { count: 0, kg: 0, amount: 0 },
-    van:       { count: 0, kg: 0, amount: 0 },
-    transit:   { count: 0, kg: 0, amount: 0 },
-    delivered: { count: 0, kg: 0, amount: 0 },
-    rejected:  { count: 0, kg: 0, amount: 0 },
-    all:       { count: 0, kg: 0, amount: 0 },
-  };
-  const [kpis, setKpis] = useState<Record<TabKey, KpiAgg>>(emptyKpi);
+  const [kpis, setKpis] = useState<Record<TabKey, KpiAgg>>(EMPTY_KPI);
 
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -447,9 +454,8 @@ export function OrdersClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Fetch KPIs
   useEffect(() => {
-    if (customRangeInvalid) return; // don't hammer the RPC with broken input
+    if (customRangeInvalid) return;
 
     let cancelled = false;
     (async () => {
@@ -466,6 +472,7 @@ export function OrdersClient({
       const next: Record<TabKey, KpiAgg> = {
         approval:  { count: 0, kg: 0, amount: 0 },
         dispatch:  { count: 0, kg: 0, amount: 0 },
+        invoiced:  { count: 0, kg: 0, amount: 0 },
         loading:   { count: 0, kg: 0, amount: 0 },
         van:       { count: 0, kg: 0, amount: 0 },
         transit:   { count: 0, kg: 0, amount: 0 },
@@ -492,7 +499,6 @@ export function OrdersClient({
     return () => { cancelled = true; };
   }, [supabase, dateRange.since, dateRange.until, beatF, reloadKey, customRangeInvalid]);
 
-  // Fetch rows
   const prevReloadKeyRef = useRef(reloadKey);
   useEffect(() => {
     if (customRangeInvalid) {
@@ -732,7 +738,7 @@ export function OrdersClient({
                 )}
                 {customRangeInvalid && (
                   <span className="text-2xs text-danger w-full sm:w-auto">
-                    “To” must be on or after “From”.
+                    "To" must be on or after "From".
                   </span>
                 )}
                 {!customFrom && !customTo && (
@@ -1013,7 +1019,7 @@ function formatINRcompact(amt: number): string {
 }
 
 // =============================================================================
-// INLINE STATUS BADGE (unchanged)
+// INLINE STATUS BADGE — with invoice support
 // =============================================================================
 
 interface StatusBadgeActionProps {
@@ -1025,21 +1031,35 @@ interface StatusBadgeActionProps {
 function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [confirming, setConfirming] = useState<null | "approve" | "reject" | "cancel">(null);
+  const [confirming, setConfirming] = useState<null | "approve" | "reject" | "cancel" | "invoice" | "clearInvoice">(null);
   const [reason, setReason] = useState("");
+  const [invoiceInput, setInvoiceInput] = useState("");
 
   const isApprover = ["admin", "approver"].includes(meRole);
+  const isBilling = ["admin", "billing"].includes(meRole);
 
   const canApprove = isApprover && order.app_status === "received";
   const canReject  = isApprover && order.app_status === "received";
-  const canCancel  = isApprover && order.app_status === "approved";
+  const canCancel  = isApprover && (order.app_status === "approved" || order.app_status === "invoiced");
+  const canInvoice = isBilling && order.app_status === "approved";
+  const canEditInvoice = isBilling && order.app_status === "invoiced";
 
-  const hasActions = canApprove || canReject || canCancel;
+  const hasActions = canApprove || canReject || canCancel || canInvoice || canEditInvoice;
+
+  // Order may have invoice_number now (after migration); read defensively in case
+  // the TS type hasn't been updated yet.
+  const invoiceNumber = (order as Order & { invoice_number?: string | null }).invoice_number ?? null;
 
   function close() {
     setOpen(false);
     setConfirming(null);
     setReason("");
+    setInvoiceInput("");
+  }
+
+  function openInvoiceMode() {
+    setConfirming("invoice");
+    setInvoiceInput(invoiceNumber ?? "");
   }
 
   function doApprove() {
@@ -1065,9 +1085,35 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
       else { toast.success(`Order #${order.rupyz_order_id} cancelled`); close(); onChanged(); }
     });
   }
+  function doSaveInvoice() {
+    const v = invoiceInput.trim();
+    if (!v) { toast.error("Enter the Tally invoice number."); return; }
+    startTransition(async () => {
+      const res = await setInvoiceNumber(order.id, v);
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Invoice saved for #${order.rupyz_order_id}`); close(); onChanged(); }
+    });
+  }
+  function doClearInvoice() {
+    startTransition(async () => {
+      const res = await clearInvoiceNumber(order.id);
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Invoice cleared for #${order.rupyz_order_id}`); close(); onChanged(); }
+    });
+  }
 
+  // Plain badge for users without actions
   if (!hasActions) {
-    return <Badge variant={statusBadgeVariant(order.app_status)}>{statusLabel(order.app_status)}</Badge>;
+    return (
+      <div className="flex items-center gap-1.5">
+        <Badge variant={statusBadgeVariant(order.app_status)}>{statusLabel(order.app_status)}</Badge>
+        {invoiceNumber && (
+          <span className="text-2xs font-mono text-ink-muted" title={`Invoice #${invoiceNumber}`}>
+            inv {invoiceNumber}
+          </span>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1081,6 +1127,9 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
         <Badge variant={statusBadgeVariant(order.app_status)} className="cursor-pointer group-hover:opacity-80 transition-opacity">
           {statusLabel(order.app_status)}
         </Badge>
+        {invoiceNumber && (
+          <span className="text-2xs font-mono text-ink-muted">inv {invoiceNumber}</span>
+        )}
         <ChevronDown size={11} className="text-ink-subtle group-hover:text-ink-muted transition-colors" />
       </button>
 
@@ -1100,8 +1149,32 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
                 </div>
                 <div className="font-semibold mb-3">{order.customer?.name ?? "—"}</div>
 
-                <div className="text-xs text-ink-muted mb-2">Change status to:</div>
+                {invoiceNumber && (
+                  <div className="mb-3 text-xs px-2 py-1.5 bg-paper-subtle rounded">
+                    <span className="text-ink-muted">Invoice #</span>
+                    <span className="font-mono ml-1.5">{invoiceNumber}</span>
+                  </div>
+                )}
+
+                <div className="text-xs text-ink-muted mb-2">
+                  {canInvoice ? "Enter invoice or change status:" : "Change status to:"}
+                </div>
                 <div className="flex flex-col gap-2">
+                  {canInvoice && (
+                    <Button onClick={openInvoiceMode} disabled={pending} className="w-full justify-start">
+                      <Receipt size={13}/> Mark as invoiced
+                    </Button>
+                  )}
+                  {canEditInvoice && (
+                    <Button variant="outline" onClick={openInvoiceMode} disabled={pending} className="w-full justify-start">
+                      <Receipt size={13}/> Edit invoice number
+                    </Button>
+                  )}
+                  {canEditInvoice && (
+                    <Button variant="outline" onClick={() => setConfirming("clearInvoice")} disabled={pending} className="w-full justify-start">
+                      <X size={13}/> Clear invoice (revert to approved)
+                    </Button>
+                  )}
                   {canApprove && (
                     <Button onClick={() => setConfirming("approve")} disabled={pending} className="w-full justify-start">
                       <CheckCircle2 size={13}/> Approve
@@ -1124,11 +1197,53 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
               </>
             )}
 
+            {confirming === "invoice" && (
+              <>
+                <div className="font-semibold mb-2">
+                  {canEditInvoice ? "Edit invoice number" : "Mark as invoiced"}
+                </div>
+                <p className="text-xs text-ink-muted mb-3">
+                  Order #{order.rupyz_order_id} for <strong>{order.customer?.name ?? "—"}</strong>.
+                  Enter the invoice number from Tally.
+                </p>
+                <Input
+                  value={invoiceInput}
+                  onChange={(e) => setInvoiceInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") doSaveInvoice(); }}
+                  placeholder="e.g. SAJ-26-0142"
+                  className="mb-3 font-mono"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
+                  <Button onClick={doSaveInvoice} disabled={pending || !invoiceInput.trim()}>
+                    <Receipt size={13}/> {pending ? "Saving…" : "Save invoice"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {confirming === "clearInvoice" && (
+              <>
+                <div className="font-semibold mb-2">Clear invoice?</div>
+                <p className="text-xs text-ink-muted mb-3">
+                  This will remove invoice <span className="font-mono">{invoiceNumber}</span> and revert
+                  the order to <strong>approved</strong>. Loading will be blocked until a new invoice is entered.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
+                  <Button variant="outline" onClick={doClearInvoice} disabled={pending}>
+                    <X size={13}/> {pending ? "Clearing…" : "Yes, clear invoice"}
+                  </Button>
+                </div>
+              </>
+            )}
+
             {confirming === "approve" && (
               <>
                 <div className="font-semibold mb-2">Approve this order?</div>
                 <p className="text-xs text-ink-muted mb-3">
-                  Order #{order.rupyz_order_id} for <strong>{order.customer?.name ?? "—"}</strong> ({formatINR(order.total_amount)}) will be marked approved and ready to send out.
+                  Order #{order.rupyz_order_id} for <strong>{order.customer?.name ?? "—"}</strong> ({formatINR(order.total_amount)}) will be marked approved and ready for invoicing.
                 </p>
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
@@ -1161,7 +1276,7 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" onClick={() => setConfirming(null)} disabled={pending}>Back</Button>
                   <Button
-                    variant={confirming === "reject" ? "outline" : "outline"}
+                    variant="outline"
                     onClick={confirming === "reject" ? doReject : doCancel}
                     disabled={pending || !reason.trim()}
                   >
@@ -1178,7 +1293,7 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
 }
 
 // =============================================================================
-// PRIMARY ACTION CALLOUT (unchanged)
+// PRIMARY ACTION CALLOUT
 // =============================================================================
 
 function PrimaryActionCallout({
@@ -1192,6 +1307,7 @@ function PrimaryActionCallout({
 }) {
   const isApprover = ["admin", "approver"].includes(meRole);
   const isVanLead = ["admin", "van_lead"].includes(meRole);
+  const isBilling = ["admin", "billing"].includes(meRole);
 
   if (tab === "approval" && isApprover && kpis.approval.count > 0) {
     return (
@@ -1214,17 +1330,33 @@ function PrimaryActionCallout({
     );
   }
 
-  if (tab === "dispatch" && isVanLead && kpis.dispatch.count > 0) {
+  if (tab === "dispatch" && isBilling && kpis.dispatch.count > 0) {
+    return (
+      <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex items-center gap-3">
+        <Receipt size={18} className="text-accent shrink-0"/>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">
+            {kpis.dispatch.count} approved order{kpis.dispatch.count === 1 ? "" : "s"} waiting for Tally invoice
+          </div>
+          <div className="text-2xs text-ink-muted">
+            Click any row's status badge → "Mark as invoiced" to enter the invoice number from Tally.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (tab === "invoiced" && isVanLead && kpis.invoiced.count > 0) {
     return (
       <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <PackageCheck size={18} className="text-accent shrink-0"/>
           <div>
             <div className="font-semibold text-sm">
-              {kpis.dispatch.count} order{kpis.dispatch.count === 1 ? "" : "s"} approved and ready to send
+              {kpis.invoiced.count} invoiced order{kpis.invoiced.count === 1 ? "" : "s"} ready to load
             </div>
             <div className="text-2xs text-ink-muted">
-              Add them all to an active VAN trip, or click any row for other options.
+              Add to a VAN trip, or hand off to the loading workflow.
             </div>
           </div>
         </div>

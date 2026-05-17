@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ExternalLink, FileEdit, Check, X, Truck, Trash2, Plus, History, FileText, MapPin,
+  ExternalLink, FileEdit, Check, X, Truck, Trash2, Plus, History, FileText, MapPin, Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -23,7 +23,7 @@ import type {
 import { formatINR } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  approveOrder, rejectOrder, editOrder, type EditPayload,
+  approveOrder, rejectOrder, editOrder, setInvoiceNumber, clearInvoiceNumber, type EditPayload,
 } from "./actions";
 import { createDispatch, shipDispatch, cancelDispatch } from "../dispatches/actions";
 import { attachOrderToTrip, listActiveTripsForOrder } from "../trips/actions";
@@ -34,6 +34,7 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
     case "received": return "warn";
     case "loading":  return "warn";
     case "loaded":   return "accent";
+    case "invoiced": return "accent";
     case "approved":
     case "on_van_trip":
     case "partially_dispatched":
@@ -45,12 +46,12 @@ function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "dan
   }
 }
 
-// Plain-language labels — keep in sync with orders-client.tsx
 function statusLabel(s: OrderAppStatus): string {
   switch (s) {
     case "received":              return "Waiting";
     case "approved":              return "Approved";
-  case "loading":               return "Loading";
+    case "invoiced":              return "Invoiced";
+    case "loading":               return "Loading";
     case "loaded":                return "Loaded";
     case "on_van_trip":           return "On VAN";
     case "partially_dispatched":  return "Partly sent";
@@ -62,9 +63,15 @@ function statusLabel(s: OrderAppStatus): string {
   }
 }
 
+// Order may have invoice fields after migration; safe accessor.
+type OrderWithInvoice = Order & {
+  invoice_number?: string | null;
+  invoiced_at?: string | null;
+  invoiced_by?: string | null;
+};
+
 type Tab = "current" | "original" | "history";
 type EditState = {
-  // For each line: working copy of qty + price
   edits: Map<string, { qty: number; price: number; removed: boolean }>;
   additions: { tempId: string; productId: string; qty: number; price: number }[];
   comment: string;
@@ -83,9 +90,6 @@ export function OrderDrawer({
   me: AppUser;
   beats?: Pick<Beat, "id" | "name">[];
 }) {
-  // Thin wrapper: handles the null case so the inner component can rely on a
-  // non-null `order` typing and avoid TS narrowing issues inside async callbacks.
-  // `key` ensures fresh state when switching between orders.
   if (!order) return null;
   return <OrderDrawerInner key={order.id} order={order} onClose={onClose} onChanged={onChanged} me={me} beats={beats} />;
 }
@@ -105,8 +109,6 @@ function OrderDrawerInner({
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-  // Local copy of the order so we can refresh it after actions without waiting
-  // for the parent list to re-fetch.
   const [order, setOrder] = useState<Order>(orderProp);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [audit, setAudit] = useState<OrderAuditEvent[]>([]);
@@ -116,14 +118,12 @@ function OrderDrawerInner({
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("current");
 
-  // Modes
   const [editMode, setEditMode] = useState(false);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [dispatchMode, setDispatchMode] = useState(false);
 
-  // Attach-to-trip state
   type ActiveTrip = {
     id: string; trip_number: string; trip_date: string; status: string;
     beat_id?: string;
@@ -160,10 +160,8 @@ function OrderDrawerInner({
 
   const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
   const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
-  const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["approved", "partially_dispatched"].includes(order.app_status);
-  const canAttachTrip = ["admin", "van_lead"].includes(me.role) && ["approved", "partially_dispatched"].includes(order.app_status);
-
-  // === HANDLERS ===
+  const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
+  const canAttachTrip = ["admin", "van_lead"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
 
   function startEdit() {
     const m = new Map<string, { qty: number; price: number; removed: boolean }>();
@@ -278,11 +276,9 @@ function OrderDrawerInner({
     setRevisions(rv ?? []);
     setDispatches(((ds ?? []) as unknown as (Dispatch & { pod: unknown })[])
       .map((d) => ({ ...d, pod: Array.isArray(d.pod) ? d.pod[0] ?? null : d.pod ?? null })) as unknown as Dispatch[]);
-    // Notify parent so the orders list + tab counts refresh
     onChanged?.();
   }
 
-  // Determine remaining qty per line (= qty - already in pending/shipped/delivered dispatches)
   function remainingQty(line: OrderItem): number {
     let inFlightOrDelivered = 0;
     for (const d of dispatches) {
@@ -313,7 +309,6 @@ function OrderDrawerInner({
         </SheetHeader>
 
         <SheetBody>
-          {/* TABS */}
           <div className="flex items-center gap-1 mb-5 border-b border-paper-line -mx-1 px-1">
             <TabBtn active={tab === "current"} onClick={() => setTab("current")} icon={<FileText size={13} />}>Current</TabBtn>
             {order.is_edited && (
@@ -440,10 +435,10 @@ function OrderDrawerInner({
                     {activeTrips.map(t => {
                       const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
                       const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
-                      const statusLabel = t.status === "in_progress" ? "on route" : t.status;
+                      const statusLbl = t.status === "in_progress" ? "on route" : t.status;
                       return (
                         <SelectItem key={t.id} value={t.id}>
-                          {t.trip_number} · {beat?.name ?? "—"} · {statusLabel} · {lead?.full_name ?? "—"}
+                          {t.trip_number} · {beat?.name ?? "—"} · {statusLbl} · {lead?.full_name ?? "—"}
                           {t.same_beat === false ? "  (other beat)" : ""}
                         </SelectItem>
                       );
@@ -528,7 +523,6 @@ function CurrentTab({
 }) {
   return (
     <>
-      {/* Top summary cards */}
       <div className="grid grid-cols-2 gap-4 mb-5">
         <Card label="Customer">
           <div className="font-semibold">{order.customer?.name ?? <span className="italic text-ink-subtle">unknown</span>}</div>
@@ -560,29 +554,33 @@ function CurrentTab({
         </Card>
       </div>
 
-      {/* Status panel */}
-      <div className="bg-paper-subtle/60 border border-paper-line rounded p-3 mb-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <div className="text-2xs uppercase tracking-wide text-ink-subtle">App status</div>
-            <div className="text-sm font-medium mt-0.5">{statusLabel(order.app_status)}</div>
+      {/* Status + Invoice panel */}
+      <div className="bg-paper-subtle/60 border border-paper-line rounded p-3 mb-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div>
+              <div className="text-2xs uppercase tracking-wide text-ink-subtle">App status</div>
+              <div className="text-sm font-medium mt-0.5">{statusLabel(order.app_status)}</div>
+            </div>
+            <div className="border-l border-paper-line pl-3">
+              <div className="text-2xs uppercase tracking-wide text-ink-subtle">Rupyz status</div>
+              <div className="text-sm font-medium mt-0.5">{order.rupyz_delivery_status}</div>
+            </div>
           </div>
-          <div className="border-l border-paper-line pl-3">
-            <div className="text-2xs uppercase tracking-wide text-ink-subtle">Rupyz status</div>
-            <div className="text-sm font-medium mt-0.5">{order.rupyz_delivery_status}</div>
-          </div>
+          {order.purchase_order_url && (
+            <a
+              href={order.purchase_order_url} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-accent hover:underline inline-flex items-center gap-1"
+            >
+              Rupyz PO PDF <ExternalLink size={11} />
+            </a>
+          )}
         </div>
-        {order.purchase_order_url && (
-          <a
-            href={order.purchase_order_url} target="_blank" rel="noopener noreferrer"
-            className="text-xs text-accent hover:underline inline-flex items-center gap-1"
-          >
-            Rupyz PO PDF <ExternalLink size={11} />
-          </a>
-        )}
       </div>
 
-      {/* Items table */}
+      {/* Invoice section — visible from approved onward */}
+      <InvoiceSection order={order} me={me} reload={reload} pending={pending} />
+
       <ItemsTable
         items={items}
         order={order}
@@ -591,7 +589,6 @@ function CurrentTab({
         products={products}
       />
 
-      {/* Dispatches list */}
       {(dispatches.length > 0 || dispatchMode) && (
         <div className="mt-6">
           <h3 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2">Dispatches ({dispatches.length})</h3>
@@ -608,6 +605,134 @@ function CurrentTab({
         </div>
       )}
     </>
+  );
+}
+
+// =============================================================================
+// INVOICE SECTION — billing/admin enters Tally invoice; everyone else sees it
+// =============================================================================
+function InvoiceSection({
+  order, me, reload, pending,
+}: {
+  order: Order;
+  me: AppUser;
+  reload: () => Promise<void>;
+  pending: boolean;
+}) {
+  const o = order as OrderWithInvoice;
+  const canEdit = ["admin", "billing"].includes(me.role)
+    && (o.app_status === "approved" || o.app_status === "invoiced");
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(o.invoice_number ?? "");
+  const [busy, startTransition] = useTransition();
+
+  useEffect(() => {
+    setValue(o.invoice_number ?? "");
+    setEditing(false);
+  }, [o.id, o.invoice_number]);
+
+  // Don't show the section at all for upstream/dead-end states where it's irrelevant
+  if (["received", "rejected", "cancelled"].includes(o.app_status)) return null;
+
+  function save() {
+    const v = value.trim();
+    if (!v) { toast.error("Enter the invoice number"); return; }
+    startTransition(async () => {
+      const res = await setInvoiceNumber(order.id, v);
+      if (res.error) toast.error(res.error);
+      else {
+        toast.success("Invoice saved");
+        setEditing(false);
+        await reload();
+      }
+    });
+  }
+  function clear() {
+    if (!confirm("Clear the invoice number? The order will return to 'approved' and loading will be blocked until a new invoice is entered.")) return;
+    startTransition(async () => {
+      const res = await clearInvoiceNumber(order.id);
+      if (res.error) toast.error(res.error);
+      else {
+        toast.success("Invoice cleared");
+        setValue("");
+        await reload();
+      }
+    });
+  }
+
+  const isApproved = o.app_status === "approved";
+  const isInvoiced = o.app_status === "invoiced";
+  const isLocked = !isApproved && !isInvoiced;
+
+  return (
+    <div className={`border rounded p-3 mb-5 ${isApproved ? "border-warn/50 bg-warn-soft/30" : "border-paper-line bg-paper-subtle/40"}`}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Receipt size={14} className={isApproved ? "text-warn" : "text-accent"}/>
+          <div>
+            <div className="text-2xs uppercase tracking-wide text-ink-subtle">Tally invoice</div>
+            <div className="text-sm font-medium mt-0.5">
+              {o.invoice_number ? (
+                <span className="font-mono">{o.invoice_number}</span>
+              ) : isApproved ? (
+                <span className="text-warn">Not yet entered</span>
+              ) : (
+                <span className="text-ink-subtle">—</span>
+              )}
+              {o.invoiced_at && (
+                <span className="text-2xs text-ink-muted ml-2">
+                  set {new Date(o.invoiced_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+              {isLocked && (
+                <span className="text-2xs text-ink-subtle ml-2">(locked — loading has started)</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!editing && canEdit && (
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant={isApproved ? "default" : "outline"} onClick={() => setEditing(true)} disabled={busy || pending}>
+              <Receipt size={12}/> {o.invoice_number ? "Edit" : "Add invoice"}
+            </Button>
+            {isInvoiced && (
+              <Button size="sm" variant="outline" onClick={clear} disabled={busy || pending}>
+                <X size={12}/> Clear
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {editing && canEdit && (
+        <div className="mt-3 pt-3 border-t border-paper-line/60 flex items-center gap-2 flex-wrap">
+          <Input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") { setEditing(false); setValue(o.invoice_number ?? ""); }
+            }}
+            placeholder="Tally invoice number, e.g. SAJ-26-0142"
+            className="font-mono flex-1 min-w-[200px] bg-paper-card"
+            autoFocus
+          />
+          <Button size="sm" onClick={save} disabled={busy || pending || !value.trim()}>
+            <Check size={12}/> {busy ? "Saving…" : "Save"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setValue(o.invoice_number ?? ""); }} disabled={busy || pending}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {isApproved && !canEdit && (
+        <div className="text-2xs text-ink-muted mt-2">
+          Waiting for billing to enter the invoice number from Tally. Loading is blocked until then.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -713,7 +838,6 @@ function ItemsTable({
               );
             })
           )}
-          {/* Additions */}
           {editMode && editState?.additions.map((a) => (
             <tr key={a.tempId} className="bg-warn-soft/40">
               <td className="px-3 py-2">
@@ -758,7 +882,7 @@ function ItemsTable({
         <tfoot className="bg-paper-subtle/40 border-t border-paper-line">
           <tr>
             <td colSpan={editMode ? 5 : 4} className="px-3 py-1.5 text-right text-xs text-ink-muted">Subtotal</td>
-            <td className="px-3 py-1.5 text-right tabular text-sm" colSpan={editMode ? 1 : 1}>{formatINR(order.amount)}</td>
+            <td className="px-3 py-1.5 text-right tabular text-sm">{formatINR(order.amount)}</td>
           </tr>
           <tr>
             <td colSpan={editMode ? 5 : 4} className="px-3 py-1.5 text-right text-xs text-ink-muted">
@@ -989,8 +1113,6 @@ function DispatchBuilder({
 }
 
 function OriginalTab({ items, order }: { items: OrderItem[]; order: Order }) {
-  // The Rupyz original is captured in order_items.rupyz_raw + order's purchase_order_url
-  // We'll show the rupyz_raw values — these are immutable from sync.
   return (
     <div>
       <p className="text-sm text-ink-muted mb-3">
@@ -1048,7 +1170,6 @@ function HistoryTab({ audit, revisions }: { audit: OrderAuditEvent[]; revisions:
   if (audit.length === 0 && revisions.length === 0) {
     return <p className="text-sm text-ink-muted">No history yet — order arrived from Rupyz, no actions taken.</p>;
   }
-  // Merge audit + revisions chronologically
   const merged = [
     ...audit.map(a => ({ kind: "audit" as const, at: a.created_at, data: a })),
     ...revisions.map(r => ({ kind: "revision" as const, at: r.edited_at, data: r })),
@@ -1087,6 +1208,9 @@ function labelFor(eventType: string): string {
     approved: "Approved",
     rejected: "Rejected",
     edited: "Edited",
+    invoiced: "Invoice entered",
+    invoice_updated: "Invoice number changed",
+    invoice_cleared: "Invoice cleared",
     dispatch_created: "Dispatch created",
     dispatch_shipped: "Dispatch shipped",
     dispatch_delivered: "Dispatch delivered",

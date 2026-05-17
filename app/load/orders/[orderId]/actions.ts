@@ -33,26 +33,36 @@ export async function markOrderLoaded(
     return { ok: false, error: "At least one line must have quantity > 0" };
   }
 
-  // Confirm order is in loadable state
+  // Confirm order is in loadable state — must be invoiced (or already loading)
+  // and must have an invoice number set.
   const { data: order, error: orderErr } = await supabase
     .from("orders")
-    .select("id, app_status")
+    .select("id, app_status, invoice_number")
     .eq("id", orderId)
     .maybeSingle();
   if (orderErr || !order) return { ok: false, error: "Order not found" };
-  if (!["approved", "loading"].includes(order.app_status)) {
+
+  if (!["invoiced", "loading"].includes(order.app_status)) {
+    if (order.app_status === "approved") {
+      return {
+        ok: false,
+        error: "Add the invoice number first. Approved orders cannot be loaded until billing enters the Tally invoice.",
+      };
+    }
     return { ok: false, error: `Order is "${order.app_status}", can't mark as loaded` };
+  }
+  if (!order.invoice_number) {
+    return { ok: false, error: "Order is missing an invoice number. Ask billing to set it." };
   }
 
   // Update each order_items row with loaded_qty.
-  // Doing this in a single batch isn't trivial with Supabase JS; we do parallel updates.
   const updateResults = await Promise.all(
     lines.map(line =>
       supabase
         .from("order_items")
         .update({ loaded_qty: line.loadedQty })
         .eq("id", line.orderItemId)
-        .eq("order_id", orderId) // safety: ensure the item belongs to this order
+        .eq("order_id", orderId)
     )
   );
 
@@ -72,7 +82,7 @@ export async function markOrderLoaded(
       loaded_by: user.id,
     })
     .eq("id", orderId)
-    .in("app_status", ["approved", "loading"]); // concurrency guard
+    .in("app_status", ["invoiced", "loading"]); // concurrency guard — invoice required
 
   if (statusErr) {
     return { ok: false, error: `Failed to update order status: ${statusErr.message}` };
