@@ -80,8 +80,9 @@ export async function runSummaryCron(
   // Render the PDF
   let pdfBuffer: Buffer;
   try {
-    const element = React.createElement(SummaryDocument, { reportType, date, rows });
-    const stream = await pdf(element).toBuffer();
+  const stream = await pdf(
+  <SummaryDocument reportType={reportType} date={date} rows={rows} />,
+).toBuffer();
     pdfBuffer = await streamToBuffer(stream);
   } catch (e) {
     errors.push({
