@@ -11,6 +11,7 @@ import {
   deleteTarget,
   copyFromYesterday,
 } from "./actions";
+import { AdminTestMenu } from "./admin-test-menu";
 import type { SalesmanSummaryRow } from "@/lib/sales-monitor/format";
 import { formatKg, pct } from "@/lib/sales-monitor/format";
 
@@ -174,6 +175,7 @@ export function SalesMonitorClient({
           >
             <ScrollText size={14} /> Send log
           </Link>
+          <AdminTestMenu />
           <button
             onClick={handleCopyFromYesterday}
             disabled={busy["copy"]}
