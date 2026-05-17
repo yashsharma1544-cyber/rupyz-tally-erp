@@ -16,34 +16,106 @@ async function requireAdmin() {
   return supabase;
 }
 
-export async function saveBeatAreas(
-  edits: { id: string; area: string | null }[],
+function revalidateAll(): void {
+  revalidatePath("/beats/manage-areas");
+  revalidatePath("/beats");
+}
+
+// -------- Area CRUD --------
+
+export async function createArea(
+  name: string,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  try {
+    const supabase = await requireAdmin();
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return { ok: false, error: "Area name required" };
+    if (trimmed.length > 100)
+      return { ok: false, error: "Area name too long (max 100)" };
+
+    const { data, error } = await supabase
+      .from("areas")
+      .insert({ name: trimmed })
+      .select("id")
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        return { ok: false, error: `Area "${trimmed}" already exists` };
+      }
+      return { ok: false, error: error.message };
+    }
+    revalidateAll();
+    return { ok: true, id: data.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function renameArea(
+  id: string,
+  newName: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await requireAdmin();
+    const trimmed = newName.trim();
+    if (trimmed.length === 0) return { ok: false, error: "Name required" };
+    if (trimmed.length > 100) return { ok: false, error: "Name too long" };
+    const { error } = await supabase
+      .from("areas")
+      .update({ name: trimmed })
+      .eq("id", id);
+    if (error) {
+      if (error.code === "23505") {
+        return { ok: false, error: `Area "${trimmed}" already exists` };
+      }
+      return { ok: false, error: error.message };
+    }
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function deleteArea(
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await requireAdmin();
+    // ON DELETE SET NULL on beats.area_id means beats become unassigned but
+    // are not destroyed. Safe to delete the area.
+    const { error } = await supabase.from("areas").delete().eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// -------- Beat → area assignment --------
+
+export async function saveBeatAssignments(
+  edits: { beat_id: string; area_id: string | null }[],
 ): Promise<{ ok: boolean; updated: number; error?: string }> {
   try {
     const supabase = await requireAdmin();
     if (edits.length === 0) return { ok: true, updated: 0 };
 
-    // Apply each update individually so per-row errors don't take down a batch.
-    // Number of beats is small (~25-30), so the perf cost is negligible.
     let updated = 0;
     const errors: string[] = [];
     for (const e of edits) {
-      const normalized = (e.area ?? "").trim();
-      const value = normalized.length > 0 ? normalized : null;
       const { error } = await supabase
         .from("beats")
-        .update({ area: value })
-        .eq("id", e.id);
+        .update({ area_id: e.area_id })
+        .eq("id", e.beat_id);
       if (error) {
-        errors.push(`${e.id.slice(0, 8)}: ${error.message}`);
+        errors.push(`${e.beat_id.slice(0, 8)}: ${error.message}`);
       } else {
         updated++;
       }
     }
-
-    revalidatePath("/beats/manage-areas");
-    revalidatePath("/beats");
-
+    revalidateAll();
     if (errors.length > 0 && updated === 0) {
       return { ok: false, updated, error: errors.join("; ") };
     }

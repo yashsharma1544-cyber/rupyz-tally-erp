@@ -8,7 +8,7 @@
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { BeatsTableClient } from "@/components/ai/beats-table-client";
 
@@ -106,7 +106,17 @@ export default async function BeatsPage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <h1 className="text-xl font-semibold leading-tight mb-1">Beats</h1>
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+          <h1 className="text-xl font-semibold leading-tight">Beats</h1>
+          {isAdmin && (
+            <Link
+              href="/beats/manage-areas"
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-paper-line rounded hover:bg-paper-subtle transition-colors whitespace-nowrap"
+            >
+              <MapPin size={12} className="text-ink-subtle"/> Manage areas
+            </Link>
+          )}
+        </div>
         <p className="text-sm text-ink-muted mb-5">
           30-day rolling sales by beat, measured in kg. Tap a beat to see per-customer detail.
         </p>
