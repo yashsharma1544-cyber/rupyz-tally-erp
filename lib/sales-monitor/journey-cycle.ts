@@ -81,16 +81,23 @@ export async function listPlanEntriesForJc(jcId: string): Promise<PlanEntry[]> {
   return (data ?? []) as PlanEntry[];
 }
 
+/**
+ * Active field-staff salesmen. Reads from the dedicated `salesmen` table
+ * (not app_users — those are login accounts). Maps the table's `name` column
+ * to `full_name` so callers stay unchanged.
+ */
 export async function listActiveSalesmen(): Promise<Salesman[]> {
   const admin = getAdminClient();
   const { data, error } = await admin
-    .from("app_users")
-    .select("id, full_name")
-    .eq("role", "salesman")
+    .from("salesmen")
+    .select("id, name")
     .eq("active", true)
-    .order("full_name", { ascending: true });
+    .order("name", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as Salesman[];
+  return ((data ?? []) as { id: string; name: string }[]).map((r) => ({
+    id: r.id,
+    full_name: r.name,
+  }));
 }
 
 export async function listBeats(): Promise<Beat[]> {
