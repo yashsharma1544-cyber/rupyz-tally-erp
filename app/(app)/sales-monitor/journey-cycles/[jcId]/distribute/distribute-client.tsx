@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Save, Loader2, Check, AlertCircle, RotateCcw, ChevronDown,
-  ChevronRight, MapPin, Hash, Lock,
+  ChevronRight, MapPin, Hash, Lock, PlayCircle, AlertTriangle,
 } from "lucide-react";
 import {
   computeDefaultShares,
@@ -13,7 +13,7 @@ import {
   type SavedBeatTarget,
   type SavedCustomerTarget,
 } from "@/lib/sales-monitor/distribution";
-import { saveDistribution } from "./actions";
+import { saveDistribution, applyTargetsToSchedule } from "./actions";
 
 type JC = {
   id: string;
@@ -47,8 +47,7 @@ export function DistributeClient({
     areaTarget != null ? String(areaTarget) : "",
   );
 
-  // ---- Beat shares: editable, with manual flag ----
-  // Initialize from saved overrides if present, else defaults.
+  // ---- Beat shares ----
   const defaultBeatShares = useMemo(
     () => computeDefaultShares(beats.map((b) => ({ id: b.id, kg_84d: b.kg_84d }))),
     [beats],
@@ -69,8 +68,7 @@ export function DistributeClient({
     return init;
   });
 
-  // ---- Customer shares: per-beat, editable ----
-  // Initialize: prefer saved; else default within each beat.
+  // ---- Customer shares ----
   const defaultCustomerSharesByBeat = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     for (const b of beats) {
@@ -114,6 +112,10 @@ export function DistributeClient({
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState("");
 
+  const [applyState, setApplyState] = useState<"idle" | "applying" | "error">("idle");
+  const [applyResult, setApplyResult] = useState<{ inserted: number; skipped: number; noTarget: number } | null>(null);
+  const [applyError, setApplyError] = useState("");
+
   // ---- Computed values ----
   const areaTargetNum = parseFloat(areaTargetKg) || 0;
   const totalBeatShare = useMemo(
@@ -122,15 +124,12 @@ export function DistributeClient({
   );
   const beatShareOk = Math.abs(totalBeatShare - 100) < 0.01;
 
-  // For each beat, compute target_kg = area_target * share / 100
   function beatTargetKg(beatId: string): number {
     return (areaTargetNum * (beatShares[beatId] ?? 0)) / 100;
   }
-  // Customer target = beat_target * customer_share / 100
   function customerTargetKg(beatId: string, customerId: string): number {
     return (beatTargetKg(beatId) * (customerShares[customerId] ?? 0)) / 100;
   }
-  // Per beat: sum of customer shares (should be 100% per beat)
   function beatCustomerShareTotal(beatId: string): number {
     const beat = beats.find((b) => b.id === beatId);
     if (!beat) return 0;
@@ -234,7 +233,6 @@ export function DistributeClient({
       setSaveError(`Beat shares total ${totalBeatShare.toFixed(2)}% (must be 100%). Use Auto-balance.`);
       return;
     }
-    // Customer sub-totals: allow non-100 (means no customer breakdown yet), but warn if a beat is partially set
     setSavingState("saving");
     setSaveError("");
     try {
@@ -273,6 +271,30 @@ export function DistributeClient({
     } catch (e) {
       setSavingState("error");
       setSaveError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleApply(mode: "skip-existing" | "force") {
+    const msg = mode === "force"
+      ? `Apply JC ${jc.jc_number} targets to the daily schedule (${fmtDate(jc.start_date)} → ${fmtDate(jc.end_date)})?\n\nFORCE mode OVERWRITES existing daily target_kg values — including manual edits — in this date range.\n\nProceed only if you want a clean slate from JC targets.`
+      : `Apply JC ${jc.jc_number} targets to the daily schedule (${fmtDate(jc.start_date)} → ${fmtDate(jc.end_date)})?\n\nFor each date a salesman is assigned to a beat, their daily target_kg = that beat's JC target.\n\nExisting daily targets will be SKIPPED (manual overrides preserved).`;
+    if (!confirm(msg)) return;
+
+    setApplyState("applying");
+    setApplyError("");
+    setApplyResult(null);
+    try {
+      const r = await applyTargetsToSchedule(jc.id, mode);
+      if (r.ok) {
+        setApplyResult({ inserted: r.inserted, skipped: r.skipped, noTarget: r.noTarget });
+        setApplyState("idle");
+      } else {
+        setApplyState("error");
+        setApplyError(r.error || "Apply failed");
+      }
+    } catch (e) {
+      setApplyState("error");
+      setApplyError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -346,9 +368,51 @@ export function DistributeClient({
           </div>
         </div>
 
+        {/* Apply-to-schedule bar */}
+        <div className="px-3 py-2 border-b border-paper-line bg-paper-subtle/30 flex flex-wrap items-center gap-2">
+          <div className="text-2xs text-ink-muted">
+            <span className="uppercase font-medium">Apply targets to daily schedule</span>
+            <span className="ml-1">— sets target_kg for every (salesman, date) in this JC where a beat is assigned</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => handleApply("skip-existing")}
+              disabled={applyState === "applying"}
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-accent text-white rounded hover:bg-accent/90 disabled:opacity-50"
+            >
+              {applyState === "applying" ? (
+                <Loader2 size={12} className="animate-spin"/>
+              ) : (
+                <PlayCircle size={12}/>
+              )}
+              Apply to schedule
+            </button>
+            <button
+              onClick={() => handleApply("force")}
+              disabled={applyState === "applying"}
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-danger text-danger rounded hover:bg-danger/10 disabled:opacity-50"
+              title="Overwrites existing daily targets — including manual edits"
+            >
+              <AlertTriangle size={12}/> Force re-apply
+            </button>
+          </div>
+        </div>
+
         {savingState === "error" && (
           <div className="px-3 py-2 text-2xs text-danger bg-danger/5 border-b border-paper-line">
             <AlertCircle size={11} className="inline mr-1"/> {saveError}
+          </div>
+        )}
+        {applyState === "error" && (
+          <div className="px-3 py-2 text-2xs text-danger bg-danger/5 border-b border-paper-line">
+            <AlertCircle size={11} className="inline mr-1"/> {applyError}
+          </div>
+        )}
+        {applyResult && (
+          <div className="px-3 py-2 text-2xs text-accent bg-accent/5 border-b border-paper-line">
+            <Check size={11} className="inline mr-1"/>
+            Applied — {applyResult.inserted} inserted, {applyResult.skipped} skipped
+            {applyResult.noTarget > 0 && `, ${applyResult.noTarget} skipped due to missing beat target`}.
           </div>
         )}
 
@@ -513,7 +577,8 @@ export function DistributeClient({
         Defaults computed from last 84 days. Beats/customers with zero history
         get an equal share (treated as average-performing). Edit any cell to
         override; manual overrides are flagged with a lock icon and preserved
-        on save.
+        on save. <strong>Apply to schedule</strong> uses the saved beat targets
+        — save your distribution before applying.
       </p>
     </div>
   );

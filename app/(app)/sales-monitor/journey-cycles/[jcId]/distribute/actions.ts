@@ -6,6 +6,7 @@ import {
   saveAreaTarget,
   saveBeatTargets,
   saveCustomerTargets,
+  applyDistributionToSchedule,
   type SavedBeatTarget,
   type SavedCustomerTarget,
 } from "@/lib/sales-monitor/distribution";
@@ -54,5 +55,30 @@ export async function saveDistribution(
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function applyTargetsToSchedule(
+  jcId: string,
+  mode: "skip-existing" | "force",
+): Promise<{
+  ok: boolean;
+  inserted: number;
+  skipped: number;
+  noTarget: number;
+  error?: string;
+}> {
+  try {
+    await requireAdmin();
+    const result = await applyDistributionToSchedule(jcId, mode);
+    revalidatePath(`/sales-monitor/journey-cycles/${jcId}/distribute`);
+    revalidatePath(`/sales-monitor/journey-cycles/${jcId}`);
+    revalidatePath("/sales-monitor");
+    return result;
+  } catch (e) {
+    return {
+      ok: false, inserted: 0, skipped: 0, noTarget: 0,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }

@@ -1,15 +1,12 @@
 /**
- * Phase 8 helpers — target distribution across area → beats → customers.
+ * Phase 8 helpers — target distribution across area → beats → customers,
+ * plus apply-to-daily-schedule.
  *
  * Default-share formula:
  *   Each item gets a "weight" used in normalization to 100%.
  *   - Items with history (kg > 0): weight = their historical kg
  *   - Items without history (kg == 0): weight = average of history items
  *   - If no history at all: equal split
- *
- * Effect: zero-history items get treated as "average-performing" — distinct
- * from history-rich items but not zero. Admin can still override any item
- * manually after.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -58,11 +55,6 @@ export type SavedCustomerTarget = {
 
 // ---- Default-share math ----
 
-/**
- * Compute default share percentages summing to 100. Items with kg>0 get their
- * historical proportion; zero-kg items each get a slot equal to the average
- * of history items. If no item has history, equal split.
- */
 export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
   items: T[],
 ): Map<string, number> {
@@ -73,7 +65,6 @@ export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
   const zeroItems = items.filter((i) => i.kg_84d <= 0);
 
   if (historyItems.length === 0) {
-    // No history at all — equal split
     const eq = 100 / items.length;
     for (const i of items) shares.set(i.id, eq);
     return shares;
@@ -99,10 +90,6 @@ export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
 
 // ---- Data loaders ----
 
-/**
- * Load all beats and customers in an area with their 84-day kg, structured
- * as a list of beats each containing its customers.
- */
 export async function loadAreaDistribution(
   areaId: string,
 ): Promise<BeatHist[]> {
@@ -253,6 +240,148 @@ export async function saveCustomerTargets(
     .upsert(rows, { onConflict: "jc_id,customer_id" });
   if (error) return { ok: false, error: error.message };
   return { ok: true };
+}
+
+// ---- Apply to daily schedule ----
+
+/**
+ * For every (salesman, date) in salesman_beat_assignments inside the JC's
+ * date range, write a daily_sales_targets row using the JC's beat target_kg
+ * for whichever beat that salesman is visiting that day.
+ *
+ * Joint visits (two salesmen share one beat on the same date) each get the
+ * FULL beat target — matches the "both responsible for the same goal" model.
+ *
+ *   mode = "skip-existing"  → never touches a (salesman, date) that already
+ *                             has a daily target. Manual edits preserved.
+ *   mode = "force"          → upsert. Overwrites manual edits in the JC's
+ *                             date range. Destructive — use sparingly.
+ */
+export async function applyDistributionToSchedule(
+  jcId: string,
+  mode: "skip-existing" | "force",
+): Promise<{
+  ok: boolean;
+  inserted: number;
+  skipped: number;
+  noTarget: number;
+  error?: string;
+}> {
+  const admin = getAdminClient();
+
+  // 1. Resolve JC date range
+  const { data: jc, error: jcErr } = await admin
+    .from("journey_cycles")
+    .select("start_date, end_date, jc_number")
+    .eq("id", jcId)
+    .single();
+  if (jcErr || !jc) {
+    return { ok: false, inserted: 0, skipped: 0, noTarget: 0, error: "JC not found" };
+  }
+
+  // 2. Get all daily beat assignments in the JC's date range
+  const { data: assignments, error: aErr } = await admin
+    .from("salesman_beat_assignments")
+    .select("salesman_id, beat_id, assignment_date")
+    .gte("assignment_date", jc.start_date)
+    .lte("assignment_date", jc.end_date);
+  if (aErr) {
+    return { ok: false, inserted: 0, skipped: 0, noTarget: 0, error: `assignments: ${aErr.message}` };
+  }
+  if (!assignments || assignments.length === 0) {
+    return {
+      ok: false, inserted: 0, skipped: 0, noTarget: 0,
+      error: `No salesman_beat_assignments in JC ${jc.jc_number} date range. Apply the JC plan to schedule first.`,
+    };
+  }
+
+  // 3. Load beat targets for this JC
+  const { data: beatTargets, error: btErr } = await admin
+    .from("beat_jc_targets")
+    .select("beat_id, target_kg")
+    .eq("jc_id", jcId);
+  if (btErr) {
+    return { ok: false, inserted: 0, skipped: 0, noTarget: 0, error: `beat targets: ${btErr.message}` };
+  }
+  const targetByBeat = new Map<string, number>();
+  for (const t of beatTargets ?? []) {
+    targetByBeat.set(t.beat_id, Number(t.target_kg));
+  }
+  if (targetByBeat.size === 0) {
+    return {
+      ok: false, inserted: 0, skipped: 0, noTarget: 0,
+      error: "No beat targets set for this JC. Save targets before applying.",
+    };
+  }
+
+  // 4. Build target rows. Track beats with no target separately so the
+  //    admin gets a clear count, not a silent skip.
+  type Row = { salesman_id: string; target_date: string; target_kg: number };
+  const rows: Row[] = [];
+  let noTarget = 0;
+  for (const a of assignments) {
+    const target = targetByBeat.get(a.beat_id);
+    if (target === undefined) {
+      // Beat has no JC target — common if some beats weren't included in
+      // the distribution (different area, or admin hasn't filled them).
+      noTarget++;
+      continue;
+    }
+    rows.push({
+      salesman_id: a.salesman_id,
+      target_date: a.assignment_date,
+      target_kg: target,
+    });
+  }
+
+  if (rows.length === 0) {
+    return {
+      ok: false, inserted: 0, skipped: 0, noTarget,
+      error: `No matching beat targets for the ${assignments.length} daily assignments. Check that beat targets are saved for the area you've distributed.`,
+    };
+  }
+
+  // 5. Apply
+  if (mode === "force") {
+    const { error } = await admin
+      .from("daily_sales_targets")
+      .upsert(rows, { onConflict: "salesman_id,target_date" });
+    if (error) {
+      return { ok: false, inserted: 0, skipped: 0, noTarget, error: error.message };
+    }
+    return { ok: true, inserted: rows.length, skipped: 0, noTarget };
+  }
+
+  // skip-existing: fetch already-set rows and exclude them
+  const dates = Array.from(new Set(rows.map((r) => r.target_date)));
+  const salesmen = Array.from(new Set(rows.map((r) => r.salesman_id)));
+  const { data: existing, error: exErr } = await admin
+    .from("daily_sales_targets")
+    .select("salesman_id, target_date")
+    .in("target_date", dates)
+    .in("salesman_id", salesmen);
+  if (exErr) {
+    return { ok: false, inserted: 0, skipped: 0, noTarget, error: exErr.message };
+  }
+  const existingKeys = new Set(
+    (existing ?? []).map((e) => `${e.salesman_id}|${e.target_date}`),
+  );
+  const newRows = rows.filter(
+    (r) => !existingKeys.has(`${r.salesman_id}|${r.target_date}`),
+  );
+  const skipped = rows.length - newRows.length;
+
+  if (newRows.length === 0) {
+    return { ok: true, inserted: 0, skipped, noTarget };
+  }
+
+  const { error: insErr } = await admin
+    .from("daily_sales_targets")
+    .insert(newRows);
+  if (insErr) {
+    return { ok: false, inserted: 0, skipped, noTarget, error: insErr.message };
+  }
+  return { ok: true, inserted: newRows.length, skipped, noTarget };
 }
 
 function round3(n: number): number {
