@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Save, Copy, PlayCircle, Loader2, AlertCircle, Check, AlertTriangle,
+  Target,
 } from "lucide-react";
 import {
   savePlanForSalesman,
@@ -163,8 +164,8 @@ export function JcPlanClient({
     }
     const msg =
       mode === "force"
-        ? `Apply JC ${jc.jc_number} plan to the daily schedule (${jc.days_count} days, ${fmtDate(jc.start_date)} → ${fmtDate(jc.end_date)})?\n\nFORCE mode will OVERWRITE any existing daily assignments — including manual edits — in this date range.\n\nProceed only if you want a clean slate from the plan.`
-        : `Apply JC ${jc.jc_number} plan to the daily schedule (${jc.days_count} days, ${fmtDate(jc.start_date)} → ${fmtDate(jc.end_date)})?\n\nDates that already have assignments will be SKIPPED to preserve any manual edits.`;
+        ? `Apply JC ${jc.jc_number} plan to the daily schedule (${jc.days_count} days, ${fmtDate(jc.start_date)} \u2192 ${fmtDate(jc.end_date)})?\n\nFORCE mode will OVERWRITE any existing daily assignments \u2014 including manual edits \u2014 in this date range.\n\nProceed only if you want a clean slate from the plan.`
+        : `Apply JC ${jc.jc_number} plan to the daily schedule (${jc.days_count} days, ${fmtDate(jc.start_date)} \u2192 ${fmtDate(jc.end_date)})?\n\nDates that already have assignments will be SKIPPED to preserve any manual edits.`;
     if (!confirm(msg)) return;
 
     setApplyState("applying");
@@ -207,13 +208,22 @@ export function JcPlanClient({
 
       {/* Header */}
       <div className="border border-paper-line rounded bg-paper-card overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-paper-line bg-paper-subtle/40">
-          <div className="text-lg font-semibold">
-            JC {jc.jc_number} <span className="text-sm font-normal text-ink-muted">· {jc.fy_label}</span>
+        <div className="px-3 py-2.5 border-b border-paper-line bg-paper-subtle/40 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-lg font-semibold">
+              JC {jc.jc_number} <span className="text-sm font-normal text-ink-muted">· {jc.fy_label}</span>
+            </div>
+            <div className="text-sm text-ink-muted">
+              {fmtDate(jc.start_date)} → {fmtDate(jc.end_date)} · {jc.days_count} days
+            </div>
           </div>
-          <div className="text-sm text-ink-muted">
-            {fmtDate(jc.start_date)} → {fmtDate(jc.end_date)} · {jc.days_count} days
-          </div>
+          <Link
+            href={`/sales-monitor/journey-cycles/${jc.id}/distribute`}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-accent text-white rounded hover:bg-accent/90 whitespace-nowrap"
+            title="Set area / beat / customer targets for this JC"
+          >
+            <Target size={12}/> Distribute targets
+          </Link>
         </div>
 
         {/* Top action bar */}
@@ -353,7 +363,7 @@ export function JcPlanClient({
 
       <p className="text-2xs text-ink-subtle">
         Tip — copy from a previous JC to seed this one, tweak the rows that differ,
-        save each salesman, then <em>Apply to schedule</em> when you're happy.
+        save each salesman, then <em>Apply to schedule</em> when you&apos;re happy.
         Day overrides for specific dates can still be made in the regular Sales
         Monitor daily view.
       </p>
