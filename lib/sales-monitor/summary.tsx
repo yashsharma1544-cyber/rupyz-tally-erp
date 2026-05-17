@@ -106,7 +106,7 @@ export async function runSummaryCron(
   const bodyVars = buildSummaryBodyVariables(reportType, date);
   const templateName = templateNameFor(reportType);
   const filename = summaryPdfFilename(reportType, date);
-  const broadcastName = `summary_${reportType}_${date}`;
+  const broadcastName = `summary_${reportType}_${date}_${Date.now()}`;
 
   let succeeded = 0;
   let failed = 0;
