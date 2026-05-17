@@ -196,15 +196,15 @@ export function SummaryDocument({ reportType, date, rows }: Props): React.ReactE
                 <Text style={[styles.td, styles.cellName]}>
                   {r.salesman_name}
                 </Text>
-                <Text
-                  style={[
-                    styles.td,
-                    styles.cellBeat,
-                    !r.beat_id && styles.muted,
-                  ]}
-                >
-                  {r.beat_name || "— off —"}
-                </Text>
+<Text
+  style={[
+    styles.td,
+    styles.cellBeat,
+    !r.beat_id ? styles.muted : {},
+  ]}
+>
+  {r.beat_name || "— off —"}
+</Text>
                 <Text style={[styles.td, styles.cellNum]}>{r.sc || ""}</Text>
                 <Text style={[styles.td, styles.cellNumWide]}>
                   {r.target_kg != null ? fmtKg(r.target_kg) : "—"}
