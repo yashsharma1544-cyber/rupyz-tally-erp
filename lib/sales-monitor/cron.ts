@@ -3,16 +3,17 @@
  *
  * Schedule (all IST):
  *   9:30 AM — runCoordinatorCron()
- *   9:55 AM — runSalesmanCron("morning")
- *   1:00 PM — runSalesmanCron("midday")
- *   7:30 PM — runSalesmanCron("evening")
+ *   9:55 AM — runSalesmanCron("morning")  → per-salesman briefings + admin summary
+ *   1:00 PM — runSalesmanCron("midday")   → per-salesman updates + admin summary
+ *   7:30 PM — runSalesmanCron("evening")  → per-salesman finals + admin summary
  *
  * Idempotency: salesman crons skip recipients that already have a "sent"
  * row in daily_sales_reports for today + this report_type. Safe to retry.
  *
- * Coordinator cron is logged informationally but not deduplicated by the
- * daily_sales_reports table (different shape). If it runs twice the
- * coordinator gets two WhatsApp messages.
+ * The daily summary PDF (Phase 6b) is sent to admins as a separate
+ * WhatsApp message after the per-salesman loop. The summary is NOT
+ * deduplicated — each cron retry will resend it. Frequency is bounded by
+ * Vercel's cron firing schedule, so in practice this is fine.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -21,6 +22,7 @@ import {
   sendCoordinatorReminder,
   getAdminRecipients,
 } from "@/lib/sales-monitor/send";
+import { runSummaryCron, type SummarySendResult } from "@/lib/sales-monitor/summary";
 import type { PdfReportType } from "@/lib/sales-monitor/pdf/render";
 
 let adminClientCache: SupabaseClient | null = null;
@@ -34,8 +36,7 @@ function getAdminClient(): SupabaseClient {
 }
 
 /**
- * Today's date in IST as YYYY-MM-DD. The system runs from UTC servers but
- * the business day is IST.
+ * Today's date in IST as YYYY-MM-DD.
  */
 export function todayIST(): string {
   const istOffsetMs = 5.5 * 60 * 60 * 1000;
@@ -57,6 +58,7 @@ export type CronRunSummary = {
   failed: number;
   skipped: number;
   details: CronDetail[];
+  summary?: SummarySendResult;
   extra?: Record<string, unknown>;
 };
 
@@ -88,19 +90,6 @@ export async function runSalesmanCron(
     new Set((assignments ?? []).map((a) => a.salesman_id)),
   );
 
-  if (salesmanIds.length === 0) {
-    return {
-      type: reportType,
-      date,
-      totalAttempted: 0,
-      succeeded: 0,
-      failed: 0,
-      skipped: 0,
-      details: [],
-      extra: { reason: "no salesmen with beat assignment today" },
-    };
-  }
-
   // Idempotency: skip salesmen who already received this report today
   const { data: alreadySent } = await admin
     .from("daily_sales_reports")
@@ -110,7 +99,7 @@ export async function runSalesmanCron(
     .eq("status", "sent");
   const sentIds = new Set((alreadySent ?? []).map((r) => r.salesman_id));
 
-  // Admins (recipients for midday + evening)
+  // Admins (recipients for midday + evening per-salesman, AND for the daily summary)
   const admins = reportType === "morning" ? [] : await getAdminRecipients();
 
   const details: CronDetail[] = [];
@@ -152,6 +141,25 @@ export async function runSalesmanCron(
     }
   }
 
+  // ---- Daily summary to admins ----
+  // Fires regardless of whether any salesmen were sent, so admins always
+  // get a digest at each scheduled time. Failures here don't fail the run.
+  let summary: SummarySendResult | undefined;
+  try {
+    summary = await runSummaryCron(reportType, date);
+  } catch (e) {
+    summary = {
+      ok: false,
+      reportType,
+      date,
+      adminRecipientsAttempted: 0,
+      succeeded: 0,
+      failed: 1,
+      errors: [{ name: "system", error: e instanceof Error ? e.message : String(e) }],
+      storagePath: null,
+    };
+  }
+
   return {
     type: reportType,
     date,
@@ -160,6 +168,10 @@ export async function runSalesmanCron(
     failed,
     skipped,
     details,
+    summary,
+    extra: salesmanIds.length === 0
+      ? { reason: "no salesmen with beat assignment today" }
+      : undefined,
   };
 }
 
@@ -179,9 +191,10 @@ export async function runCoordinatorCron(): Promise<CronRunSummary> {
       succeeded: outcome.recipients.filter((r) => r.ok).length,
       failed: outcome.recipients.filter((r) => !r.ok).length,
       skipped: 0,
-      details: details.length > 0
-        ? details
-        : [{ name: "system", ok: false, error: outcome.error }],
+      details:
+        details.length > 0
+          ? details
+          : [{ name: "system", ok: false, error: outcome.error }],
       extra: {
         pendingCount: outcome.pendingCount,
         totalActiveSalesmen: outcome.totalActiveSalesmen,
@@ -206,13 +219,6 @@ export async function runCoordinatorCron(): Promise<CronRunSummary> {
   }
 }
 
-/**
- * Verify the incoming request is from Vercel's cron pinger.
- *
- * Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically. The
- * secret is set in the project env. If unset, allow only when the request
- * has Vercel's user-agent (defensive default but not strictly required).
- */
 export function isAuthorizedCron(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) {
