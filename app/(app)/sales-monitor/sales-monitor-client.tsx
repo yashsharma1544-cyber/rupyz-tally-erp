@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Calendar, Check, AlertCircle, Copy, Loader2, ChevronRight } from "lucide-react";
+import { Calendar, Check, AlertCircle, Copy, Loader2, ChevronRight, ScrollText } from "lucide-react";
 import {
   saveAssignment,
   saveTarget,
@@ -168,6 +168,12 @@ export function SalesMonitorClient({
               className="border border-paper-line rounded px-2 py-1.5 text-sm bg-paper-card focus:outline-none focus:border-accent"
             />
           </label>
+          <Link
+            href="/sales-monitor/log"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-paper-line rounded hover:bg-paper-subtle transition-colors"
+          >
+            <ScrollText size={14} /> Send log
+          </Link>
           <button
             onClick={handleCopyFromYesterday}
             disabled={busy["copy"]}
@@ -223,7 +229,7 @@ export function SalesMonitorClient({
                       <div className="font-medium">{r.salesman_name}</div>
                       {!r.salesman_phone && (
                         <div className="text-2xs text-amber-600 mt-0.5">
-                          No phone — won't get WhatsApp
+                          No phone — won&apos;t get WhatsApp
                         </div>
                       )}
                     </td>
@@ -352,7 +358,7 @@ export function SalesMonitorClient({
       <div className="mt-5 p-3 border border-dashed border-paper-line rounded text-2xs text-ink-subtle leading-relaxed">
         <strong className="text-ink-muted">Phase 2 live.</strong>{" "}
         Calls and kg figures are computed from live order data (timezone IST). Click <strong>Detail</strong> on any
-        row to see focus customers — same breakdown that'll go into the daily PDF reports (Phase 3).
+        row to see focus customers — same breakdown that&apos;ll go into the daily PDF reports (Phase 3).
         WhatsApp delivery (Phase 4) ships once WATi templates are approved.
       </div>
     </div>
