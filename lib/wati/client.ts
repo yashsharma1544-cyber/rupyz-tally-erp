@@ -172,4 +172,5 @@ export const WATI_TEMPLATES = {
   morning: "sales_morning_briefing_v4",
   midday: "sales_midday_update_v3",
   evening: "sales_evening_final_v2",
+ coordinator_reminder: "beat_assignment_reminder_v1",
 } as const;

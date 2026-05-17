@@ -1,15 +1,13 @@
 /**
  * End-to-end send orchestration for sales monitor reports.
  *
- * All three templates are 4 variables:
+ * All three salesman templates are 4 variables:
  *   morning  — name, beat, scheduled_calls, target_kg
  *   midday   — name, date, calls_compound, volume_compound
- *   evening  — name, date, calls_compound, volume_compound (identical shape to midday)
+ *   evening  — name, date, calls_compound, volume_compound
  *
- * Live template names (approved as Utility):
- *   sales_morning_briefing_v4
- *   sales_midday_update_v3
- *   sales_evening_final_v2
+ * Plus a coordinator reminder (no PDF, 3 variables):
+ *   coordinator_reminder — name, date, pending_count
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -55,6 +53,15 @@ export type SendReportOutcome = {
   error: string | null;
 };
 
+export type CoordinatorReminderOutcome = {
+  ok: boolean;
+  date: string;
+  pendingCount: number;
+  totalActiveSalesmen: number;
+  recipients: SendResult[];
+  error: string | null;
+};
+
 function buildBodyVariables(
   type: PdfReportType,
   status: Awaited<ReturnType<typeof getSalesmanDayStatus>>,
@@ -66,7 +73,6 @@ function buildBodyVariables(
     year: "numeric",
   });
 
-  // Morning: 4 vars — name, beat, scheduled_calls, target_kg
   if (type === "morning") {
     return [
       status.salesman_name,
@@ -76,7 +82,6 @@ function buildBodyVariables(
     ];
   }
 
-  // Midday + Evening: identical 4-var shape — name, date, calls compound, volume compound
   const callsPct = pct(status.calls_done, status.sc);
   const kgPct = pct(status.kg_done, status.target_kg);
   const callsStr =
@@ -254,6 +259,114 @@ export async function sendSalesmanReport(opts: {
     signedUrl,
     recipients: results,
     error: allOk ? null : "Some recipients failed",
+  };
+}
+
+/**
+ * Sends a reminder to all marked coordinators (is_beat_coordinator = true)
+ * telling them how many salesmen still need beat assignments for the day.
+ *
+ * Called by the 9:30 AM IST cron.
+ */
+export async function sendCoordinatorReminder(opts: {
+  date: string;
+}): Promise<CoordinatorReminderOutcome> {
+  const admin = getAdminClient();
+
+  // 1. Fetch coordinators with phone
+  const { data: coords, error: coordErr } = await admin
+    .from("app_users")
+    .select("id, full_name, phone")
+    .eq("is_beat_coordinator", true)
+    .eq("active", true)
+    .not("phone", "is", null);
+
+  if (coordErr) {
+    return {
+      ok: false,
+      date: opts.date,
+      pendingCount: 0,
+      totalActiveSalesmen: 0,
+      recipients: [],
+      error: `Coordinator lookup failed: ${coordErr.message}`,
+    };
+  }
+
+  const coordinators = (coords ?? []).filter((c) => c.phone && c.phone.trim().length >= 10);
+  if (coordinators.length === 0) {
+    return {
+      ok: false,
+      date: opts.date,
+      pendingCount: 0,
+      totalActiveSalesmen: 0,
+      recipients: [],
+      error: "No beat coordinator configured (no app_users row with is_beat_coordinator=true and phone set)",
+    };
+  }
+
+  // 2. Compute pending count
+  const { data: activeSalesmen, error: salesErr } = await admin
+    .from("app_users")
+    .select("id")
+    .eq("role", "salesman")
+    .eq("active", true);
+
+  if (salesErr) {
+    return {
+      ok: false,
+      date: opts.date,
+      pendingCount: 0,
+      totalActiveSalesmen: 0,
+      recipients: [],
+      error: `Salesman lookup failed: ${salesErr.message}`,
+    };
+  }
+
+  const { data: assignments } = await admin
+    .from("salesman_beat_assignments")
+    .select("salesman_id")
+    .eq("assignment_date", opts.date);
+
+  const assignedIds = new Set((assignments ?? []).map((a) => a.salesman_id));
+  const totalActiveSalesmen = (activeSalesmen ?? []).length;
+  const pendingCount = (activeSalesmen ?? []).filter((s) => !assignedIds.has(s.id)).length;
+
+  // 3. Send to each coordinator
+  const dateLabel = new Date(opts.date).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const broadcastName = `coord_${opts.date}`;
+
+  const results: SendResult[] = [];
+  for (const c of coordinators) {
+    const send = await sendTemplateMessage({
+      whatsappNumber: c.phone as string,
+      templateName: WATI_TEMPLATES.coordinator_reminder,
+      broadcastName,
+      bodyVariables: [c.full_name, dateLabel, String(pendingCount)],
+    });
+    results.push({
+      recipient: {
+        role: "admin",
+        name: c.full_name,
+        whatsappNumber: c.phone as string,
+      },
+      ok: send.ok,
+      messageId: send.messageId,
+      error: send.error,
+    });
+  }
+
+  const allOk = results.every((r) => r.ok);
+  return {
+    ok: allOk,
+    date: opts.date,
+    pendingCount,
+    totalActiveSalesmen,
+    recipients: results,
+    error: allOk ? null : "Some coordinators failed",
   };
 }
 
