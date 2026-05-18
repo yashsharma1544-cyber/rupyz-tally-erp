@@ -110,9 +110,8 @@ export async function testAllAdminSummaries(): Promise<TestResult> {
  * scheduled time. Sends a per-salesman PDF to every active salesman with a
  * beat assigned today, plus the admin daily summary at the end.
  *
- * Use this to:
- *   - Validate the cron pipeline end-to-end (middleware → handler → compute → WATi)
- *   - Resend a briefing if the morning cron silently failed
+ * Idempotent: salesmen who already got today's report for this type are
+ * skipped — re-clicking is safe.
  *
  * WARNING: Sends real WhatsApp messages to all salesmen with beat assignments.
  */
@@ -121,81 +120,68 @@ export async function testSalesmanCron(
 ): Promise<TestResult> {
   try {
     await requireAdmin();
-
-    // The cron handler reads runSalesmanCron's return shape; we mirror that
-    // here defensively (the shape is { reportType, date, recipients[], summary? }
-    // or similar — handled via untyped destructure to avoid coupling).
-    const r = (await runSalesmanCron(reportType)) as unknown as {
-      reportType?: string;
-      date?: string;
-      recipients?: { name?: string; ok?: boolean; error?: string }[];
-      succeeded?: number;
-      failed?: number;
-      attempted?: number;
-      errors?: { name: string; error: string }[];
-      summary?: {
-        ok?: boolean;
-        succeeded?: number;
-        failed?: number;
-        adminRecipientsAttempted?: number;
-      };
-    };
+    const r = await runSalesmanCron(reportType);
 
     const lines: string[] = [];
 
-    // Per-salesman tally — prefer explicit counts, fall back to recipients array
-    let succ = r.succeeded ?? 0;
-    let fail = r.failed ?? 0;
-    let att = r.attempted ?? 0;
-    if (Array.isArray(r.recipients)) {
-      const recipients = r.recipients;
-      att = att || recipients.length;
-      if (!r.succeeded) succ = recipients.filter((x) => x.ok).length;
-      if (!r.failed) fail = recipients.filter((x) => !x.ok).length;
-    }
-
-    if (att === 0) {
+    // Per-salesman tally
+    if (r.totalAttempted === 0) {
       lines.push(
-        `⚠ No salesmen to send to. ` +
-          `Check beat assignments for today (/sales-monitor/journey-cycles).`,
+        `⚠ No salesmen have a beat assigned for ${r.date}. ` +
+          `Check /sales-monitor/journey-cycles or salesman_beat_assignments.`,
       );
-    } else if (succ > 0) {
-      lines.push(`✓ Salesmen: ${succ}/${att} received PDF`);
     } else {
-      lines.push(`✗ Salesmen: 0/${att} sent`);
-    }
-
-    // Surface first few per-salesman errors if any
-    const errs =
-      r.errors ??
-      (Array.isArray(r.recipients)
-        ? r.recipients
-            .filter((x) => !x.ok && x.error)
-            .map((x) => ({ name: x.name ?? "?", error: x.error ?? "?" }))
-        : []);
-    if (errs.length > 0) {
-      const sample = errs.slice(0, 3).map((e) => `${e.name}: ${e.error}`).join("; ");
-      lines.push(
-        `Errors: ${sample}${errs.length > 3 ? ` …(+${errs.length - 3} more)` : ""}`,
-      );
+      if (r.succeeded > 0) {
+        const names = r.details
+          .filter((d) => d.ok)
+          .map((d) => d.name)
+          .slice(0, 6)
+          .join(", ");
+        const more = r.succeeded > 6 ? ` (+${r.succeeded - 6} more)` : "";
+        lines.push(
+          `✓ Salesmen sent: ${r.succeeded}/${r.totalAttempted}${names ? ` — ${names}${more}` : ""}`,
+        );
+      }
+      if (r.skipped > 0) {
+        lines.push(`↷ Skipped ${r.skipped} (already sent today; idempotent)`);
+      }
+      if (r.failed > 0) {
+        const errs = r.details.filter((d) => !d.ok);
+        const sample = errs
+          .slice(0, 3)
+          .map((d) => `${d.name}: ${d.error ?? "?"}`)
+          .join("; ");
+        lines.push(
+          `✗ Failed ${r.failed}: ${sample}${errs.length > 3 ? ` …(+${errs.length - 3} more)` : ""}`,
+        );
+      }
     }
 
     // Admin summary tally
     if (r.summary) {
-      const sSucc = r.summary.succeeded ?? 0;
-      const sAtt = r.summary.adminRecipientsAttempted ?? 0;
-      const sOk = r.summary.ok ?? (r.summary.failed === 0);
-      if (sAtt === 0) {
-        lines.push(`⚠ Admin summary skipped (no admins resolved).`);
-      } else if (sOk && sSucc > 0) {
-        lines.push(`✓ Admin summary: ${sSucc}/${sAtt} admin${sAtt === 1 ? "" : "s"}`);
+      const s = r.summary;
+      if (s.adminRecipientsAttempted === 0) {
+        lines.push(`⚠ Admin summary skipped (no admins resolved)`);
+      } else if (s.ok && s.succeeded > 0) {
+        lines.push(
+          `✓ Admin summary: ${s.succeeded}/${s.adminRecipientsAttempted} admin${s.adminRecipientsAttempted === 1 ? "" : "s"}`,
+        );
       } else {
-        lines.push(`✗ Admin summary: ${sSucc}/${sAtt} admin${sAtt === 1 ? "" : "s"}`);
+        const firstErr = s.errors[0]?.error ?? "unknown";
+        lines.push(
+          `✗ Admin summary: ${s.succeeded}/${s.adminRecipientsAttempted} — ${firstErr}`,
+        );
       }
     }
 
+    // Overall ok: nothing failed, and at least one channel had a real send
+    // (or there was genuinely nothing to do today)
+    const anyPerSalesmanOk = r.succeeded > 0;
+    const anyAdminOk = (r.summary?.succeeded ?? 0) > 0;
+    const allClean = r.failed === 0 && (r.summary?.failed ?? 0) === 0;
+
     return {
-      ok: fail === 0 && succ > 0,
+      ok: allClean && (anyPerSalesmanOk || anyAdminOk || r.totalAttempted === 0),
       summary: lines.join("\n"),
     };
   } catch (e) {
