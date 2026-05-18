@@ -31,7 +31,7 @@ async function requireRoles(roles: string[]): Promise<ActorInfo> {
 // =============================================================================
 export async function updateCustomerBeat(customerId: string, beatId: string | null) {
   try {
-    const actor = await requireRoles(["admin"]);
+    const actor = await requireRoles(["admin", "accounts"]);
     const admin = createAdminClient();
 
     const { data: existing } = await admin

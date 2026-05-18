@@ -26,7 +26,7 @@ export async function triggerBackfill(): Promise<{ ok: true; result: BackfillRes
     .select("role")
     .eq("id", user.id)
     .single();
-  if (appUser?.role !== "admin") return { ok: false, error: "Admin only" };
+  if (appUser?.role !== "admin" && appUser?.role !== "accounts") return { ok: false, error: "Admin or accounts only" };
 
   // Invoke the Edge Function
   const { data, error } = await supabase.functions.invoke("rupyz-backfill", {
@@ -47,7 +47,7 @@ export async function resetBackfill(): Promise<{ ok: true } | { ok: false; error
     .select("role")
     .eq("id", user.id)
     .single();
-  if (appUser?.role !== "admin") return { ok: false, error: "Admin only" };
+  if (appUser?.role !== "admin" && appUser?.role !== "accounts") return { ok: false, error: "Admin or accounts only" };
 
   const { error } = await supabase.rpc("rupyz_backfill_reset");
   if (error) return { ok: false, error: error.message };
@@ -67,7 +67,7 @@ export async function setBackfillConfig(opts: {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (appUser?.role !== "admin") return { ok: false, error: "Admin only" };
+  if (appUser?.role !== "admin" && appUser?.role !== "accounts") return { ok: false, error: "Admin or accounts only" };
 
   const update: Record<string, unknown> = {};
   if (opts.cutoff_date !== undefined) update.cutoff_date = opts.cutoff_date;

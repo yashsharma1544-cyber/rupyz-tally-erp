@@ -11,7 +11,7 @@ async function requireAdmin() {
   if (!user) throw new Error("Not authenticated");
   const { data: appUser } = await supabase
     .from("app_users").select("role").eq("id", user.id).single();
-  if (!appUser || appUser.role !== "admin") throw new Error("Not authorized");
+  if (!appUser || !["admin", "accounts"].includes(appUser.role)) throw new Error("Not authorized");
 }
 
 function getServiceClient() {

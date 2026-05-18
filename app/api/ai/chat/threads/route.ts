@@ -16,7 +16,7 @@ export async function GET(req: Request) {
 
   const { data: me } = await userClient
     .from("app_users").select("role").eq("id", user.id).single();
-  if (me?.role !== "admin") return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  if (me?.role !== "admin" && me?.role !== "accounts") return NextResponse.json({ error: "Admin or accounts only" }, { status: 403 });
 
   const url = new URL(req.url);
   const threadId = url.searchParams.get("id");

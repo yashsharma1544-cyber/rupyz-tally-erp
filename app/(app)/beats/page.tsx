@@ -80,7 +80,7 @@ export default async function BeatsPage() {
     );
   }
 
-  const isAdmin = me.role === "admin";
+  const isAdmin = ["admin", "accounts"].includes(me.role);
 
   const [
     { count: productCount },

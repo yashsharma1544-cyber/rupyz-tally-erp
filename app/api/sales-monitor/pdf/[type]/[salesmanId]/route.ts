@@ -27,7 +27,7 @@ export async function GET(
     .select("role")
     .eq("id", user.id)
     .single();
-  if (!appUser || appUser.role !== "admin") {
+  if (!appUser || !["admin", "accounts"].includes(appUser.role)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 

@@ -1035,8 +1035,8 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
   const [reason, setReason] = useState("");
   const [invoiceInput, setInvoiceInput] = useState("");
 
-  const isApprover = ["admin", "approver"].includes(meRole);
-  const isBilling = ["admin", "billing"].includes(meRole);
+  const isApprover = ["admin", "accounts", "approver"].includes(meRole);
+  const isBilling = ["admin", "accounts", "billing"].includes(meRole);
 
   const canApprove = isApprover && order.app_status === "received";
   const canReject  = isApprover && order.app_status === "received";
@@ -1305,9 +1305,9 @@ function PrimaryActionCallout({
   onApproveAll: () => void;
   onAttachAll: () => void;
 }) {
-  const isApprover = ["admin", "approver"].includes(meRole);
+  const isApprover = ["admin", "accounts", "approver"].includes(meRole);
   const isVanLead = ["admin", "van_lead"].includes(meRole);
-  const isBilling = ["admin", "billing"].includes(meRole);
+  const isBilling = ["admin", "accounts", "billing"].includes(meRole);
 
   if (tab === "approval" && isApprover && kpis.approval.count > 0) {
     return (

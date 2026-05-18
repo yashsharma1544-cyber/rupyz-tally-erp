@@ -47,7 +47,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const isAdmin = appUser.role === "admin";
+  const isAdmin = ["admin", "accounts"].includes(appUser.role);
 
   return (
     <div className="lg:flex min-h-screen">

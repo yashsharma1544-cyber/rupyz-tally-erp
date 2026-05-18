@@ -18,7 +18,7 @@ async function requireAdmin() {
     .select("role, active")
     .eq("id", user.id)
     .single();
-  if (!me?.active || me.role !== "admin") throw new Error("Not authorized");
+  if (!me?.active || !["admin", "accounts"].includes(me.role)) throw new Error("Not authorized");
 }
 
 export async function retryReport(

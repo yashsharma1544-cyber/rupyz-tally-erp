@@ -12,7 +12,7 @@ async function requireAdmin() {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (!appUser || appUser.role !== "admin") throw new Error("Not authorized");
+  if (!appUser || !["admin", "accounts"].includes(appUser.role)) throw new Error("Not authorized");
   return { supabase, userId: user.id };
 }
 

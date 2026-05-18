@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const { data: me } = await supabase.from("app_users").select("role").eq("id", user.id).single();
-  if (!me || me.role !== "admin") redirect("/dashboard");
+  if (!me || !["admin", "accounts"].includes(me.role)) redirect("/dashboard");
 
   const [
     { data: session },

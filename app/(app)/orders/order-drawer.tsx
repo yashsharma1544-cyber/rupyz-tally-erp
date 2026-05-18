@@ -158,8 +158,8 @@ function OrderDrawerInner({
     })();
   }, [order, supabase]);
 
-  const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
-  const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
+  const canApprove   = ["admin", "accounts", "approver"].includes(me.role) && order.app_status === "received";
+  const canEdit      = ["admin", "accounts", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
   const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
   const canAttachTrip = ["admin", "van_lead"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
 
@@ -534,7 +534,7 @@ function CurrentTab({
             beatId={order.customer?.beat?.id ?? null}
             overriddenAt={order.customer?.beat_overridden_at ?? null}
             beats={beats}
-            isAdmin={me.role === "admin"}
+            isAdmin={["admin", "accounts"].includes(me.role)}
             onSaved={reload}
           />
         </Card>
@@ -620,7 +620,7 @@ function InvoiceSection({
   pending: boolean;
 }) {
   const o = order as OrderWithInvoice;
-  const canEdit = ["admin", "billing"].includes(me.role)
+  const canEdit = ["admin", "accounts", "billing"].includes(me.role)
     && (o.app_status === "approved" || o.app_status === "invoiced");
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(o.invoice_number ?? "");

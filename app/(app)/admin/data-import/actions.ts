@@ -448,7 +448,7 @@ export async function importTallyExcel(formData: FormData): Promise<ImportResult
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in" };
   const { data: me } = await supabase.from("app_users").select("role, active").eq("id", user.id).single();
-  if (!me?.active || me.role !== "admin") return { ok: false, error: "Admin only" };
+  if (!me?.active || !["admin", "accounts"].includes(me.role)) return { ok: false, error: "Admin or accounts only" };
 
   const file = formData.get("file");
   if (!(file instanceof File)) return { ok: false, error: "No file uploaded" };

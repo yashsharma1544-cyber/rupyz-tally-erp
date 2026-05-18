@@ -34,7 +34,7 @@ export default async function DistributePage({
   if (!user) redirect("/login");
   const { data: me } = await supabase
     .from("app_users").select("role, active").eq("id", user.id).single();
-  if (!me?.active || me.role !== "admin") redirect("/");
+  if (!me?.active || !["admin", "accounts"].includes(me.role)) redirect("/");
 
   const jc = await getJourneyCycleById(params.jcId);
   if (!jc) redirect("/sales-monitor/journey-cycles");

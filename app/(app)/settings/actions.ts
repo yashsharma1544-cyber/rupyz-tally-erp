@@ -9,7 +9,7 @@ export async function triggerSync() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
   const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
-  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+  if (!appUser?.active || !["admin", "accounts"].includes(appUser.role)) return { error: "Admin or accounts only" };
 
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey    = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -50,7 +50,7 @@ export async function updateRupyzToken(rawToken: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
   const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
-  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+  if (!appUser?.active || !["admin", "accounts"].includes(appUser.role)) return { error: "Admin or accounts only" };
 
   // Strip "Bearer " prefix if user pasted it accidentally
   const token = rawToken.trim().replace(/^bearer\s+/i, "").trim();
@@ -110,7 +110,7 @@ export async function getTallyAgentSecret() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
   const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
-  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+  if (!appUser?.active || !["admin", "accounts"].includes(appUser.role)) return { error: "Admin or accounts only" };
 
   const admin = createAdminClient();
   const { data } = await admin.from("app_settings").select("value, updated_at").eq("key", "tally_agent_secret").maybeSingle();
@@ -122,7 +122,7 @@ export async function regenerateTallyAgentSecret() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
   const { data: appUser } = await supabase.from("app_users").select("role,active").eq("id", user.id).single();
-  if (!appUser?.active || appUser.role !== "admin") return { error: "Admin only" };
+  if (!appUser?.active || !["admin", "accounts"].includes(appUser.role)) return { error: "Admin or accounts only" };
 
   // 32 bytes hex = 64 chars; URL-safe to paste into config.ini
   const newSecret = crypto.randomBytes(32).toString("hex");
