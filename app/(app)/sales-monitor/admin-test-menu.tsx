@@ -7,6 +7,7 @@ import {
 import {
   testCoordinatorReminder,
   testAllAdminSummaries,
+  testSalesmanCron,
   type TestResult,
 } from "./test-actions";
 
@@ -34,10 +35,11 @@ export function AdminTestMenu() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Auto-dismiss the result toast after 12s
+  // Auto-dismiss the result toast after 15s (per-salesman runs may produce
+  // a long message; give the user a moment longer to read)
   useEffect(() => {
     if (!resolved) return;
-    const t = setTimeout(() => setResolved(null), 12000);
+    const t = setTimeout(() => setResolved(null), 15000);
     return () => clearTimeout(t);
   }, [resolved]);
 
@@ -96,6 +98,8 @@ export function AdminTestMenu() {
               Sends real WhatsApp messages. Use sparingly.
             </p>
           </div>
+
+          {/* Coordinator reminder (single message to Radhe) */}
           <button
             onClick={() =>
               run("coordinator", "Coordinator reminder", testCoordinatorReminder)
@@ -107,6 +111,66 @@ export function AdminTestMenu() {
               1 message → beat coordinator (Radhe)
             </div>
           </button>
+
+          {/* Section header for per-salesman crons */}
+          <div className="px-3 pt-2 pb-1 border-t border-paper-line/60">
+            <p className="text-2xs uppercase tracking-wide text-ink-muted font-medium">
+              Send to salesmen
+            </p>
+            <p className="text-2xs text-ink-subtle mt-0.5 leading-snug">
+              Same as the scheduled cron — each salesman with a beat today gets a PDF, admins get the summary.
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              run(
+                "salesman-morning",
+                "Morning briefing (salesmen)",
+                () => testSalesmanCron("morning"),
+                "This sends the MORNING briefing PDF to every salesman with a beat assigned today, plus the admin summary. Proceed?",
+              )
+            }
+            className="w-full text-left px-3 py-2.5 text-xs hover:bg-paper-subtle border-b border-paper-line/60 transition-colors"
+          >
+            <div className="font-medium">Send morning briefing now</div>
+            <div className="text-2xs text-ink-subtle mt-0.5">
+              Same as the 9:55 AM IST cron
+            </div>
+          </button>
+          <button
+            onClick={() =>
+              run(
+                "salesman-midday",
+                "Mid-day update (salesmen)",
+                () => testSalesmanCron("midday"),
+                "This sends the MID-DAY update PDF to every salesman with a beat assigned today, plus the admin summary. Proceed?",
+              )
+            }
+            className="w-full text-left px-3 py-2.5 text-xs hover:bg-paper-subtle border-b border-paper-line/60 transition-colors"
+          >
+            <div className="font-medium">Send mid-day update now</div>
+            <div className="text-2xs text-ink-subtle mt-0.5">
+              Same as the 1:00 PM IST cron
+            </div>
+          </button>
+          <button
+            onClick={() =>
+              run(
+                "salesman-evening",
+                "Evening final (salesmen)",
+                () => testSalesmanCron("evening"),
+                "This sends the EVENING final PDF to every salesman with a beat assigned today, plus the admin summary. Proceed?",
+              )
+            }
+            className="w-full text-left px-3 py-2.5 text-xs hover:bg-paper-subtle border-b border-paper-line/60 transition-colors"
+          >
+            <div className="font-medium">Send evening final now</div>
+            <div className="text-2xs text-ink-subtle mt-0.5">
+              Same as the 7:30 PM IST cron
+            </div>
+          </button>
+
+          {/* Admin-only summaries (no per-salesman messages) */}
           <button
             onClick={() =>
               run(
@@ -120,7 +184,7 @@ export function AdminTestMenu() {
           >
             <div className="font-medium">Send all admin summaries</div>
             <div className="text-2xs text-ink-subtle mt-0.5">
-              3 PDFs (morning + mid-day + evening) → each admin
+              3 PDFs (morning + mid-day + evening) → each admin only
             </div>
           </button>
         </div>
