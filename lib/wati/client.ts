@@ -4,21 +4,21 @@
  * Usage:
  *   const result = await sendTemplateMessage({
  *     whatsappNumber: "919860748060",
- *     templateName: "sales_morning_briefing_v5",
+ *     templateName: "sales_morning_briefing_v7",
  *     broadcastName: "morning_2026-05-18_akshay",
- *     bodyVariables: ["Akshay", "D Raja", "41", "100"],
- *     headerDocumentUrl: "https://supabase.co/.../signed.pdf",
- *     headerDocumentFilename: "Akshay_Morning_Briefing_2026-05-18.pdf",
+ *     bodyVariables: ["Akshay", "D Raja", "41", "100 kg", "https://..."],
  *   });
  *
  * Env:
  *   WATI_API_ENDPOINT  — tenant URL, e.g. https://live-mt-server.wati.io/<tenant-id>
  *   WATI_ACCESS_TOKEN  — bearer token from WATi → API Docs
  *
- * The exact request shape varies a bit across WATi tenants. This client uses
- * the most common v1 sendTemplateMessage pattern with a header_handle for the
- * PDF. If your tenant returns a 4xx with "invalid parameters", capture the
- * raw response (returned in `body`) and we'll adjust the schema.
+ * NOTE on document headers: as of 2026-05-18 the templates DO NOT use a
+ * document header (Meta cached Akshay's first PDF media-id at the template
+ * level and reused it for every send regardless of recipient). The PDF is
+ * still generated and stored in Supabase; a signed URL is passed as the
+ * 5th body variable so recipients tap a link to view the report in their
+ * browser. Storage URL TTL is bumped to 7 days for weekend tolerance.
  */
 
 export interface WatiSendOptions {
@@ -75,8 +75,6 @@ export async function sendTemplateMessage(
     };
   }
 
-  // Build the parameters array. WATi expects { name: "1", value: "..." } pairs
-  // for body variables.
   const parameters = opts.bodyVariables.map((value, i) => ({
     name: String(i + 1),
     value,
@@ -115,8 +113,6 @@ export async function sendTemplateMessage(
       // Leave as text if not JSON
     }
 
-    // WATi typically returns { result: true, messageId: "..." } on success,
-    // or { result: false, info: "..." } on failure. Codes vary.
     const looksOk =
       res.ok &&
       typeof parsed === "object" &&
@@ -164,17 +160,18 @@ function extractErrorMessage(parsed: unknown): string | null {
  * Must match exactly what's approved in the WATi dashboard.
  *
  * History:
- *   - v4/v3/v2 templates (sales_morning_briefing_v4 etc.) cached Akshay's
- *     first PDF media-id at Meta level and reused it on every send. Bumped
- *     to fresh template names with a neutral sample PDF on 2026-05-18.
- *   - daily_summary_v1 added so admin summaries use a dedicated template
- *     instead of borrowing the salesman evening template (where the body
- *     text had to be hacked with "Sushil Agencies (Admin)" placeholders).
+ *   - v4/v3/v2 templates with document header → Meta cached Akshay's first
+ *     PDF and reused it on every send. Bumped to v5/v4/v3 with neutral
+ *     sample PDF → same problem (sample served instead of fresh PDFs).
+ *   - v7/v6/v5 (current) drop the document header entirely. PDF link goes
+ *     in body as {{5}} variable so recipients tap to view the report.
+ *   - daily_summary_v1 had a header → daily_summary_v3 (current) is
+ *     text+link only.
  */
 export const WATI_TEMPLATES = {
-  morning: "sales_morning_briefing_v5",
-  midday: "sales_midday_update_v4",
-  evening: "sales_evening_final_v3",
-  daily_summary: "daily_summary_v1",
+  morning: "sales_morning_briefing_v7",
+  midday: "sales_midday_update_v6",
+  evening: "sales_evening_final_v5",
+  daily_summary: "daily_summary_v3",
   coordinator_reminder: "beat_assignment_reminder_v1",
 } as const;

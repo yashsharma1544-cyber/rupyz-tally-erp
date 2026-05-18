@@ -1,18 +1,23 @@
 /**
  * End-to-end send orchestration for sales monitor reports.
  *
- * All three salesman templates are 4 variables:
- *   morning  — name, beat, scheduled_calls, target_kg
- *   midday   — name, date, calls_compound, volume_compound
- *   evening  — name, date, calls_compound, volume_compound
+ * All three salesman templates are now 5 variables (text + link):
+ *   morning  — name, beat, scheduled_calls, target_kg, full_report_url
+ *   midday   — name, date, calls_compound, volume_compound, full_report_url
+ *   evening  — name, date, calls_compound, volume_compound, full_report_url
  *
  * Plus a coordinator reminder (no PDF, 3 variables):
  *   coordinator_reminder — name, date, pending_count
+ *
+ * The PDF is still generated and stored in Supabase. We pass its signed URL
+ * as the 5th body variable so recipients tap a link to view it in the
+ * browser — Meta's media-id cache (which served Akshay's first PDF to every
+ * recipient for every send) is sidestepped entirely.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { getSalesmanDayStatus } from "@/lib/sales-monitor/compute";
-import { renderSalesmanPdf, pdfFilename, type PdfReportType } from "@/lib/sales-monitor/pdf/render";
+import { renderSalesmanPdf, type PdfReportType } from "@/lib/sales-monitor/pdf/render";
 import { uploadReportPdf } from "@/lib/sales-monitor/storage";
 import { sendTemplateMessage, WATI_TEMPLATES } from "@/lib/wati/client";
 import { formatKg, pct } from "@/lib/sales-monitor/format";
@@ -65,6 +70,7 @@ export type CoordinatorReminderOutcome = {
 function buildBodyVariables(
   type: PdfReportType,
   status: Awaited<ReturnType<typeof getSalesmanDayStatus>>,
+  signedUrl: string,
 ): string[] | null {
   if (!status) return null;
   const dateLabel = new Date(status.date).toLocaleDateString("en-IN", {
@@ -78,7 +84,8 @@ function buildBodyVariables(
       status.salesman_name,
       status.beat_name || "—",
       String(status.sc),
-      status.target_kg != null ? formatKg(status.target_kg) : "—",
+      status.target_kg != null ? `${formatKg(status.target_kg)} kg` : "—",
+      signedUrl,
     ];
   }
 
@@ -92,7 +99,7 @@ function buildBodyVariables(
     status.target_kg != null && status.target_kg > 0
       ? `${formatKg(status.kg_done)} kg of ${formatKg(status.target_kg)} kg target${kgPct !== null ? ` (${kgPct}%)` : ""}`
       : `${formatKg(status.kg_done)} kg`;
-  return [status.salesman_name, dateLabel, callsStr, kgStr];
+  return [status.salesman_name, dateLabel, callsStr, kgStr, signedUrl];
 }
 
 function templateNameFor(type: PdfReportType): string {
@@ -196,7 +203,7 @@ export async function sendSalesmanReport(opts: {
     };
   }
 
-  const bodyVars = buildBodyVariables(reportType, status);
+  const bodyVars = buildBodyVariables(reportType, status, signedUrl);
   if (!bodyVars) {
     return {
       ok: false,
@@ -211,7 +218,6 @@ export async function sendSalesmanReport(opts: {
   }
 
   const templateName = templateNameFor(reportType);
-  const filename = pdfFilename(reportType, status.salesman_name, date);
   const broadcastName = `${reportType}_${date}_${salesmanId.slice(0, 8)}${mode === "admin_only" ? "_test" : ""}`;
 
   const results: SendResult[] = [];
@@ -221,8 +227,8 @@ export async function sendSalesmanReport(opts: {
       templateName,
       broadcastName,
       bodyVariables: bodyVars,
-      headerDocumentUrl: signedUrl,
-      headerDocumentFilename: filename,
+      // No headerDocumentUrl / headerDocumentFilename — PDF link is in body
+      // var {{5}} to sidestep Meta's media-id cache.
     });
     results.push({
       recipient: r,
@@ -273,7 +279,6 @@ export async function sendCoordinatorReminder(opts: {
 }): Promise<CoordinatorReminderOutcome> {
   const admin = getAdminClient();
 
-  // 1. Fetch coordinators with phone
   const { data: coords, error: coordErr } = await admin
     .from("app_users")
     .select("id, full_name, phone")
@@ -304,7 +309,6 @@ export async function sendCoordinatorReminder(opts: {
     };
   }
 
-  // 2. Compute pending count
   const { data: activeSalesmen, error: salesErr } = await admin
     .from("app_users")
     .select("id")
@@ -331,7 +335,6 @@ export async function sendCoordinatorReminder(opts: {
   const totalActiveSalesmen = (activeSalesmen ?? []).length;
   const pendingCount = (activeSalesmen ?? []).filter((s) => !assignedIds.has(s.id)).length;
 
-  // 3. Send to each coordinator
   const dateLabel = new Date(opts.date).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",

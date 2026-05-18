@@ -4,14 +4,16 @@
  * Fires at the end of each runSalesmanCron call (morning/midday/evening)
  * AND from the admin "Test ▾" → "Send all admin summaries" menu.
  *
- * As of 2026-05-18 this uses the dedicated `daily_summary_v1` template
- * (4 vars: report type label, date, salesmen list, status line). Prior to
- * this we borrowed the salesman evening template and stuffed "Sushil
- * Agencies (Admin)" + "see attached PDF" placeholders into salesman-shaped
- * body slots. The dedicated template gives admins a cleaner WhatsApp message.
+ * Uses the `daily_summary_v3` template (5 vars, text + link):
+ *   {{1}} report type label   ("Morning Briefing", "Mid-day Update", "Evening Final")
+ *   {{2}} date label          ("18 May 2026")
+ *   {{3}} salesmen list       (first names, comma-separated)
+ *   {{4}} status line         (neutral, no aggregates)
+ *   {{5}} signed URL to the full summary PDF (7-day TTL)
  *
- * Per request, no aggregate totals appear in the body — the PDF carries
- * the per-salesman breakdown.
+ * No document header — admin taps the link in body to view the PDF, which
+ * sidesteps Meta's media-id cache (which previously served Akshay's first
+ * PDF to every recipient regardless of what URL we passed).
  */
 
 import React from "react";
@@ -26,6 +28,9 @@ import { getSummaryForDate } from "@/lib/sales-monitor/compute";
 import type { SalesmanSummaryRow } from "@/lib/sales-monitor/format";
 import type { PdfReportType } from "@/lib/sales-monitor/pdf/render";
 import { SummaryDocument } from "@/lib/sales-monitor/pdf/summary-document";
+
+/** Signed URL TTL — 7 days so a Monday morning link still works after a weekend. */
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 let adminClientCache: SupabaseClient | null = null;
 function getAdminClient(): SupabaseClient {
@@ -108,9 +113,8 @@ export async function runSummaryCron(
     return { ...baseResult, ok: false, failed: 1, storagePath };
   }
 
-  const bodyVars = buildSummaryBodyVariables(reportType, date, rows);
+  const bodyVars = buildSummaryBodyVariables(reportType, date, rows, signedUrl);
   const templateName = WATI_TEMPLATES.daily_summary;
-  const filename = summaryPdfFilename(reportType, date);
   const broadcastName = `summary_${reportType}_${date}_${Date.now()}`;
 
   let succeeded = 0;
@@ -122,8 +126,7 @@ export async function runSummaryCron(
         templateName,
         broadcastName,
         bodyVariables: bodyVars,
-        headerDocumentUrl: signedUrl,
-        headerDocumentFilename: filename,
+        // No headerDocumentUrl / headerDocumentFilename — link is in body var {{5}}.
       });
       if (res.ok) {
         succeeded++;
@@ -179,39 +182,27 @@ async function uploadSummaryPdf(opts: {
 
   const { data, error: urlErr } = await admin.storage
     .from("sales-reports")
-    .createSignedUrl(path, 60 * 60 * 24);
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
   if (urlErr || !data?.signedUrl) {
     throw new Error(urlErr?.message || "could not create signed url");
   }
   return { storagePath: path, signedUrl: data.signedUrl };
 }
 
-function summaryPdfFilename(reportType: PdfReportType, date: string): string {
-  const labels: Record<PdfReportType, string> = {
-    morning: "Morning_Briefing",
-    midday: "Midday_Update",
-    evening: "Evening_Final",
-  };
-  return `Daily_Summary_${labels[reportType]}_${date}.pdf`;
-}
-
 /**
- * Body shape — matches the approved `daily_summary_v1` template:
+ * Body shape — matches the approved `daily_summary_v3` template:
  *   "Daily team summary — *{{1}}*
  *    Date: *{{2}}*
  *    Salesmen: *{{3}}*
  *    Status: *{{4}}*
- *    Full breakdown attached as PDF."
  *
- *   {{1}} report type label   (e.g. "Morning Briefing")
- *   {{2}} date label          (e.g. "18 May 2026")
- *   {{3}} salesmen list       (first names, comma-separated)
- *   {{4}} status line         (neutral, varies by report type — no aggregates)
+ *    Full breakdown: {{5}}"
  */
 function buildSummaryBodyVariables(
   type: PdfReportType,
   date: string,
   rows: SalesmanSummaryRow[],
+  signedUrl: string,
 ): string[] {
   const dLabel = new Date(date).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
@@ -223,8 +214,6 @@ function buildSummaryBodyVariables(
     evening: "Evening Final",
   };
 
-  // First names of all salesmen in today's summary — keeps the line short
-  // and readable on a WhatsApp preview. Falls back to "none today" if empty.
   const firstNames = rows
     .map((r) => {
       const name = (r.salesman_name ?? "").trim();
@@ -240,5 +229,5 @@ function buildSummaryBodyVariables(
     evening: "Day complete",
   };
 
-  return [typeLabel[type], dLabel, salesmenList, statusLine[type]];
+  return [typeLabel[type], dLabel, salesmenList, statusLine[type], signedUrl];
 }
