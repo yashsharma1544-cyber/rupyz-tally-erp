@@ -1,7 +1,7 @@
 // =============================================================================
 // /load — godown loading app home
 //
-// Mobile-first PWA at /load. Shows orders in 'approved' or 'loading' status,
+// Mobile-first PWA at /load. Shows orders in 'invoiced' or 'loading' status,
 // grouped by beat. Filtered to Jalna area only (beat.city = jalna OR
 // customer.city = jalna, case-insensitive).
 //
@@ -12,7 +12,7 @@
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Boxes, ChevronRight, MapPin, Package, Hourglass } from "lucide-react";
+import { Boxes, ChevronRight, MapPin, Package, Hourglass, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { getT } from "@/lib/i18n/server";
@@ -33,6 +33,7 @@ function isJalna(city: string | null | undefined): boolean {
 interface OrderRow {
   id: string;
   rupyz_order_id: string;
+  invoice_number: string | null;
   total_amount: number;
   app_status: string;
   customer: { id: string; name: string; city: string | null } | null;
@@ -70,11 +71,11 @@ export default async function LoadHomePage() {
   const { data: rawOrders } = await supabase
     .from("orders")
     .select(`
-      id, rupyz_order_id, total_amount, app_status,
+      id, rupyz_order_id, invoice_number, total_amount, app_status,
       customer:customers!inner(id, name, city, beat:beats(id, name, city)),
       items:order_items(id)
     `)
-    .in("app_status", ["approved", "loading"])
+    .in("app_status", ["invoiced", "loading"])
     .order("rupyz_created_at", { ascending: true });
 
   const allOrders: OrderRow[] = (rawOrders ?? []).map(o => {
@@ -84,6 +85,7 @@ export default async function LoadHomePage() {
     return {
       id: o.id,
       rupyz_order_id: o.rupyz_order_id,
+      invoice_number: o.invoice_number ?? null,
       total_amount: Number(o.total_amount),
       app_status: o.app_status,
       customer: customer ? { id: customer.id, name: customer.name, city: customer.city } : null,
@@ -114,7 +116,7 @@ export default async function LoadHomePage() {
 
   const totalOrders = orders.length;
   const loadingCount = orders.filter(o => o.app_status === "loading").length;
-  const approvedCount = orders.filter(o => o.app_status === "approved").length;
+  const invoicedCount = orders.filter(o => o.app_status === "invoiced").length;
   const totalValue = orders.reduce((s, o) => s + o.total_amount, 0);
 
   const inProgressLabel = t("loading.in_progress");
@@ -136,7 +138,7 @@ export default async function LoadHomePage() {
         <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
           <div className="text-2xs uppercase tracking-wide text-ink-muted mb-2">{t("loading.queue")}</div>
           <div className="grid grid-cols-3 gap-2">
-            <Kpi label={t("loading.to_start")} value={approvedCount.toString()} accent="ink"/>
+            <Kpi label={t("loading.to_start")} value={invoicedCount.toString()} accent="ink"/>
             <Kpi label={inProgressLabel} value={loadingCount.toString()} accent={loadingCount > 0 ? "warn" : "ink"}/>
             <Kpi label={t("loading.total_value")} value={formatINR(totalValue)} accent="ink"/>
           </div>
@@ -225,6 +227,11 @@ function BeatGroup({
                   <span className="text-ink-subtle">·</span>
                   <span className="tabular">{formatINR(o.total_amount)}</span>
                 </div>
+                {o.invoice_number && (
+                  <div className="mt-1 inline-flex items-center gap-1 text-2xs text-accent font-semibold">
+                    <Receipt size={9}/> inv <span className="font-mono">{o.invoice_number}</span>
+                  </div>
+                )}
                 {o.app_status === "loading" && (
                   <div className="mt-1 inline-flex items-center gap-1 text-2xs text-warn font-semibold">
                     <Hourglass size={9}/> {inProgressLabel}

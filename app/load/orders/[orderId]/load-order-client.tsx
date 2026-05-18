@@ -3,9 +3,8 @@
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, AlertCircle, Phone } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertCircle, Phone, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n/context";
 import { markOrderLoaded } from "./actions";
@@ -22,6 +21,7 @@ interface OrderLine {
 interface OrderForLoad {
   id: string;
   rupyzOrderId: string;
+  invoiceNumber: string | null;
   totalAmount: number;
   appStatus: string;
   customer: { id: string; name: string; city: string | null; mobile: string | null } | null;
@@ -94,9 +94,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
     startTransition(async () => {
       const res = await markOrderLoaded(order.id, buildLines(), { markPartial });
       if (!res.ok) {
-        // Note: res.error comes from server action and remains in English for now.
-        // Server-action errors will be translated in a future pass when we
-        // refactor lib/load/actions.ts to return i18n keys instead of strings.
         toast.error(res.error);
         return;
       }
@@ -150,6 +147,17 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           )}
         </div>
 
+        {/* Tally invoice number — big and visible so loader can write it on the bag */}
+        {order.invoiceNumber && (
+          <div className="mt-2 bg-accent-soft border border-accent/30 rounded-md p-2.5 flex items-center gap-2">
+            <Receipt size={16} className="text-accent shrink-0"/>
+            <div className="flex-1 min-w-0">
+              <div className="text-2xs uppercase tracking-wide text-accent/80 font-semibold">Tally invoice</div>
+              <div className="font-mono font-bold text-base leading-tight truncate">{order.invoiceNumber}</div>
+            </div>
+          </div>
+        )}
+
         <div className="mt-2 pb-3 border-b border-paper-line text-sm">
           <span className="font-semibold tabular">{itemCount}</span>
           <span className="text-ink-muted"> {itemsLabel} · </span>
@@ -193,14 +201,11 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                     key={it.id}
                     className="bg-paper-card border border-paper-line rounded-md p-3"
                   >
-                    {/* Product name — big */}
                     <div className="text-base font-semibold leading-tight mb-3">
                       {it.productName}
                     </div>
 
-                    {/* Two boxes side-by-side */}
                     <div className="grid grid-cols-2 gap-2">
-                      {/* Ordered (read-only) */}
                       <div className="bg-paper-subtle/60 border border-paper-line rounded-md p-3 text-center">
                         <div className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1">
                           {t("loading.ordered")}
@@ -213,7 +218,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                         )}
                       </div>
 
-                      {/* Loaded (editable) */}
                       <div className={`border-2 rounded-md p-3 text-center ${
                         isZero
                           ? "border-danger/30 bg-danger-soft/30"
@@ -245,7 +249,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                       </div>
                     </div>
 
-                    {/* Status messages below the boxes */}
                     {isLess && cur > 0 && (
                       <div className="text-2xs text-warn mt-2 inline-flex items-center gap-1">
                         <AlertCircle size={10}/> {t("loading.short_by", { amount: shortAmount })}

@@ -1,9 +1,12 @@
 // =============================================================================
 // /load/orders/[orderId] — per-order loading screen
 //
-// Auto-changes status from 'approved' to 'loading' when team opens.
+// Auto-changes status from 'invoiced' to 'loading' when team opens.
 // Shows order lines with pre-filled qty inputs (ordered qty).
 // Team marks "All loaded" or edits qtys, then submits.
+//
+// Approved orders (no invoice yet) get a friendly gate explaining that billing
+// needs to add an invoice first.
 //
 // i18n: this server-rendered shell reads language from cookie; the client
 // child component reads from the i18n React context.
@@ -11,7 +14,7 @@
 
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { LoadOrderClient } from "./load-order-client";
 import { getT } from "@/lib/i18n/server";
@@ -43,7 +46,7 @@ export default async function LoadOrderPage({
   const { data: order } = await supabase
     .from("orders")
     .select(`
-      id, rupyz_order_id, total_amount, app_status,
+      id, rupyz_order_id, total_amount, app_status, invoice_number,
       customer:customers(id, name, city, mobile),
       items:order_items(id, product_name, qty, loaded_qty, price, unit)
     `)
@@ -52,25 +55,53 @@ export default async function LoadOrderPage({
 
   if (!order) notFound();
 
-  // Auto-status change: if approved, move to loading on open.
-  // This happens server-side so the next time anyone loads this page they see
-  // it as already being worked on.
+  // Friendly gate: approved order means billing hasn't entered the invoice yet.
+  // Loading is blocked at the data layer; explain it here too so the loader
+  // knows what to do.
   if (order.app_status === "approved") {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
+        <div className="max-w-sm">
+          <Link href="/load" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-3">
+            <ArrowLeft size={11}/> Back to queue
+          </Link>
+          <div className="w-12 h-12 mx-auto rounded-full bg-warn-soft text-warn flex items-center justify-center mb-3">
+            <Receipt size={20}/>
+          </div>
+          <p className="font-semibold text-base mb-1">Waiting for invoice</p>
+          <p className="text-sm text-ink-muted mb-3">
+            This order hasn&apos;t been invoiced yet. Billing needs to enter the Tally
+            invoice number before it can be loaded.
+          </p>
+          <Link
+            href="/load"
+            className="inline-block text-accent text-sm hover:underline"
+          >
+            ← Back to queue
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Auto-status change: if invoiced, move to loading on open. This signals to
+  // the rest of the team that someone is actively pulling the order.
+  if (order.app_status === "invoiced") {
     const { error: updErr } = await supabase
       .from("orders")
       .update({ app_status: "loading" })
       .eq("id", orderId)
-      .eq("app_status", "approved"); // Concurrency guard: don't overwrite if someone else moved it
+      .eq("app_status", "invoiced"); // Concurrency guard
     if (updErr) {
-      console.error("Failed to auto-transition approved→loading:", updErr);
+      console.error("Failed to auto-transition invoiced→loading:", updErr);
       // Continue — the user can still try to load, the action will fail with a clear error
     } else {
       order.app_status = "loading";
     }
   }
 
-  // Show "already handled" if order is past loading state.
-  if (!["approved", "loading"].includes(order.app_status)) {
+  // Show "already handled" for any state past loading.
+  if (!["invoiced", "loading"].includes(order.app_status)) {
     const statusText = t(`status.${order.app_status}`);
     return (
       <div className="min-h-screen flex items-center justify-center px-4 text-center bg-paper">
@@ -95,6 +126,7 @@ export default async function LoadOrderPage({
       order={{
         id: order.id,
         rupyzOrderId: order.rupyz_order_id,
+        invoiceNumber: order.invoice_number ?? null,
         totalAmount: Number(order.total_amount),
         appStatus: order.app_status,
         customer: customer ? {
