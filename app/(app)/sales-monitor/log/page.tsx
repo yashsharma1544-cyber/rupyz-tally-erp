@@ -60,7 +60,7 @@ export default async function LogPage({
     .select("role, active")
     .eq("id", user.id)
     .single();
-  if (!me?.active || !["admin", "accounts"].includes(me.role)) {
+  if (!me?.active || me.role !== "admin") {
     return (
       <div className="p-6 max-w-2xl mx-auto">
         <h1 className="text-base font-semibold mb-1">Not authorized</h1>

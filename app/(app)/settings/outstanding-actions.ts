@@ -10,7 +10,7 @@ async function requireAdmin() {
   if (!user) throw new Error("Not authenticated");
   const { data: appUser } = await supabase
     .from("app_users").select("id, role, active").eq("id", user.id).single();
-  if (!appUser?.active || !["admin", "accounts"].includes(appUser.role)) throw new Error("Admin or accounts only");
+  if (!appUser?.active || appUser.role !== "admin") throw new Error("Admin only");
   return appUser.id;
 }
 

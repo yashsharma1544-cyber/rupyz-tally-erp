@@ -44,7 +44,7 @@ async function logEvent(
 // =============================================================================
 export async function approveOrder(orderId: string, comment?: string) {
   try {
-    const actor = await requireRoles(["admin", "accounts", "approver"]);
+    const actor = await requireRoles(["admin", "approver"]);
     const admin = createAdminClient();
 
     const { data: order, error: fetchErr } = await admin
@@ -83,7 +83,7 @@ export async function bulkApproveOrders(orderIds: string[]) {
     if (!orderIds || orderIds.length === 0) return { error: "No orders selected" };
     if (orderIds.length > 500) return { error: "Too many orders (max 500). Narrow your selection." };
 
-    const actor = await requireRoles(["admin", "accounts", "approver"]);
+    const actor = await requireRoles(["admin", "approver"]);
     const admin = createAdminClient();
 
     const results: BulkOrderResult[] = [];
@@ -132,7 +132,7 @@ export async function bulkApproveOrders(orderIds: string[]) {
 export async function rejectOrder(orderId: string, reason: string) {
   try {
     if (!reason || reason.trim().length < 3) return { error: "Rejection reason required (min 3 chars)" };
-    const actor = await requireRoles(["admin", "accounts", "approver"]);
+    const actor = await requireRoles(["admin", "approver"]);
     const admin = createAdminClient();
 
     const { data: order, error: fetchErr } = await admin
@@ -173,7 +173,7 @@ export async function editOrder(orderId: string, payload: EditPayload) {
     if (!payload.comment || payload.comment.trim().length < 3) {
       return { error: "Edit comment required (min 3 chars)" };
     }
-    const actor = await requireRoles(["admin", "accounts", "approver"]);
+    const actor = await requireRoles(["admin", "approver"]);
     const admin = createAdminClient();
 
     const { data: order, error: oErr } = await admin
@@ -307,7 +307,7 @@ export async function editOrder(orderId: string, payload: EditPayload) {
 export async function cancelOrder(orderId: string, reason: string) {
   try {
     if (!reason || reason.trim().length < 3) return { error: "Cancel reason required (min 3 chars)" };
-    const actor = await requireRoles(["admin", "accounts"]);
+    const actor = await requireRoles(["admin"]);
     const admin = createAdminClient();
 
     const { data: order } = await admin.from("orders").select("app_status").eq("id", orderId).single();

@@ -12,7 +12,7 @@ export default async function JourneyCyclesPage() {
   if (!user) redirect("/login");
   const { data: appUser } = await supabase
     .from("app_users").select("role").eq("id", user.id).single();
-  if (!appUser || !["admin", "accounts"].includes(appUser.role)) redirect("/");
+  if (!appUser || appUser.role !== "admin") redirect("/");
 
   const cycles = await listJourneyCycles();
   const today = todayIstString();

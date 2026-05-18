@@ -158,8 +158,8 @@ function OrderDrawerInner({
     })();
   }, [order, supabase]);
 
-  const canApprove   = ["admin", "accounts", "approver"].includes(me.role) && order.app_status === "received";
-  const canEdit      = ["admin", "accounts", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
+  const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
+  const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
   const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
   const canAttachTrip = ["admin", "van_lead"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
 
@@ -534,7 +534,7 @@ function CurrentTab({
             beatId={order.customer?.beat?.id ?? null}
             overriddenAt={order.customer?.beat_overridden_at ?? null}
             beats={beats}
-            isAdmin={["admin", "accounts"].includes(me.role)}
+            isAdmin={me.role === "admin"}
             onSaved={reload}
           />
         </Card>

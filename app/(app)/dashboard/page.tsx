@@ -116,7 +116,7 @@ export default async function DashboardPage() {
     badge?: string;
   }> = [];
 
-  if (pendingApproval.count > 0 && ["admin", "accounts", "approver"].includes(me.role)) {
+  if (pendingApproval.count > 0 && ["admin", "approver"].includes(me.role)) {
     tasks.push({
       key: "approve",
       icon: CheckSquare,
@@ -127,7 +127,7 @@ export default async function DashboardPage() {
     });
   }
 
-  if (readyToSend.count > 0 && ["admin", "accounts", "van_lead", "dispatch"].includes(me.role)) {
+  if (readyToSend.count > 0 && ["admin", "van_lead", "dispatch"].includes(me.role)) {
     tasks.push({
       key: "send",
       icon: Truck,
@@ -189,7 +189,7 @@ export default async function DashboardPage() {
     systemIssues.push({ text: "Last Rupyz sync failed — check Settings", href: "/settings" });
   }
 
-  const isAdmin = ["admin", "accounts"].includes(me.role);
+  const isAdmin = me.role === "admin";
 
   return (
     <>

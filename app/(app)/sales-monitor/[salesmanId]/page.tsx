@@ -35,7 +35,7 @@ export default async function SalesmanDetailPage({ params, searchParams }: PageP
     .select("role")
     .eq("id", user.id)
     .single();
-  if (!appUser || !["admin", "accounts"].includes(appUser.role)) {
+  if (!appUser || appUser.role !== "admin") {
     return (
       <div className="p-8 text-center">
         <h1 className="text-lg font-semibold mb-2">Not authorized</h1>
