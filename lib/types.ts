@@ -1,6 +1,6 @@
 // Manual types matching the Supabase schema. Generate with `supabase gen types` later if you want to auto-sync.
 
-export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman" | "van_lead" | "van_helper" | "driver";
+export type UserRole = "admin" | "approver" | "accounts" | "dispatch" | "delivery" | "salesman" | "van_lead" | "van_helper" | "driver" | "billing";
 
 export interface Salesman {
   id: string;
@@ -97,6 +97,7 @@ export interface AppUser {
 export type OrderAppStatus =
     | "received"
     | "approved"
+    | "invoiced"
     | "loading"
     | "loaded"
     | "on_van_trip"
@@ -156,6 +157,9 @@ export interface Order {
   approved_by: string | null;
   rejected_at: string | null;
   rejected_by: string | null;
+  invoice_number: string | null;
+  invoiced_at: string | null;
+  invoiced_by: string | null;
   is_edited: boolean;
   edited_at: string | null;
   edited_by: string | null;
@@ -302,6 +306,7 @@ export interface PointOfDelivery {
 
 export type OrderAuditEventType =
   | "approved" | "rejected" | "edited"
+  | "invoiced" | "invoice_updated" | "invoice_cleared"
   | "dispatch_created" | "dispatch_shipped" | "dispatch_delivered" | "dispatch_cancelled"
   | "order_cancelled" | "order_closed";
 
