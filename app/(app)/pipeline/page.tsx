@@ -2,12 +2,9 @@
 // /pipeline — kanban view of orders across all live workflow stages
 //
 // Shows 8 columns: Received → Approved → Invoiced → Loading → Loaded →
-// On VAN → Dispatched → Delivered. Each column capped at 50 cards with a
-// "View all" link to /orders pre-filtered to that stage.
-//
-// Excludes 'historical' orders (Tally backfill from prior periods).
-// Excludes 'rejected', 'cancelled', 'closed', 'partially_dispatched' for
-// clarity — those are accessible via /orders with the status filter.
+// On VAN → Dispatched → Delivered. Each column header shows the order count
+// and the total kg of all orders in that stage. Each card capped at 50 with
+// a "View all" link to /orders pre-filtered to that stage.
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -70,15 +67,21 @@ export default async function PipelinePage() {
     .single();
   if (!me?.active) redirect("/login");
 
-  // Total counts per stage. Run as a single query per stage for accurate
-  // counts even when we cap the rendered list at STAGE_LIMIT.
+  // Stage aggregates: count + total kg per app_status. Single RPC call covers
+  // ALL orders in each stage (not just the top-50 displayed cards), so the
+  // header numbers stay accurate as the pipeline grows.
+  const { data: summaryRows } = await supabase.rpc("pipeline_stage_summary");
   const totals: Record<string, number> = {};
+  const totalsKg: Record<string, number> = {};
   for (const s of STAGES) {
-    const { count } = await supabase
-      .from("orders")
-      .select("id", { count: "exact", head: true })
-      .eq("app_status", s);
-    totals[s] = count ?? 0;
+    totals[s] = 0;
+    totalsKg[s] = 0;
+  }
+  for (const row of (summaryRows ?? []) as Array<{ app_status: string; order_count: number; total_kg: number | string }>) {
+    if (row.app_status in totals) {
+      totals[row.app_status] = Number(row.order_count) || 0;
+      totalsKg[row.app_status] = Number(row.total_kg) || 0;
+    }
   }
 
   // Card-level data per stage (capped at STAGE_LIMIT). Newest first.
@@ -136,6 +139,7 @@ export default async function PipelinePage() {
   return (
     <PipelineClient
       totals={totals}
+      totalsKg={totalsKg}
       cardsByStage={cardsByStage}
       stageLimit={STAGE_LIMIT}
     />

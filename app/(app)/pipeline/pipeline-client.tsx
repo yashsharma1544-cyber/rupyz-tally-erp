@@ -42,6 +42,14 @@ function formatKg(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "0 kg";
   return `${n.toLocaleString("en-IN", { maximumFractionDigits: 1 })} kg`;
 }
+function formatKgCompact(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return "0 kg";
+  if (n >= 1000) {
+    // 12,345 kg → "12.3k kg" for header (saves horizontal space)
+    return `${(n / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })}k kg`;
+  }
+  return `${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })} kg`;
+}
 function formatRelative(iso: string): string {
   const ts = new Date(iso).getTime();
   const now = Date.now();
@@ -66,14 +74,17 @@ function accentColors(a: StageConfig["accent"]) {
 
 export function PipelineClient({
   totals,
+  totalsKg,
   cardsByStage,
   stageLimit,
 }: {
   totals: Record<string, number>;
+  totalsKg: Record<string, number>;
   cardsByStage: Record<string, OrderCard[]>;
   stageLimit: number;
 }) {
   const grandTotal = STAGES.reduce((s, st) => s + (totals[st.key] ?? 0), 0);
+  const grandKg = STAGES.reduce((s, st) => s + (totalsKg[st.key] ?? 0), 0);
 
   return (
     <div className="p-3 sm:p-6">
@@ -81,7 +92,11 @@ export function PipelineClient({
         <div>
           <h1 className="text-lg font-bold">Order pipeline</h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            <strong className="tabular text-ink">{grandTotal.toLocaleString("en-IN")}</strong> live orders across {STAGES.length} stages
+            <strong className="tabular text-ink">{grandTotal.toLocaleString("en-IN")}</strong> live orders
+            <span className="text-ink-subtle"> · </span>
+            <strong className="tabular text-ink">{formatKg(grandKg)}</strong> total
+            <span className="text-ink-subtle"> · </span>
+            across {STAGES.length} stages
           </p>
         </div>
         <Link href="/orders" className="text-xs text-accent hover:underline">
@@ -95,6 +110,7 @@ export function PipelineClient({
             const Icon = stage.icon;
             const cards = cardsByStage[stage.key] ?? [];
             const total = totals[stage.key] ?? 0;
+            const totalKg = totalsKg[stage.key] ?? 0;
             const overflow = total > cards.length;
             const colors = accentColors(stage.accent);
 
@@ -107,8 +123,13 @@ export function PipelineClient({
                   <div className="flex items-center gap-2">
                     <Icon size={14} className={colors.iconColor}/>
                     <span className="font-semibold text-sm">{stage.label}</span>
-                    <span className={`ml-auto text-sm font-bold tabular ${colors.numberColor}`}>
-                      {total.toLocaleString("en-IN")}
+                    <span className="ml-auto flex items-baseline gap-1.5">
+                      <span className={`text-sm font-bold tabular ${colors.numberColor}`}>
+                        {total.toLocaleString("en-IN")}
+                      </span>
+                      <span className="text-2xs text-ink-muted tabular">
+                        · {formatKgCompact(totalKg)}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -140,7 +161,7 @@ export function PipelineClient({
       </div>
 
       <p className="text-2xs text-ink-subtle text-center mt-3">
-        Showing latest {stageLimit} per column. Historical orders excluded.
+        Showing latest {stageLimit} per column. Counts and kg cover all orders in each stage.
       </p>
 
       <AutoRefresh />
