@@ -20,10 +20,11 @@ import { bulkAssignBeat, exportCustomersCsv, applyBeatAssignmentsCsv } from "./a
 const PAGE_SIZE = 50;
 
 export function CustomersClient({
-  beats, salesmen,
+  beats, salesmen, cities,
 }: {
   beats: Pick<Beat, "id" | "name">[];
   salesmen: Pick<Salesman, "id" | "name">[];
+  cities: string[];
 }) {
   const supabase = useMemo(() => createClient(), []);
 
@@ -36,6 +37,7 @@ export function CustomersClient({
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [beatFilter, setBeatFilter] = useState<string>("all");
+  const [cityFilter, setCityFilter] = useState<string>("all");
   const [salesmanFilter, setSalesmanFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [activeFilter, setActiveFilter] = useState<string>("active");
@@ -67,7 +69,7 @@ export function CustomersClient({
   useEffect(() => {
     setPage(0);
     setSelectedIds(new Set());
-  }, [searchDebounced, beatFilter, salesmanFilter, typeFilter, activeFilter]);
+  }, [searchDebounced, beatFilter, cityFilter, salesmanFilter, typeFilter, activeFilter]);
 
   // single fetch effect — depends on every filter + reloadKey
   useEffect(() => {
@@ -80,6 +82,8 @@ export function CustomersClient({
       if (searchDebounced.trim()) q = q.ilike("name", `%${searchDebounced.trim()}%`);
       if (beatFilter === "none") q = q.is("beat_id", null);
       else if (beatFilter !== "all") q = q.eq("beat_id", beatFilter);
+      if (cityFilter === "none") q = q.is("city", null);
+      else if (cityFilter !== "all") q = q.ilike("city", cityFilter); // case-insensitive exact
       if (salesmanFilter !== "all") {
         if (salesmanFilter === "none") q = q.is("salesman_id", null);
         else q = q.eq("salesman_id", salesmanFilter);
@@ -98,7 +102,7 @@ export function CustomersClient({
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [supabase, searchDebounced, beatFilter, salesmanFilter, typeFilter, activeFilter, page, reloadKey]);
+  }, [supabase, searchDebounced, beatFilter, cityFilter, salesmanFilter, typeFilter, activeFilter, page, reloadKey]);
 
   const closeAndReload = useCallback(() => {
     setEditing(null);
@@ -168,6 +172,7 @@ export function CustomersClient({
       const res = await exportCustomersCsv({
         search: searchDebounced.trim() || undefined,
         beatId: beatFilter === "all" ? undefined : beatFilter === "none" ? null : beatFilter,
+        city: cityFilter === "all" ? undefined : cityFilter === "none" ? null : cityFilter,
         salesmanId: salesmanFilter === "all" ? undefined : salesmanFilter === "none" ? null : salesmanFilter,
         customerType: typeFilter === "all" ? undefined : typeFilter,
         active: activeFilter === "all" ? null : activeFilter === "active",
@@ -176,7 +181,6 @@ export function CustomersClient({
         toast.error(res.error);
         return;
       }
-      // Prepend UTF-8 BOM so Excel opens it cleanly.
       const blob = new Blob(["\uFEFF", res.csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -198,7 +202,7 @@ export function CustomersClient({
   }
   async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ""; // reset so picking the same file twice works
+    e.target.value = "";
     if (!file) return;
 
     setImporting(true);
@@ -231,6 +235,8 @@ export function CustomersClient({
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name…" className="pl-8" />
         </div>
+        <FilterSelect value={cityFilter} onChange={setCityFilter} placeholder="City" allLabel="All cities"
+          options={[{ value: "none", label: "— No city —" }, ...cities.map(c => ({ value: c, label: c }))]} />
         <FilterSelect value={beatFilter} onChange={setBeatFilter} placeholder="Beat" allLabel="All beats"
           options={[{ value: "none", label: "— No beat —" }, ...beats.map(b => ({ value: b.id, label: b.name }))]} />
         <FilterSelect value={salesmanFilter} onChange={setSalesmanFilter} placeholder="Salesman" allLabel="All salesmen"
@@ -258,7 +264,7 @@ export function CustomersClient({
       </div>
 
       <p className="text-2xs text-ink-muted mb-2 -mt-2">
-        Tip: filter Beat to <em className="not-italic font-medium">— No beat —</em> to focus on customers that need assignment.
+        Tip: pick a city + Beat = <em className="not-italic font-medium">— No beat —</em> to find unassigned customers in that area, select them, and bulk-assign a beat from the bottom bar.
       </p>
 
       {/* Import results banner */}
