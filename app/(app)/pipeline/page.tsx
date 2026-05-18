@@ -1,9 +1,9 @@
 // =============================================================================
 // /pipeline — kanban view of orders across all live workflow stages
 //
-// Shows 7 columns: Received → Approved → Loading → Loaded → On VAN →
-// Dispatched → Delivered. Each column capped at 50 cards with a "View all"
-// link to /orders pre-filtered to that stage.
+// Shows 8 columns: Received → Approved → Invoiced → Loading → Loaded →
+// On VAN → Dispatched → Delivered. Each column capped at 50 cards with a
+// "View all" link to /orders pre-filtered to that stage.
 //
 // Excludes 'historical' orders (Tally backfill from prior periods).
 // Excludes 'rejected', 'cancelled', 'closed', 'partially_dispatched' for
@@ -22,6 +22,7 @@ const STAGE_LIMIT = 50;
 const STAGES = [
   "received",
   "approved",
+  "invoiced",
   "loading",
   "loaded",
   "dispatched",
@@ -93,6 +94,7 @@ export default async function PipelinePage() {
   }>> = {
     received: [],
     approved: [],
+    invoiced: [],
     loading: [],
     loaded: [],
     on_van_trip: [],

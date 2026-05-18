@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Inbox, CheckCircle2, Loader2, PackageCheck, Bus, Truck, BadgeCheck } from "lucide-react";
+import { Inbox, CheckCircle2, Receipt, Loader2, PackageCheck, Bus, Truck, BadgeCheck } from "lucide-react";
 import { AutoRefresh } from "@/components/auto-refresh";
 
 interface OrderCard {
@@ -26,6 +26,7 @@ interface StageConfig {
 const STAGES: StageConfig[] = [
   { key: "received",     label: "Received",   icon: Inbox,        accent: "warn",    ordersTab: "approval" },
   { key: "approved",     label: "Approved",   icon: CheckCircle2, accent: "accent",  ordersTab: "dispatch" },
+  { key: "invoiced",     label: "Invoiced",   icon: Receipt,      accent: "accent",  ordersTab: "invoiced" },
   { key: "loading",      label: "Loading",    icon: Loader2,      accent: "warn",    ordersTab: "loading" },
   { key: "loaded",       label: "Loaded",     icon: PackageCheck, accent: "accent",  ordersTab: "loading" },
   { key: "dispatched",   label: "Dispatched", icon: Truck,        accent: "accent",  ordersTab: "transit" },
