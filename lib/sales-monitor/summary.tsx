@@ -4,9 +4,14 @@
  * Fires at the end of each runSalesmanCron call (morning/midday/evening)
  * AND from the admin "Test ▾" → "Send all admin summaries" menu.
  *
- * PDF carries per-salesman info; body vars are generic placeholders since
- * (a) the approved templates expect 4 variables in a per-salesman shape and
- * (b) per request, we don't put aggregate totals in any message.
+ * As of 2026-05-18 this uses the dedicated `daily_summary_v1` template
+ * (4 vars: report type label, date, salesmen list, status line). Prior to
+ * this we borrowed the salesman evening template and stuffed "Sushil
+ * Agencies (Admin)" + "see attached PDF" placeholders into salesman-shaped
+ * body slots. The dedicated template gives admins a cleaner WhatsApp message.
+ *
+ * Per request, no aggregate totals appear in the body — the PDF carries
+ * the per-salesman breakdown.
  */
 
 import React from "react";
@@ -103,8 +108,8 @@ export async function runSummaryCron(
     return { ...baseResult, ok: false, failed: 1, storagePath };
   }
 
-  const bodyVars = buildSummaryBodyVariables(reportType, date);
-  const templateName = templateNameFor(reportType);
+  const bodyVars = buildSummaryBodyVariables(reportType, date, rows);
+  const templateName = WATI_TEMPLATES.daily_summary;
   const filename = summaryPdfFilename(reportType, date);
   const broadcastName = `summary_${reportType}_${date}_${Date.now()}`;
 
@@ -190,45 +195,50 @@ function summaryPdfFilename(reportType: PdfReportType, date: string): string {
   return `Daily_Summary_${labels[reportType]}_${date}.pdf`;
 }
 
-function templateNameFor(type: PdfReportType): string {
-  return type === "morning"
-    ? WATI_TEMPLATES.morning
-    : type === "midday"
-      ? WATI_TEMPLATES.midday
-      : WATI_TEMPLATES.evening;
-}
-
 /**
- * No aggregate values — body slots are filled with generic placeholders.
- * The PDF (document header) carries the per-salesman breakdown.
+ * Body shape — matches the approved `daily_summary_v1` template:
+ *   "Daily team summary — *{{1}}*
+ *    Date: *{{2}}*
+ *    Salesmen: *{{3}}*
+ *    Status: *{{4}}*
+ *    Full breakdown attached as PDF."
  *
- * Body reads slightly awkwardly because we're using per-salesman templates
- * for an admin-summary purpose. If you ever want clean copy, submit a
- * dedicated "daily_summary" template to WATi.
+ *   {{1}} report type label   (e.g. "Morning Briefing")
+ *   {{2}} date label          (e.g. "18 May 2026")
+ *   {{3}} salesmen list       (first names, comma-separated)
+ *   {{4}} status line         (neutral, varies by report type — no aggregates)
  */
 function buildSummaryBodyVariables(
   type: PdfReportType,
   date: string,
+  rows: SalesmanSummaryRow[],
 ): string[] {
   const dLabel = new Date(date).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
   });
 
-  if (type === "morning") {
-    // Approved body: "Good morning {{1}}. Your beat today: {{2}} ({{3}} customers). Target: {{4}} kg…"
-    return [
-      "Sushil Agencies (Admin)",
-      "Daily Summary",
-      "see attached PDF",
-      "see attached PDF",
-    ];
-  }
+  const typeLabel: Record<PdfReportType, string> = {
+    morning: "Morning Briefing",
+    midday: "Mid-day Update",
+    evening: "Evening Final",
+  };
 
-  // Midday/Evening approved body: "{Mid-day update | End-of-day} for {{1}} on {{2}}. Calls: {{3}}. Sales: {{4}}…"
-  return [
-    "Sushil Agencies (Admin)",
-    dLabel,
-    "see attached PDF",
-    "see attached PDF",
-  ];
+  // First names of all salesmen in today's summary — keeps the line short
+  // and readable on a WhatsApp preview. Falls back to "none today" if empty.
+  const firstNames = rows
+    .map((r) => {
+      const name = (r.salesman_name ?? "").trim();
+      if (!name) return null;
+      return name.split(/\s+/)[0];
+    })
+    .filter((n): n is string => n !== null && n.length > 0);
+  const salesmenList = firstNames.length > 0 ? firstNames.join(", ") : "none today";
+
+  const statusLine: Record<PdfReportType, string> = {
+    morning: "Day begins",
+    midday: "Mid-day check-in",
+    evening: "Day complete",
+  };
+
+  return [typeLabel[type], dLabel, salesmenList, statusLine[type]];
 }

@@ -1,19 +1,19 @@
-﻿/**
+/**
  * WATi WhatsApp Business API client.
  *
  * Usage:
  *   const result = await sendTemplateMessage({
  *     whatsappNumber: "919860748060",
- *     templateName: "sales_morning_briefing_v4",
- *     broadcastName: "morning_2026-05-16_akshay",
- *     bodyVariables: ["Akshay", "Chandan Zira", "41", "100"],
+ *     templateName: "sales_morning_briefing_v5",
+ *     broadcastName: "morning_2026-05-18_akshay",
+ *     bodyVariables: ["Akshay", "D Raja", "41", "100"],
  *     headerDocumentUrl: "https://supabase.co/.../signed.pdf",
- *     headerDocumentFilename: "Akshay_Morning_Briefing_2026-05-16.pdf",
+ *     headerDocumentFilename: "Akshay_Morning_Briefing_2026-05-18.pdf",
  *   });
  *
  * Env:
- *   WATI_API_ENDPOINT  â€” tenant URL, e.g. https://live-mt-server.wati.io/<tenant-id>
- *   WATI_ACCESS_TOKEN  â€” bearer token from WATi â†’ API Docs
+ *   WATI_API_ENDPOINT  — tenant URL, e.g. https://live-mt-server.wati.io/<tenant-id>
+ *   WATI_ACCESS_TOKEN  — bearer token from WATi → API Docs
  *
  * The exact request shape varies a bit across WATi tenants. This client uses
  * the most common v1 sendTemplateMessage pattern with a header_handle for the
@@ -82,11 +82,6 @@ export async function sendTemplateMessage(
     value,
   }));
 
-  // Compose the request body. WATi's v1 sendTemplateMessage takes the variables
-  // as `parameters`. For document headers, the URL goes in the same array under
-  // a documented header parameter name; some tenants expect "header_document",
-  // others use a "media" or "header" object. We send the most permissive shape
-  // and let the user adjust if their tenant rejects.
   const body: Record<string, unknown> = {
     template_name: opts.templateName,
     broadcast_name: opts.broadcastName,
@@ -165,12 +160,21 @@ function extractErrorMessage(parsed: unknown): string | null {
 }
 
 /**
- * Template names â€” single source of truth so we don't typo them across files.
+ * Template names — single source of truth so we don't typo them across files.
  * Must match exactly what's approved in the WATi dashboard.
+ *
+ * History:
+ *   - v4/v3/v2 templates (sales_morning_briefing_v4 etc.) cached Akshay's
+ *     first PDF media-id at Meta level and reused it on every send. Bumped
+ *     to fresh template names with a neutral sample PDF on 2026-05-18.
+ *   - daily_summary_v1 added so admin summaries use a dedicated template
+ *     instead of borrowing the salesman evening template (where the body
+ *     text had to be hacked with "Sushil Agencies (Admin)" placeholders).
  */
 export const WATI_TEMPLATES = {
-  morning: "sales_morning_briefing_v4",
-  midday: "sales_midday_update_v3",
-  evening: "sales_evening_final_v2",
- coordinator_reminder: "beat_assignment_reminder_v1",
+  morning: "sales_morning_briefing_v5",
+  midday: "sales_midday_update_v4",
+  evening: "sales_evening_final_v3",
+  daily_summary: "daily_summary_v1",
+  coordinator_reminder: "beat_assignment_reminder_v1",
 } as const;
