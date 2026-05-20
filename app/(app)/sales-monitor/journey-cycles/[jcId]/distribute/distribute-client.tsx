@@ -49,7 +49,7 @@ export function DistributeClient({
 
   // ---- Beat shares ----
   const defaultBeatShares = useMemo(
-    () => computeDefaultShares(beats.map((b) => ({ id: b.id, kg_84d: b.kg_84d }))),
+    () => computeDefaultShares(beats.map((b) => ({ id: b.id, kg_365d: b.kg_365d }))),
     [beats],
   );
   const [beatShares, setBeatShares] = useState<Record<string, number>>(() => {
@@ -75,7 +75,7 @@ export function DistributeClient({
       map.set(
         b.id,
         computeDefaultShares(
-          b.customers.map((c) => ({ id: c.id, kg_84d: c.kg_84d })),
+          b.customers.map((c) => ({ id: c.id, kg_365d: c.kg_365d })),
         ),
       );
     }
@@ -479,7 +479,7 @@ export function DistributeClient({
                         )}
                       </div>
                       <div className="text-2xs text-ink-subtle">
-                        Hist: {b.kg_84d.toLocaleString("en-IN")} kg / 84d · {b.customers.length} customer{b.customers.length === 1 ? "" : "s"}
+                        Hist: {b.kg_365d.toLocaleString("en-IN")} kg / 365d · {b.customers.length} customer{b.customers.length === 1 ? "" : "s"}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -543,7 +543,7 @@ export function DistributeClient({
                                   )}
                                 </div>
                                 <div className="text-2xs text-ink-subtle">
-                                  Hist: {c.kg_84d.toLocaleString("en-IN")} kg / 84d
+                                  Hist: {c.kg_365d.toLocaleString("en-IN")} kg / 365d
                                 </div>
                               </div>
                               <div className="flex items-center gap-1">
@@ -574,7 +574,7 @@ export function DistributeClient({
       </div>
 
       <p className="text-2xs text-ink-subtle">
-        Defaults computed from last 84 days. Beats/customers with zero history
+        Defaults computed from last 365 days. Beats/customers with zero history
         get an equal share (treated as average-performing). Edit any cell to
         override; manual overrides are flagged with a lock icon and preserved
         on save. <strong>Apply to schedule</strong> uses the saved beat targets

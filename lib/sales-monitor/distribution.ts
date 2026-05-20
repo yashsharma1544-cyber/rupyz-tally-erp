@@ -7,6 +7,10 @@
  *   - Items with history (kg > 0): weight = their historical kg
  *   - Items without history (kg == 0): weight = average of history items
  *   - If no history at all: equal split
+ *
+ * History window: 365 days (via area_distribution_365d RPC). Field name is
+ * kg_365d throughout. The RPC uses 4-branch kg logic (unit=kg, unit=g,
+ * packaging_unit=kg, packaging_unit=g) to match the sales-monitor figures.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -26,17 +30,17 @@ function getAdminClient(): SupabaseClient {
 export type DistributionRow = {
   beat_id: string;
   beat_name: string;
-  beat_kg_84d: number;
+  beat_kg_365d: number;
   customer_id: string | null;
   customer_name: string | null;
-  customer_kg_84d: number;
+  customer_kg_365d: number;
 };
 
 export type BeatHist = {
   id: string;
   name: string;
-  kg_84d: number;
-  customers: { id: string; name: string; kg_84d: number }[];
+  kg_365d: number;
+  customers: { id: string; name: string; kg_365d: number }[];
 };
 
 export type SavedBeatTarget = {
@@ -55,14 +59,14 @@ export type SavedCustomerTarget = {
 
 // ---- Default-share math ----
 
-export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
+export function computeDefaultShares<T extends { id: string; kg_365d: number }>(
   items: T[],
 ): Map<string, number> {
   const shares = new Map<string, number>();
   if (items.length === 0) return shares;
 
-  const historyItems = items.filter((i) => i.kg_84d > 0);
-  const zeroItems = items.filter((i) => i.kg_84d <= 0);
+  const historyItems = items.filter((i) => i.kg_365d > 0);
+  const zeroItems = items.filter((i) => i.kg_365d <= 0);
 
   if (historyItems.length === 0) {
     const eq = 100 / items.length;
@@ -70,7 +74,7 @@ export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
     return shares;
   }
 
-  const totalHistory = historyItems.reduce((s, i) => s + i.kg_84d, 0);
+  const totalHistory = historyItems.reduce((s, i) => s + i.kg_365d, 0);
   const avgHistory = totalHistory / historyItems.length;
   const totalWeight = totalHistory + zeroItems.length * avgHistory;
   if (totalWeight === 0) {
@@ -80,7 +84,7 @@ export function computeDefaultShares<T extends { id: string; kg_84d: number }>(
   }
 
   for (const i of historyItems) {
-    shares.set(i.id, (i.kg_84d / totalWeight) * 100);
+    shares.set(i.id, (i.kg_365d / totalWeight) * 100);
   }
   for (const i of zeroItems) {
     shares.set(i.id, (avgHistory / totalWeight) * 100);
@@ -94,7 +98,7 @@ export async function loadAreaDistribution(
   areaId: string,
 ): Promise<BeatHist[]> {
   const admin = getAdminClient();
-  const { data, error } = await admin.rpc("area_distribution_84d", {
+  const { data, error } = await admin.rpc("area_distribution_365d", {
     p_area_id: areaId,
   });
   if (error) throw new Error(error.message);
@@ -106,7 +110,7 @@ export async function loadAreaDistribution(
       beatMap.set(r.beat_id, {
         id: r.beat_id,
         name: r.beat_name,
-        kg_84d: Number(r.beat_kg_84d),
+        kg_365d: Number(r.beat_kg_365d),
         customers: [],
       });
     }
@@ -114,12 +118,12 @@ export async function loadAreaDistribution(
       beatMap.get(r.beat_id)!.customers.push({
         id: r.customer_id,
         name: r.customer_name || "—",
-        kg_84d: Number(r.customer_kg_84d),
+        kg_365d: Number(r.customer_kg_365d),
       });
     }
   }
   return Array.from(beatMap.values()).sort((a, b) =>
-    b.kg_84d - a.kg_84d || a.name.localeCompare(b.name),
+    b.kg_365d - a.kg_365d || a.name.localeCompare(b.name),
   );
 }
 
