@@ -22,6 +22,7 @@ import {
   Send,
   Navigation,
   TrendingUp,
+  Database,
   CalendarRange,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ const navItems = [
   { href: "/drivers",                      label: "Drivers",        icon: Truck,           roles: "admin" },
   { href: "/sales-monitor",                label: "Sales Monitor",  icon: TrendingUp,      roles: "admin" },
   { href: "/sales-monitor/journey-cycles", label: "Journey Cycles", icon: CalendarRange,   roles: "admin" },
+  { href: "/tally-targets",                label: "Tally Targets",  icon: Database,        roles: "admin" },
   { href: "/users",                        label: "Users",          icon: Shield,          roles: "admin" },
   { href: "/settings",                     label: "Settings",       icon: Settings,        roles: "admin" },
 ] as const;
