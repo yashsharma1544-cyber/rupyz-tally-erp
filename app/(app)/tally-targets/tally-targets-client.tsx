@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  Target, Loader2, RotateCcw, Check, AlertCircle, Save, RefreshCw, MapPin, Search, Building2,
+  Target, Loader2, RotateCcw, Check, AlertCircle, Save, RefreshCw, MapPin, Building2,
 } from "lucide-react";
 import {
   loadTallyAllocation, saveTallyAllocation, type TallyAllocRow,
@@ -24,7 +24,6 @@ export function TallyTargetsClient({
   salesRowCount: number;
 }) {
   const [company, setCompany] = useState<string>(companies[0]?.company ?? "");
-  const [search, setSearch] = useState("");
   const [groupName, setGroupName] = useState<string>("");
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [targetKg, setTargetKg] = useState<string>("");
@@ -40,11 +39,6 @@ export function TallyTargetsClient({
     () => partyGroups.filter((g) => g.company === company),
     [partyGroups, company],
   );
-  const filteredGroups = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return companyGroups;
-    return companyGroups.filter((g) => g.party_group.toLowerCase().includes(q));
-  }, [companyGroups, search]);
 
   // reset beat when company changes
   useEffect(() => { setGroupName(""); setRows([]); setTargetKg(""); }, [company]);
@@ -148,38 +142,26 @@ export function TallyTargetsClient({
         })}
       </div>
 
-      {/* beat picker */}
+      {/* beat picker — dropdown */}
       <div className="bg-paper-card border border-paper-line rounded-md p-3">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-            <input
-              value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search beats…"
-              className="w-full pl-8 pr-2 py-1.5 text-sm border border-paper-line rounded bg-paper-card focus:outline-none focus:border-accent"
-            />
+        <label className="block text-2xs uppercase tracking-wide text-ink-muted mb-1">Beat (party group)</label>
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 max-w-md">
+            <MapPin size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle pointer-events-none" />
+            <select
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              className="w-full pl-8 pr-8 py-2 text-sm border border-paper-line rounded bg-paper-card focus:outline-none focus:border-accent appearance-none cursor-pointer"
+            >
+              <option value="">— Select a beat —</option>
+              {companyGroups.map((g) => (
+                <option key={g.party_group} value={g.party_group}>
+                  {g.party_group} ({fmtKg(g.total_kg)} kg · {g.parties} shops)
+                </option>
+              ))}
+            </select>
           </div>
-          <span className="text-2xs text-ink-subtle ml-auto">{filteredGroups.length} groups</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto">
-          {filteredGroups.map((g) => {
-            const active = g.party_group === groupName;
-            return (
-              <button
-                key={g.party_group}
-                onClick={() => setGroupName(g.party_group)}
-                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border transition-colors ${
-                  active ? "bg-accent text-white border-accent" : "bg-paper-card border-paper-line text-ink-muted hover:bg-paper-subtle hover:text-ink"
-                }`}
-                title={`${g.parties} shops · ${fmtKg(g.total_kg)} kg`}
-              >
-                <MapPin size={11} className={active ? "" : "text-ink-subtle"} />
-                {g.party_group}
-                <span className={active ? "text-white/70" : "text-ink-subtle"}>· {fmtKg(g.total_kg)}kg</span>
-              </button>
-            );
-          })}
-          {filteredGroups.length === 0 && <span className="text-sm text-ink-muted py-2">No groups for this company.</span>}
+          <span className="text-2xs text-ink-subtle whitespace-nowrap">{companyGroups.length} groups</span>
         </div>
       </div>
 
