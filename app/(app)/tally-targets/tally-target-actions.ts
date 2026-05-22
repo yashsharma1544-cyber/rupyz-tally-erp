@@ -16,7 +16,9 @@ async function requireAdmin(): Promise<string> {
 
 export interface TallyAllocRow {
   party_name: string;
-  hist_kg: number;
+  kg_2526: number;
+  kg_2627: number;
+  basis_kg: number;
   share_pct: number;
 }
 
@@ -24,6 +26,7 @@ export async function loadTallyAllocation(
   company: string,
   partyGroup: string,
   periodLabel: string,
+  basisYear: string = "25-26",
 ): Promise<
   | { ok: true; targetKg: number; saved: boolean; rows: TallyAllocRow[] }
   | { error: string }
@@ -32,14 +35,16 @@ export async function loadTallyAllocation(
     await requireAdmin();
     const admin = createAdminClient();
 
-    const { data: shares, error: shareErr } = await admin.rpc("tally_group_shares", {
+    const { data: shares, error: shareErr } = await admin.rpc("tally_group_shares_compare", {
       p_company: company,
       p_party_group: partyGroup,
-      p_from: null,
-      p_to: null,
+      p_basis_year: basisYear,
     });
     if (shareErr) return { error: shareErr.message };
-    type S = { party_name: string; hist_kg: number | string; share_pct: number | string };
+    type S = {
+      party_name: string; kg_2526: number | string; kg_2627: number | string;
+      basis_kg: number | string; share_pct: number | string;
+    };
     const shareRows = (shares ?? []) as S[];
 
     const { data: bt } = await admin
@@ -50,26 +55,23 @@ export async function loadTallyAllocation(
       .eq("period_label", periodLabel)
       .maybeSingle();
 
+    const savedMap = new Map<string, number>();
     if (bt) {
       const { data: ct } = await admin
         .from("tally_customer_targets")
         .select("party_name, share_pct")
         .eq("beat_target_id", bt.id);
-      const savedMap = new Map((ct ?? []).map((r) => [r.party_name, Number(r.share_pct)]));
-      const rows: TallyAllocRow[] = shareRows.map((s) => ({
-        party_name: s.party_name,
-        hist_kg: Number(s.hist_kg),
-        share_pct: savedMap.has(s.party_name) ? savedMap.get(s.party_name)! : Number(s.share_pct),
-      }));
-      return { ok: true, targetKg: Number(bt.target_kg), saved: true, rows };
+      for (const r of ct ?? []) savedMap.set(r.party_name, Number(r.share_pct));
     }
 
     const rows: TallyAllocRow[] = shareRows.map((s) => ({
       party_name: s.party_name,
-      hist_kg: Number(s.hist_kg),
-      share_pct: Number(s.share_pct),
+      kg_2526: Number(s.kg_2526),
+      kg_2627: Number(s.kg_2627),
+      basis_kg: Number(s.basis_kg),
+      share_pct: savedMap.has(s.party_name) ? savedMap.get(s.party_name)! : Number(s.share_pct),
     }));
-    return { ok: true, targetKg: 0, saved: false, rows };
+    return { ok: true, targetKg: bt ? Number(bt.target_kg) : 0, saved: !!bt, rows };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }

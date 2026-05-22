@@ -49,11 +49,13 @@ export function TallyTargetsClient({
   // reset beat when company changes
   useEffect(() => { setGroupName(""); setRows([]); setTargetKg(""); }, [company]);
 
+  const basisYearFor = (co: string) => (co.startsWith("Sushil") ? "26-27" : "25-26");
+
   const load = useCallback(async (co: string, g: string, p: string) => {
     if (!co || !g || !p) return;
     setLoading(true); setMsg(null);
     try {
-      const res = await loadTallyAllocation(co, g, p);
+      const res = await loadTallyAllocation(co, g, p, basisYearFor(co));
       if ("error" in res) { setMsg({ kind: "err", text: res.error }); setRows([]); }
       else { setRows(res.rows); setTargetKg(res.targetKg ? String(res.targetKg) : ""); setSaved(res.saved); }
     } finally { setLoading(false); }
@@ -70,9 +72,9 @@ export function TallyTargetsClient({
     setRows((prev) => prev.map((r) => r.party_name === party ? { ...r, share_pct: Number.isFinite(pct) ? pct : 0 } : r));
   }
   function autoFill() {
-    const tot = rows.reduce((s, r) => s + r.hist_kg, 0);
-    setRows((prev) => prev.map((r) => ({ ...r, share_pct: tot > 0 ? Math.round(100 * r.hist_kg / tot * 10000) / 10000 : 0 })));
-    setMsg({ kind: "ok", text: "Re-filled shares from Tally history" });
+    const tot = rows.reduce((s, r) => s + r.basis_kg, 0);
+    setRows((prev) => prev.map((r) => ({ ...r, share_pct: tot > 0 ? Math.round(100 * r.basis_kg / tot * 10000) / 10000 : 0 })));
+    setMsg({ kind: "ok", text: `Re-filled shares from ${basisYearFor(company)}` });
   }
 
   async function handleSave() {
@@ -84,7 +86,7 @@ export function TallyTargetsClient({
     try {
       const res = await saveTallyAllocation({
         company, partyGroup: groupName, periodLabel: period.trim(), targetKg: target,
-        allocations: rows.map((r) => ({ party_name: r.party_name, share_pct: r.share_pct, hist_kg: r.hist_kg })),
+        allocations: rows.map((r) => ({ party_name: r.party_name, share_pct: r.share_pct, hist_kg: r.basis_kg })),
       });
       if ("error" in res) setMsg({ kind: "err", text: res.error });
       else { setSaved(true); setMsg({ kind: "ok", text: `Saved — ${fmtKg(res.allocatedKg)} kg across ${res.count} shops` }); }
@@ -217,7 +219,7 @@ export function TallyTargetsClient({
                 Shares: <strong className="tabular">{totalShare.toLocaleString("en-IN", { maximumFractionDigits: 2 })}%</strong>
                 {shareWarn && <span className="ml-1">(≠100%)</span>}
               </span>
-              <span className="text-ink-subtle ml-auto">{rows.length} shops · all-time</span>
+              <span className="text-ink-subtle ml-auto">{rows.length} shops · share from {basisYearFor(company)}{basisYearFor(company) === "25-26" ? " (full year)" : ""}</span>
             </div>
 
             {msg && (
@@ -231,27 +233,29 @@ export function TallyTargetsClient({
 
             <div className="border border-paper-line rounded overflow-hidden">
               <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
-                <table className="w-full text-sm min-w-[520px]">
+                <table className="w-full text-sm min-w-[600px]">
                   <thead className="bg-paper-subtle/60 border-b border-paper-line sticky top-0">
                     <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                       <th className="px-3 py-2 font-medium">Shop (Party)</th>
-                      <th className="px-3 py-2 font-medium text-right">Tally kg</th>
-                      <th className="px-3 py-2 font-medium text-right">Share %</th>
+                      <th className="px-3 py-2 font-medium text-right">25-26 kg</th>
+                      <th className="px-3 py-2 font-medium text-right">26-27 kg</th>
+                      <th className="px-3 py-2 font-medium text-right">Share %<br/><span className="normal-case text-ink-subtle">(of {basisYearFor(company)})</span></th>
                       <th className="px-3 py-2 font-medium text-right">Target kg</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-paper-line">
                     {loading ? (
-                      <tr><td colSpan={4} className="px-3 py-8 text-center text-ink-muted"><Loader2 size={16} className="animate-spin inline" /> Loading…</td></tr>
+                      <tr><td colSpan={5} className="px-3 py-8 text-center text-ink-muted"><Loader2 size={16} className="animate-spin inline" /> Loading…</td></tr>
                     ) : rows.length === 0 ? (
-                      <tr><td colSpan={4} className="px-3 py-8 text-center text-ink-muted">No Tally sales for this group.</td></tr>
+                      <tr><td colSpan={5} className="px-3 py-8 text-center text-ink-muted">No Tally sales for this group.</td></tr>
                     ) : (
                       rows.map((r) => {
                         const alloc = target * (r.share_pct || 0) / 100;
                         return (
                           <tr key={r.party_name} className="hover:bg-paper-subtle/40">
                             <td className="px-3 py-2 font-medium">{r.party_name}</td>
-                            <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(r.hist_kg)}</td>
+                            <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(r.kg_2526)}</td>
+                            <td className="px-3 py-2 text-right tabular text-ink-subtle">{fmtKg(r.kg_2627)}</td>
                             <td className="px-3 py-2 text-right">
                               <input type="number" min="0" step="0.01"
                                 value={r.share_pct === 0 ? "" : r.share_pct}

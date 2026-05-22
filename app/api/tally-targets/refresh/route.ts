@@ -35,15 +35,15 @@ const CLIENT_EMAIL = process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? "";
 const PRIVATE_KEY = (process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
 
 // Source tabs by PREFIX (the real titles may have more chars after these).
-const SOURCES: { company: string; voucher_type: string; tabPrefix: string }[] = [
-  { company: "Sushil Agencies", voucher_type: "GST SALES",           tabPrefix: "SUSHIL AGENCIES 26-27 - GST SAL" },
-  { company: "Sushil Agencies", voucher_type: "NEW MONDHA",          tabPrefix: "SUSHIL AGENCIES 26-27 - NEW MON" },
-  { company: "Anjali Agencies", voucher_type: "GST SALES",           tabPrefix: "Anjali Agency 26-27 - GST SALES" },
-  { company: "Anjali Agencies", voucher_type: "GST INTERCITY SALES", tabPrefix: "Anjali Agency 26-27 - GST INTER" },
-  { company: "Anjali Agencies", voucher_type: "NEW MONDHA",          tabPrefix: "Anjali Agency 26-27 - NEW MONDH" },
-  { company: "Anjali Agencies", voucher_type: "GST SALES",           tabPrefix: "Anjali Agency 25-26 - GST SALES" },
-  { company: "Anjali Agencies", voucher_type: "GST INTERCITY SALES", tabPrefix: "Anjali Agency 25-26 - GST INTER" },
-  { company: "Anjali Agencies", voucher_type: "NEW MONDHA",          tabPrefix: "Anjali Agency 25-26 - NEW MONDH" },
+const SOURCES: { company: string; voucher_type: string; fin_year: string; tabPrefix: string }[] = [
+  { company: "Sushil Agencies", voucher_type: "GST SALES",           fin_year: "26-27", tabPrefix: "SUSHIL AGENCIES 26-27 - GST SAL" },
+  { company: "Sushil Agencies", voucher_type: "NEW MONDHA",          fin_year: "26-27", tabPrefix: "SUSHIL AGENCIES 26-27 - NEW MON" },
+  { company: "Anjali Agencies", voucher_type: "GST SALES",           fin_year: "26-27", tabPrefix: "Anjali Agency 26-27 - GST SALES" },
+  { company: "Anjali Agencies", voucher_type: "GST INTERCITY SALES", fin_year: "26-27", tabPrefix: "Anjali Agency 26-27 - GST INTER" },
+  { company: "Anjali Agencies", voucher_type: "NEW MONDHA",          fin_year: "26-27", tabPrefix: "Anjali Agency 26-27 - NEW MONDH" },
+  { company: "Anjali Agencies", voucher_type: "GST SALES",           fin_year: "25-26", tabPrefix: "Anjali Agency 25-26 - GST SALES" },
+  { company: "Anjali Agencies", voucher_type: "GST INTERCITY SALES", fin_year: "25-26", tabPrefix: "Anjali Agency 25-26 - GST INTER" },
+  { company: "Anjali Agencies", voucher_type: "NEW MONDHA",          fin_year: "25-26", tabPrefix: "Anjali Agency 25-26 - NEW MONDH" },
 ];
 
 async function requireAdmin(): Promise<boolean> {
@@ -119,7 +119,7 @@ export async function POST(_req: NextRequest) {
 
   // 2. Read each source tab and build rows
   type Row = {
-    company: string; voucher_type: string; sale_date: string;
+    company: string; voucher_type: string; fin_year: string; sale_date: string;
     voucher_no: string | null; party_name: string; item: string | null;
     qty: number | null; rate: number | null; amount: number | null;
     qty_kg: number | null; party_group: string | null; root_group: string | null;
@@ -155,7 +155,7 @@ export async function POST(_req: NextRequest) {
       const party = (r[cParty] ?? "").toString().trim();
       if (!party) continue;
       allRows.push({
-        company: src.company, voucher_type: src.voucher_type, sale_date: d,
+        company: src.company, voucher_type: src.voucher_type, fin_year: src.fin_year, sale_date: d,
         voucher_no: (r[cVno] ?? "").toString().trim() || null,
         party_name: party,
         item: (r[cItem] ?? "").toString().trim() || null,
