@@ -1,0 +1,61 @@
+============================================================
+TALLY TARGETS — MULTI-COMPANY UPGRADE — APPLY GUIDE
+============================================================
+Upgrades the Tally Targets system to two companies (Sushil + Anjali) with
+voucher-type scoping, reading 8 source tabs from your Google Sheet.
+
+SCOPE LOADED:
+  Sushil Agencies (26-27 only): GST SALES + NEW MONDHA
+  Anjali Agencies (25-26 + 26-27): GST SALES + GST INTERCITY SALES + NEW MONDHA
+  (PRIYA SALES excluded everywhere.)
+  ~24,100 sales rows total.
+
+PREREQ: you already ran 56_tally_targets.sql and set the Google env vars.
+
+------------------------------------------------------------
+STEP 1 — SQL (small paste, mobile-OK)
+------------------------------------------------------------
+Run 57_tally_multicompany.sql in Supabase.
+Adds company + voucher_type columns and makes the RPCs company-aware.
+
+------------------------------------------------------------
+STEP 2 — REPLACE 4 FILES (via GitHub mobile or PC)
+------------------------------------------------------------
+These REPLACE the v1 files you committed earlier. Same paths, new contents
+(the "-v2" is only the name in this chat — commit them to the ORIGINAL paths):
+
+  tally-refresh-route-v2.ts     → app/api/tally-targets/refresh/route.ts
+  tally-targets-page-v2.tsx     → app/(app)/tally-targets/page.tsx
+  tally-targets-client-v2.tsx   → app/(app)/tally-targets/tally-targets-client.tsx
+  tally-target-actions-v2.ts    → app/(app)/tally-targets/tally-target-actions.ts
+
+(The sidebar from before stays as-is — no change.)
+
+PowerShell (if on PC):
+  Copy-Item "$HOME\Downloads\tally-refresh-route-v2.ts"   ".\app\api\tally-targets\refresh\route.ts" -Force
+  Copy-Item "$HOME\Downloads\tally-targets-page-v2.tsx"   ".\app\(app)\tally-targets\page.tsx" -Force
+  Copy-Item "$HOME\Downloads\tally-targets-client-v2.tsx" ".\app\(app)\tally-targets\tally-targets-client.tsx" -Force
+  Copy-Item "$HOME\Downloads\tally-target-actions-v2.ts"  ".\app\(app)\tally-targets\tally-target-actions.ts" -Force
+  npm run build ; git add -A ; git commit -m "tally targets: multi-company + voucher-type scope" ; git push
+
+------------------------------------------------------------
+STEP 3 — LOAD DATA
+------------------------------------------------------------
+After deploy, open Tally Targets → click "Refresh from Google Sheet".
+It reads all 8 tabs, tags company + voucher_type, loads ~24,100 rows.
+The response lists per-tab row counts (perTab) so you can confirm each tab read.
+
+Then verify in SQL:
+  select * from tally_companies();        -- Sushil + Anjali with totals
+  select * from tally_party_groups(null); -- groups per company
+
+------------------------------------------------------------
+WHAT YOU GET
+------------------------------------------------------------
+Tally Targets page now has a COMPANY selector (Sushil / Anjali) at the top.
+Pick company → beat → enter target → splits to shops by that company's Tally kg.
+Targets are stored per (company, beat, period) so the two companies never mix.
+
+NOTE on the refresh: tab titles are matched by PREFIX, so the truncated names
+in Google ("SUSHIL AGENCIES 26-27 - GST SAL...") resolve to their full titles
+automatically. If a tab gets renamed, update the SOURCES list in route.ts.
