@@ -24,7 +24,7 @@
 //
 // Service account (GOOGLE_SHEETS_CLIENT_EMAIL) must have read access to BOTH
 // spreadsheets. Tab titles are resolved by PREFIX match against each sheet's
-// live metadata.
+// live metadata. Tabs are read in parallel; inserts run in concurrent batches.
 //
 // Env: TALLY_SHEET_ID, TALLY_SHEET_ID_2526 (optional override),
 //      GOOGLE_SHEETS_CLIENT_EMAIL, GOOGLE_SHEETS_PRIVATE_KEY
@@ -36,12 +36,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const SHEET_ID = process.env.TALLY_SHEET_ID ?? "";
 const SHEET_ID_2526 = process.env.TALLY_SHEET_ID_2526 ?? "19Rnz_8o8LNIKf6dFSh0WpMG9uF_y8aCkwFJBDS_y1Ic";
 const CLIENT_EMAIL = process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? "";
 const PRIVATE_KEY = (process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+
+const INSERT_CHUNK = 1000;   // rows per insert call
+const INSERT_CONCURRENCY = 5; // insert calls in flight at once
 
 // Source tabs by PREFIX (real titles may have more chars after these), each
 // tagged with the spreadsheet it lives in.
@@ -102,6 +105,14 @@ function normDate(s: unknown): string | null {
   return m ? m[1] : null;
 }
 
+type Row = {
+  company: string; voucher_type: string; fin_year: string; sale_date: string;
+  voucher_no: string | null; party_name: string; item: string | null;
+  qty: number | null; rate: number | null; amount: number | null;
+  qty_kg: number | null; party_group: string | null; root_group: string | null;
+  guid: string | null; alter_id: string | null;
+};
+
 export async function POST(_req: NextRequest) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "Admin only" }, { status: 403 });
   if (!SHEET_ID || !CLIENT_EMAIL || !PRIVATE_KEY) {
@@ -112,52 +123,41 @@ export async function POST(_req: NextRequest) {
   try { token = await getAccessToken(); }
   catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 }); }
 
-  // 1. Resolve full tab titles from EACH distinct spreadsheet's metadata.
+  // 1. Resolve full tab titles from EACH distinct spreadsheet's metadata (parallel).
   //    A failure on one sheet is non-fatal: its sources just stay unresolved.
   const sheetIds = [...new Set(SOURCES.map((s) => s.sheetId).filter(Boolean))];
   const titlesBySheet: Record<string, string[]> = {};
   const sheetErrors: Record<string, string> = {};
-  for (const sid of sheetIds) {
+  await Promise.all(sheetIds.map(async (sid) => {
     try {
       const metaResp = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${sid}?fields=sheets.properties.title`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (!metaResp.ok) { sheetErrors[sid] = `${metaResp.status} ${await metaResp.text()}`; titlesBySheet[sid] = []; continue; }
+      if (!metaResp.ok) { sheetErrors[sid] = `${metaResp.status} ${await metaResp.text()}`; titlesBySheet[sid] = []; return; }
       const meta = await metaResp.json();
       titlesBySheet[sid] = (meta.sheets ?? []).map((s: { properties: { title: string } }) => s.properties.title);
     } catch (e) {
       sheetErrors[sid] = e instanceof Error ? e.message : String(e);
       titlesBySheet[sid] = [];
     }
-  }
+  }));
 
   const resolve = (sid: string, prefix: string): string | null =>
     (titlesBySheet[sid] ?? []).find((t) => t.startsWith(prefix)) ?? null;
 
-  // 2. Read each source tab and build rows
-  type Row = {
-    company: string; voucher_type: string; fin_year: string; sale_date: string;
-    voucher_no: string | null; party_name: string; item: string | null;
-    qty: number | null; rate: number | null; amount: number | null;
-    qty_kg: number | null; party_group: string | null; root_group: string | null;
-    guid: string | null; alter_id: string | null;
-  };
-  const allRows: Row[] = [];
-  const perTab: { sheetId: string; tab: string; rows: number; resolved: boolean }[] = [];
-
-  for (const src of SOURCES) {
+  // 2. Read every source tab IN PARALLEL and build rows.
+  const perSource = await Promise.all(SOURCES.map(async (src) => {
     const fullTitle = resolve(src.sheetId, src.tabPrefix);
-    if (!fullTitle) { perTab.push({ sheetId: src.sheetId, tab: src.tabPrefix, rows: 0, resolved: false }); continue; }
+    if (!fullTitle) return { entry: { sheetId: src.sheetId, tab: src.tabPrefix, rows: 0, resolved: false }, rows: [] as Row[] };
     const range = `'${fullTitle.replace(/'/g, "''")}'!A:R`;
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${src.sheetId}/values/${encodeURIComponent(range)}`;
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) { perTab.push({ sheetId: src.sheetId, tab: fullTitle, rows: 0, resolved: true }); continue; }
+    if (!resp.ok) return { entry: { sheetId: src.sheetId, tab: fullTitle, rows: 0, resolved: true }, rows: [] as Row[] };
     const json = await resp.json();
     const values = (json.values ?? []) as string[][];
-    if (values.length < 2) { perTab.push({ sheetId: src.sheetId, tab: fullTitle, rows: 0, resolved: true }); continue; }
+    if (values.length < 2) return { entry: { sheetId: src.sheetId, tab: fullTitle, rows: 0, resolved: true }, rows: [] as Row[] };
 
-    // header → column index
     const hdr = values[0].map((h) => (h ?? "").toString().trim());
     const ci = (name: string) => hdr.indexOf(name);
     const cDate = ci("Date"), cVno = ci("Voucher No"), cParty = ci("Party Name"),
@@ -165,14 +165,14 @@ export async function POST(_req: NextRequest) {
       cKg = ci("Qty (Kg)"), cPg = ci("Party Group"), cRg = ci("Root Group"),
       cGuid = ci("GUID"), cAlter = ci("AlterID");
 
-    let n = 0;
+    const rows: Row[] = [];
     for (let i = 1; i < values.length; i++) {
       const r = values[i];
       const d = normDate(r[cDate]);
       if (!d) continue;
       const party = (r[cParty] ?? "").toString().trim();
       if (!party) continue;
-      allRows.push({
+      rows.push({
         company: src.company, voucher_type: src.voucher_type, fin_year: src.fin_year, sale_date: d,
         voucher_no: (r[cVno] ?? "").toString().trim() || null,
         party_name: party,
@@ -184,26 +184,32 @@ export async function POST(_req: NextRequest) {
         guid: (r[cGuid] ?? "").toString().trim() || null,
         alter_id: (r[cAlter] ?? "").toString().trim() || null,
       });
-      n++;
     }
-    perTab.push({ sheetId: src.sheetId, tab: fullTitle, rows: n, resolved: true });
-  }
+    return { entry: { sheetId: src.sheetId, tab: fullTitle, rows: rows.length, resolved: true }, rows };
+  }));
+
+  const allRows: Row[] = perSource.flatMap((p) => p.rows);
+  const perTab = perSource.map((p) => p.entry);
 
   if (allRows.length === 0) {
     return NextResponse.json({ error: "No rows parsed from any source tab", perTab, sheetErrors }, { status: 400 });
   }
 
-  // 3. Wipe + reload
+  // 3. Wipe + reload (inserts run in concurrent waves)
   const admin = createAdminClient();
   const { error: delErr } = await admin.from("tally_sales").delete().neq("id", -1);
   if (delErr) return NextResponse.json({ error: `Clear failed: ${delErr.message}` }, { status: 500 });
 
+  const chunks: Row[][] = [];
+  for (let i = 0; i < allRows.length; i += INSERT_CHUNK) chunks.push(allRows.slice(i, i + INSERT_CHUNK));
+
   let inserted = 0;
-  for (let i = 0; i < allRows.length; i += 500) {
-    const chunk = allRows.slice(i, i + 500);
-    const { error } = await admin.from("tally_sales").insert(chunk);
-    if (error) return NextResponse.json({ error: `Insert failed at ${i}: ${error.message}`, inserted }, { status: 500 });
-    inserted += chunk.length;
+  for (let i = 0; i < chunks.length; i += INSERT_CONCURRENCY) {
+    const wave = chunks.slice(i, i + INSERT_CONCURRENCY);
+    const results = await Promise.all(wave.map((c) => admin.from("tally_sales").insert(c)));
+    const failed = results.find((r) => r.error);
+    if (failed?.error) return NextResponse.json({ error: `Insert failed: ${failed.error.message}`, inserted, perTab, sheetErrors }, { status: 500 });
+    inserted += wave.reduce((a, c) => a + c.length, 0);
   }
 
   return NextResponse.json({ ok: true, inserted, perTab, sheetErrors });
