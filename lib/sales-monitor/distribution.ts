@@ -8,7 +8,7 @@
  *   - Items without history (kg == 0): weight = average of history items
  *   - If no history at all: equal split
  *
- * History window: 365 days (via area_distribution_365d RPC). Field name is
+ * History window: 365 days (via area_distribution_2526 RPC). Field name is
  * kg_365d throughout. The RPC uses 4-branch kg logic (unit=kg, unit=g,
  * packaging_unit=kg, packaging_unit=g) to match the sales-monitor figures.
  */
@@ -98,7 +98,7 @@ export async function loadAreaDistribution(
   areaId: string,
 ): Promise<BeatHist[]> {
   const admin = getAdminClient();
-  const { data, error } = await admin.rpc("area_distribution_365d", {
+  const { data, error } = await admin.rpc("area_distribution_2526", {
     p_area_id: areaId,
   });
   if (error) throw new Error(error.message);
@@ -394,3 +394,4 @@ function round3(n: number): number {
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
+
