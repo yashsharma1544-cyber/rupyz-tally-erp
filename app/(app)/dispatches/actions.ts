@@ -88,7 +88,7 @@ async function recomputeOrderStatus(
         const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
         return status === "pending";
       });
-      newStatus = anyPending ? "loading" : "approved";
+      newStatus = anyPending ? "loaded" : "approved";
     }
   }
 
@@ -465,8 +465,69 @@ export async function createVehicle(input: { number: string; make?: string; capa
       created_by: actor.userId,
     }).select("id, number, make, capacity_kg").single();
     if (error) return { error: error.message };
-    revalidatePath("/dispatch/load-truck");
+    revalidatePath("/load");
     return { ok: true, vehicle: v };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// START VEHICLE LOAD  — begin a loading session at /load
+//
+// Creates a vehicle_loads parent (status 'loading') with the chosen vehicle +
+// loaders. Orders are then attached to this load as the team marks each one
+// loaded (see markOrderLoaded in /load/orders/[orderId]/actions.ts).
+// Returns the load id, which /load threads through as ?load=<id>.
+// =============================================================================
+export async function startVehicleLoad(input: { vehicleId: string; loaderUserIds: string[] }) {
+  try {
+    const actor = await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    if (!input.vehicleId) return { error: "Vehicle is required" };
+
+    const { data: vehicle } = await admin
+      .from("vehicles").select("id, number").eq("id", input.vehicleId).single();
+    if (!vehicle) return { error: "Vehicle not found" };
+
+    const { data: load, error: lErr } = await admin.from("vehicle_loads").insert({
+      vehicle_id: input.vehicleId,
+      status: "loading",
+      loaded_by: actor.userId,
+      created_by: actor.userId,
+    }).select("id").single();
+    if (lErr || !load) return { error: lErr?.message ?? "Failed to start load" };
+
+    if (input.loaderUserIds?.length) {
+      const rows = Array.from(new Set(input.loaderUserIds)).map(uid => ({ load_id: load.id, user_id: uid }));
+      await admin.from("vehicle_load_loaders").insert(rows);
+    }
+
+    revalidatePath("/load");
+    return { ok: true, loadId: load.id, vehicleNumber: vehicle.number };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// CANCEL VEHICLE LOAD  — abandon an empty/in-progress loading session
+// (only allowed while still 'loading'; detaches nothing if dispatches exist)
+// =============================================================================
+export async function cancelVehicleLoad(loadId: string) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    if (!loadId) return { error: "Load id required" };
+
+    const { data: pending } = await admin
+      .from("dispatches").select("id").eq("load_id", loadId).eq("status", "pending").limit(1);
+    if (pending && pending.length > 0) {
+      return { error: "This load has orders on it. Remove them or dispatch the vehicle instead." };
+    }
+    await admin.from("vehicle_loads").update({ status: "cancelled" }).eq("id", loadId).eq("status", "loading");
+    revalidatePath("/load");
+    return { ok: true };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }

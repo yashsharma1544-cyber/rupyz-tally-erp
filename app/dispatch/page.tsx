@@ -171,7 +171,7 @@ export default async function DispatchHomePage() {
 
         {beatRows.length > 0 && (
           <Link
-            href="/dispatch/load-truck"
+            href="/load"
             className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-11 rounded-md bg-accent text-paper-card text-sm font-semibold hover:bg-accent/90 active:bg-accent/80 transition-colors"
           >
             <Truck size={14}/> {t("dispatch.load_a_truck")}

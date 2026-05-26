@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, AlertCircle, Phone, Receipt } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertCircle, Phone, Receipt, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n/context";
@@ -33,12 +33,17 @@ function formatINR(n: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
-export function LoadOrderClient({ order }: { order: OrderForLoad }) {
+export function LoadOrderClient({
+  order, loadId, vehicleNumber,
+}: {
+  order: OrderForLoad;
+  loadId: string;
+  vehicleNumber: string;
+}) {
   const router = useRouter();
   const { t } = useTranslation();
   const [pending, startTransition] = useTransition();
 
-  // Pre-fill inputs: loaded_qty if previously saved, else ordered_qty.
   const [qtys, setQtys] = useState<Map<string, string>>(() => {
     const m = new Map<string, string>();
     for (const it of order.items) {
@@ -51,11 +56,7 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   const [confirmPartial, setConfirmPartial] = useState(false);
 
   function setQty(id: string, v: string) {
-    setQtys(prev => {
-      const m = new Map(prev);
-      m.set(id, v);
-      return m;
-    });
+    setQtys(prev => { const m = new Map(prev); m.set(id, v); return m; });
   }
 
   const parsedQtys = useMemo(() => {
@@ -92,16 +93,11 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
 
   function submit(markPartial: boolean) {
     startTransition(async () => {
-      const res = await markOrderLoaded(order.id, buildLines(), { markPartial });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(
-        markPartial ? t("loading.toast_partial_loaded") : t("loading.toast_loaded_ready"),
-      );
+      const res = await markOrderLoaded(order.id, buildLines(), { markPartial, loadId });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success(markPartial ? t("loading.toast_partial_loaded") : t("loading.toast_loaded_ready"));
       setConfirmPartial(false);
-      router.push("/load");
+      router.push(`/load?load=${loadId}`);
     });
   }
 
@@ -113,11 +109,8 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   }
 
   function handleSubmitClick() {
-    if (isPartial) {
-      setConfirmPartial(true);
-    } else {
-      submit(false);
-    }
+    if (isPartial) setConfirmPartial(true);
+    else submit(false);
   }
 
   const itemCount = order.items.length;
@@ -126,12 +119,14 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
   return (
     <div className="min-h-screen bg-paper pb-32">
       <div className="max-w-md mx-auto px-3 py-4">
-        <Link
-          href="/load"
-          className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2"
-        >
+        <Link href={`/load?load=${loadId}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
           <ArrowLeft size={11}/> {t("loading.back_to_queue")}
         </Link>
+
+        {/* Loading-into-vehicle chip */}
+        <div className="inline-flex items-center gap-1.5 text-2xs bg-accent-soft text-accent border border-accent/30 rounded-full px-2.5 py-1 mb-2">
+          <Truck size={11}/> Loading into <span className="font-mono font-semibold">{vehicleNumber}</span>
+        </div>
 
         <h1 className="text-lg font-semibold leading-tight">{order.customer?.name ?? "—"}</h1>
         <div className="text-2xs text-ink-muted mt-0.5 flex items-center gap-1 flex-wrap">
@@ -147,7 +142,6 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           )}
         </div>
 
-        {/* Tally invoice number — big and visible so loader can write it on the bag */}
         {order.invoiceNumber && (
           <div className="mt-2 bg-accent-soft border border-accent/30 rounded-md p-2.5 flex items-center gap-2">
             <Receipt size={16} className="text-accent shrink-0"/>
@@ -162,33 +156,22 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
           <span className="font-semibold tabular">{itemCount}</span>
           <span className="text-ink-muted"> {itemsLabel} · </span>
           <span className="font-semibold tabular">{formatINR(order.totalAmount)}</span>
-          {order.appStatus === "loading" && (
-            <span className="ml-2 text-2xs text-warn font-semibold">· {t("loading.in_progress_inline")}</span>
+          {order.appStatus === "partially_dispatched" && (
+            <span className="ml-2 text-2xs text-warn font-semibold">· partly loaded earlier</span>
           )}
         </div>
 
         <div className="mt-3">
-          <Button
-            onClick={handleAllLoaded}
-            disabled={pending || itemCount === 0}
-            className="w-full"
-            size="lg"
-          >
+          <Button onClick={handleAllLoaded} disabled={pending || itemCount === 0} className="w-full" size="lg">
             <CheckCircle2 size={15}/> {t("loading.all_loaded_as_ordered")}
           </Button>
-          <p className="text-2xs text-ink-muted text-center mt-1">
-            {t("loading.all_loaded_help")}
-          </p>
+          <p className="text-2xs text-ink-muted text-center mt-1">{t("loading.all_loaded_help")}</p>
         </div>
 
         <div className="mt-5">
-          <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            {t("loading.or_adjust_each_line")}
-          </h2>
+          <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">{t("loading.or_adjust_each_line")}</h2>
           {order.items.length === 0 ? (
-            <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center text-sm text-ink-muted">
-              {t("loading.no_line_items")}
-            </div>
+            <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center text-sm text-ink-muted">{t("loading.no_line_items")}</div>
           ) : (
             <div className="space-y-3">
               {order.items.map(it => {
@@ -197,67 +180,36 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
                 const isZero = cur === 0;
                 const shortAmount = `${it.orderedQty - cur}${it.unit ? ` ${it.unit}` : ""}`;
                 return (
-                  <div
-                    key={it.id}
-                    className="bg-paper-card border border-paper-line rounded-md p-3"
-                  >
-                    <div className="text-base font-semibold leading-tight mb-3">
-                      {it.productName}
-                    </div>
-
+                  <div key={it.id} className="bg-paper-card border border-paper-line rounded-md p-3">
+                    <div className="text-base font-semibold leading-tight mb-3">{it.productName}</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-paper-subtle/60 border border-paper-line rounded-md p-3 text-center">
-                        <div className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1">
-                          {t("loading.ordered")}
-                        </div>
-                        <div className="text-2xl font-bold tabular leading-none">
-                          {it.orderedQty}
-                        </div>
-                        {it.unit && (
-                          <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>
-                        )}
+                        <div className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1">{t("loading.ordered")}</div>
+                        <div className="text-2xl font-bold tabular leading-none">{it.orderedQty}</div>
+                        {it.unit && <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>}
                       </div>
-
                       <div className={`border-2 rounded-md p-3 text-center ${
-                        isZero
-                          ? "border-danger/30 bg-danger-soft/30"
-                          : isLess
-                            ? "border-warn/40 bg-warn-soft/30"
-                            : "border-accent/40 bg-accent-soft/20"
+                        isZero ? "border-danger/30 bg-danger-soft/30" : isLess ? "border-warn/40 bg-warn-soft/30" : "border-accent/40 bg-accent-soft/20"
                       }`}>
-                        <div className={`text-2xs uppercase tracking-wide font-semibold mb-1 ${
-                          isZero ? "text-danger" : isLess ? "text-warn" : "text-accent"
-                        }`}>
+                        <div className={`text-2xs uppercase tracking-wide font-semibold mb-1 ${isZero ? "text-danger" : isLess ? "text-warn" : "text-accent"}`}>
                           {t("loading.loaded")}
                         </div>
                         <input
-                          type="number"
-                          inputMode="decimal"
-                          step="0.01"
-                          min="0"
+                          type="number" inputMode="decimal" step="0.01" min="0"
                           value={qtys.get(it.id) ?? ""}
                           onChange={e => setQty(it.id, e.target.value)}
                           disabled={pending}
-                          className={`w-full text-center text-2xl font-bold tabular leading-none bg-transparent outline-none border-0 focus:outline-none focus:ring-0 p-0 ${
-                            isZero ? "text-danger" : isLess ? "text-warn" : "text-ink"
-                          }`}
+                          className={`w-full text-center text-2xl font-bold tabular leading-none bg-transparent outline-none border-0 focus:outline-none focus:ring-0 p-0 ${isZero ? "text-danger" : isLess ? "text-warn" : "text-ink"}`}
                           aria-label={t("loading.loaded_qty_aria", { productName: it.productName })}
                         />
-                        {it.unit && (
-                          <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>
-                        )}
+                        {it.unit && <div className="text-2xs text-ink-muted mt-0.5">{it.unit}</div>}
                       </div>
                     </div>
-
                     {isLess && cur > 0 && (
-                      <div className="text-2xs text-warn mt-2 inline-flex items-center gap-1">
-                        <AlertCircle size={10}/> {t("loading.short_by", { amount: shortAmount })}
-                      </div>
+                      <div className="text-2xs text-warn mt-2 inline-flex items-center gap-1"><AlertCircle size={10}/> {t("loading.short_by", { amount: shortAmount })}</div>
                     )}
                     {isZero && (
-                      <div className="text-2xs text-danger mt-2 inline-flex items-center gap-1">
-                        <AlertCircle size={10}/> {t("loading.nothing_loaded")}
-                      </div>
+                      <div className="text-2xs text-danger mt-2 inline-flex items-center gap-1"><AlertCircle size={10}/> {t("loading.nothing_loaded")}</div>
                     )}
                   </div>
                 );
@@ -269,76 +221,37 @@ export function LoadOrderClient({ order }: { order: OrderForLoad }) {
 
       <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto space-y-1">
-          {isPartial && totalLoaded > 0 && (
-            <p className="text-2xs text-warn text-center">
-              ⚠ {t("loading.some_lines_short_warn")}
-            </p>
-          )}
-          {totalLoaded === 0 && (
-            <p className="text-2xs text-danger text-center">
-              {t("loading.at_least_one_qty")}
-            </p>
-          )}
-          <Button
-            onClick={handleSubmitClick}
-            disabled={!canSubmit}
-            variant="outline"
-            className="w-full"
-            size="lg"
-          >
+          {isPartial && totalLoaded > 0 && <p className="text-2xs text-warn text-center">⚠ {t("loading.some_lines_short_warn")}</p>}
+          {totalLoaded === 0 && <p className="text-2xs text-danger text-center">{t("loading.at_least_one_qty")}</p>}
+          <Button onClick={handleSubmitClick} disabled={!canSubmit} variant="outline" className="w-full" size="lg">
             {pending ? t("common.saving") : isPartial ? t("loading.mark_loaded_adjustments") : t("loading.mark_loaded_btn")}
           </Button>
         </div>
       </div>
 
       {confirmPartial && (
-        <div
-          className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-3"
-          onClick={() => !pending && setConfirmPartial(false)}
-        >
-          <div
-            className="bg-paper-card border border-paper-line rounded-lg shadow-xl w-full max-w-sm p-4"
-            onClick={e => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-3" onClick={() => !pending && setConfirmPartial(false)}>
+          <div className="bg-paper-card border border-paper-line rounded-lg shadow-xl w-full max-w-sm p-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 mb-2">
               <AlertCircle size={18} className="text-warn shrink-0"/>
               <h2 className="font-semibold">{t("loading.lines_were_short")}</h2>
             </div>
-            <p className="text-sm text-ink-muted mb-3">
-              {t("loading.lines_short_desc")}
-            </p>
+            <p className="text-sm text-ink-muted mb-3">{t("loading.lines_short_desc")}</p>
             <div className="bg-paper-subtle/50 rounded p-2 mb-4 max-h-40 overflow-y-auto text-xs space-y-0.5">
-              {order.items
-                .filter(it => (parsedQtys.get(it.id) ?? 0) < it.orderedQty && it.orderedQty > 0)
-                .map(it => {
-                  const cur = parsedQtys.get(it.id) ?? 0;
-                  return (
-                    <div key={it.id} className="tabular flex justify-between gap-2">
-                      <span className="truncate">{it.productName}</span>
-                      <span className="text-warn shrink-0">{cur} / {it.orderedQty}{it.unit ? ` ${it.unit}` : ""}</span>
-                    </div>
-                  );
-                })}
+              {order.items.filter(it => (parsedQtys.get(it.id) ?? 0) < it.orderedQty && it.orderedQty > 0).map(it => {
+                const cur = parsedQtys.get(it.id) ?? 0;
+                return (
+                  <div key={it.id} className="tabular flex justify-between gap-2">
+                    <span className="truncate">{it.productName}</span>
+                    <span className="text-warn shrink-0">{cur} / {it.orderedQty}{it.unit ? ` ${it.unit}` : ""}</span>
+                  </div>
+                );
+              })}
             </div>
-            <p className="text-xs text-ink-muted mb-4">
-              {t("loading.partial_confirm_desc")}
-            </p>
+            <p className="text-xs text-ink-muted mb-4">{t("loading.partial_confirm_desc")}</p>
             <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setConfirmPartial(false)}
-                disabled={pending}
-                className="sm:flex-1"
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button
-                onClick={() => submit(true)}
-                disabled={pending}
-                className="sm:flex-1"
-              >
-                {pending ? t("common.saving") : t("loading.confirm_partial")}
-              </Button>
+              <Button variant="ghost" onClick={() => setConfirmPartial(false)} disabled={pending} className="sm:flex-1">{t("common.cancel")}</Button>
+              <Button onClick={() => submit(true)} disabled={pending} className="sm:flex-1">{pending ? t("common.saving") : t("loading.confirm_partial")}</Button>
             </div>
           </div>
         </div>
