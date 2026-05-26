@@ -1,13 +1,9 @@
 // =============================================================================
 // /dispatch/load-truck — vehicle-first truck loading wizard
 //
-// Step 1: pick the vehicle (managed list, inline add) + the loaders (people
-//         loading the vehicle: van_helper + dispatch roles).
-// Step 2: pick the orders (grouped by beat).
-// Driver/helper are NOT chosen here — they're captured later at "Vehicle left".
-//
-// Loads ALL approved/partly-dispatched/loaded Jalna orders, grouped by beat.
-// Optional ?beat=<id> hints which beat section to expand by default.
+// Step 1: pick the vehicle (managed list, inline add) + the loaders.
+// Step 2: open each order, tick/adjust items, mark loaded.
+// Driver/helper are captured later at "Vehicle left".
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -20,16 +16,26 @@ export const revalidate = 0;
 
 const NO_BEAT_ID = "00000000-0000-0000-0000-000000000000";
 
+interface ItemRow {
+  id: string;
+  product_name: string | null;
+  unit: string | null;
+  qty: number;
+  total_dispatched_qty: number | null;
+  packaging_size: number | null;
+  packaging_unit: string | null;
+}
+
 interface OrderRow {
   id: string;
   rupyz_order_id: string;
   total_amount: number;
   app_status: string;
   customer: { id: string; name: string; city: string | null; beat_id: string | null } | null;
-  items: { qty: number; total_dispatched_qty: number | null; unit: string | null; packaging_size: number | null; packaging_unit: string | null }[];
+  items: ItemRow[];
 }
 
-function kgForItems(items: OrderRow["items"]): number {
+function kgForItems(items: ItemRow[]): number {
   let total = 0;
   for (const it of items) {
     const remaining = Number(it.qty) - Number(it.total_dispatched_qty ?? 0);
@@ -74,7 +80,7 @@ export default async function LoadTruckPage({
     .select(`
       id, rupyz_order_id, total_amount, app_status,
       customer:customers!inner(id, name, city, beat_id),
-      items:order_items(qty, total_dispatched_qty, unit, packaging_size, packaging_unit)
+      items:order_items(id, product_name, unit, qty, total_dispatched_qty, packaging_size, packaging_unit)
     `)
     .in("app_status", ["approved", "partially_dispatched", "loaded"])
     .order("rupyz_created_at", { ascending: false });
@@ -90,13 +96,12 @@ export default async function LoadTruckPage({
     );
   }
   const orderRows = (orders ?? []) as unknown as OrderRow[];
-
-  // Jalna filter — applied to customer.city
   const filteredOrderRows = orderRows.filter(o => isJalna(o.customer?.city));
 
   const byBeat = new Map<string, { beatId: string; beatName: string; orders: Array<{
     id: string; rupyzOrderId: string; totalAmount: number; appStatus: string;
     customerName: string; customerCity: string | null; kg: number;
+    items: Array<{ id: string; name: string; unit: string | null; remaining: number }>;
   }>}>();
 
   const beatNameMap = new Map<string, string>((beats ?? []).map(b => [b.id, b.name]));
@@ -104,9 +109,15 @@ export default async function LoadTruckPage({
   for (const o of filteredOrderRows) {
     const beatId = o.customer?.beat_id ?? NO_BEAT_ID;
     const beatName = beatId === NO_BEAT_ID ? "No beat assigned" : (beatNameMap.get(beatId) ?? "Unknown beat");
-    if (!byBeat.has(beatId)) {
-      byBeat.set(beatId, { beatId, beatName, orders: [] });
-    }
+    if (!byBeat.has(beatId)) byBeat.set(beatId, { beatId, beatName, orders: [] });
+    const items = (o.items ?? [])
+      .map(it => ({
+        id: it.id,
+        name: it.product_name ?? "Item",
+        unit: it.unit,
+        remaining: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
+      }))
+      .filter(it => it.remaining > 0);
     byBeat.get(beatId)!.orders.push({
       id: o.id,
       rupyzOrderId: o.rupyz_order_id,
@@ -115,6 +126,7 @@ export default async function LoadTruckPage({
       customerName: o.customer?.name ?? "—",
       customerCity: o.customer?.city ?? null,
       kg: kgForItems(o.items ?? []),
+      items,
     });
   }
 
@@ -124,7 +136,6 @@ export default async function LoadTruckPage({
     return a.beatName.localeCompare(b.beatName);
   });
 
-  // Vehicles — managed list for the dropdown
   const { data: vehicles } = await supabase
     .from("vehicles")
     .select("id, number, make, capacity_kg")
@@ -132,7 +143,6 @@ export default async function LoadTruckPage({
     .order("number");
   const vehicleList = (vehicles ?? []) as Array<{ id: string; number: string; make: string | null; capacity_kg: number | null }>;
 
-  // Loaders — people who physically load the vehicle (van_helper + dispatch)
   const { data: loaders } = await supabase
     .from("app_users")
     .select("id, full_name, phone, role")

@@ -473,14 +473,20 @@ export async function createVehicle(input: { number: string; make?: string; capa
 }
 
 // =============================================================================
-// DISPATCH SELECTED ORDERS  — vehicle-first flow
+// DISPATCH SELECTED ORDERS  — vehicle-first flow (with per-item load quantities)
 //
 // Creates a vehicle_loads parent (vehicle + loaders), then attaches each
 // order's dispatch to it via load_id. Driver/helper are NOT set here — they
 // are captured later at "Vehicle left" (shipTruck).
+//
+// Two input modes (backward compatible):
+//   • loadLines: explicit per-order, per-item quantities (mandatory-open flow)
+//   • orderIds:  legacy "load full remaining" for each order
+// If loadLines is provided it takes precedence; orderIds is ignored.
 // =============================================================================
 export async function dispatchSelectedOrders(input: {
-  orderIds: string[];
+  orderIds?: string[];
+  loadLines?: { orderId: string; items: { orderItemId: string; qty: number }[] }[];
   vehicleId: string;
   loaderUserIds: string[];
   notes?: string;
@@ -490,7 +496,12 @@ export async function dispatchSelectedOrders(input: {
     const admin = createAdminClient();
 
     if (!input.vehicleId) return { error: "Vehicle is required" };
-    if (!input.orderIds || input.orderIds.length === 0) return { error: "No orders selected" };
+
+    const useLines = Array.isArray(input.loadLines) && input.loadLines.length > 0;
+    const orderIds = useLines
+      ? input.loadLines!.map(l => l.orderId)
+      : (input.orderIds ?? []);
+    if (orderIds.length === 0) return { error: "No orders selected" };
 
     const { data: vehicle } = await admin
       .from("vehicles").select("id, number").eq("id", input.vehicleId).single();
@@ -499,7 +510,7 @@ export async function dispatchSelectedOrders(input: {
     const { data: orders, error: oErr } = await admin
       .from("orders")
       .select("id, rupyz_order_id, app_status")
-      .in("id", input.orderIds);
+      .in("id", orderIds);
     if (oErr) return { error: oErr.message };
     const orderList = (orders ?? []) as Array<{ id: string; rupyz_order_id: string; app_status: string }>;
 
@@ -507,8 +518,14 @@ export async function dispatchSelectedOrders(input: {
     if (invalid.length > 0) {
       return { error: `${invalid.length} order(s) not dispatchable (already sent or cancelled). Refresh the list.` };
     }
-    if (orderList.length !== input.orderIds.length) {
+    if (orderList.length !== orderIds.length) {
       return { error: "Some selected orders no longer exist. Refresh the list." };
+    }
+
+    // line lookup for the per-item mode
+    const linesByOrder = new Map<string, { orderItemId: string; qty: number }[]>();
+    if (useLines) {
+      for (const l of input.loadLines!) linesByOrder.set(l.orderId, l.items);
     }
 
     // 1. Create the load parent
@@ -532,18 +549,23 @@ export async function dispatchSelectedOrders(input: {
     // 3. Attach each order's dispatch to the load (no driver yet)
     const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
     for (const o of orderList) {
-      const { data: items } = await admin
-        .from("order_items")
-        .select("id, qty, total_dispatched_qty")
-        .eq("order_id", o.id);
-      const lines = (items ?? [])
-        .map((it: { id: string; qty: number; total_dispatched_qty: number | null }) => ({
-          orderItemId: it.id,
-          qty: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
-        }))
-        .filter(l => l.qty > 0);
+      let lines: { orderItemId: string; qty: number }[];
+      if (useLines) {
+        lines = (linesByOrder.get(o.id) ?? []).filter(l => l.qty > 0);
+      } else {
+        const { data: items } = await admin
+          .from("order_items")
+          .select("id, qty, total_dispatched_qty")
+          .eq("order_id", o.id);
+        lines = (items ?? [])
+          .map((it: { id: string; qty: number; total_dispatched_qty: number | null }) => ({
+            orderItemId: it.id,
+            qty: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
+          }))
+          .filter(l => l.qty > 0);
+      }
       if (lines.length === 0) {
-        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: "Nothing left to dispatch" });
+        results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: "Nothing to load" });
         continue;
       }
       const res = await createDispatch(o.id, lines, {
