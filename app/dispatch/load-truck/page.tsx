@@ -1,11 +1,13 @@
 // =============================================================================
-// /dispatch/load-truck — cross-beat truck loading wizard
+// /dispatch/load-truck — vehicle-first truck loading wizard
+//
+// Step 1: pick the vehicle (managed list, inline add) + the loaders (people
+//         loading the vehicle: van_helper + dispatch roles).
+// Step 2: pick the orders (grouped by beat).
+// Driver/helper are NOT chosen here — they're captured later at "Vehicle left".
 //
 // Loads ALL approved/partly-dispatched/loaded Jalna orders, grouped by beat.
-// Orders whose customer has no beat assignment are grouped under a synthetic
-// "No beat assigned" group, sorted to the top so admin sees them first.
-//
-// Optional ?beat=<id> query param hints which beat section to expand by default.
+// Optional ?beat=<id> hints which beat section to expand by default.
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -100,7 +102,6 @@ export default async function LoadTruckPage({
   const beatNameMap = new Map<string, string>((beats ?? []).map(b => [b.id, b.name]));
 
   for (const o of filteredOrderRows) {
-    // CHANGED: instead of skipping no-beat orders, group them under a synthetic key
     const beatId = o.customer?.beat_id ?? NO_BEAT_ID;
     const beatName = beatId === NO_BEAT_ID ? "No beat assigned" : (beatNameMap.get(beatId) ?? "Unknown beat");
     if (!byBeat.has(beatId)) {
@@ -117,33 +118,35 @@ export default async function LoadTruckPage({
     });
   }
 
-  // Sort: no-beat group first, then real beats alphabetically
   const beatGroups = Array.from(byBeat.values()).sort((a, b) => {
     if (a.beatId === NO_BEAT_ID) return -1;
     if (b.beatId === NO_BEAT_ID) return 1;
     return a.beatName.localeCompare(b.beatName);
   });
 
-  const { data: drivers } = await supabase
-    .from("active_drivers")
-    .select("id, full_name, phone")
-    .order("full_name");
-  const driverList = (drivers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
+  // Vehicles — managed list for the dropdown
+  const { data: vehicles } = await supabase
+    .from("vehicles")
+    .select("id, number, make, capacity_kg")
+    .eq("active", true)
+    .order("number");
+  const vehicleList = (vehicles ?? []) as Array<{ id: string; number: string; make: string | null; capacity_kg: number | null }>;
 
-  const { data: helpers } = await supabase
+  // Loaders — people who physically load the vehicle (van_helper + dispatch)
+  const { data: loaders } = await supabase
     .from("app_users")
-    .select("id, full_name, phone")
-    .eq("role", "van_helper")
+    .select("id, full_name, phone, role")
+    .in("role", ["van_helper", "dispatch"])
     .eq("active", true)
     .order("full_name");
-  const helperList = (helpers ?? []) as Array<{ id: string; full_name: string; phone: string | null }>;
+  const loaderList = (loaders ?? []) as Array<{ id: string; full_name: string; phone: string | null; role: string }>;
 
   return (
     <LoadTruckWizard
       beatGroups={beatGroups}
       focusBeatId={focusBeatId ?? null}
-      drivers={driverList.map(d => ({ id: d.id, name: d.full_name, phone: d.phone }))}
-      helpers={helperList.map(h => ({ id: h.id, name: h.full_name, phone: h.phone }))}
+      vehicles={vehicleList.map(v => ({ id: v.id, number: v.number, make: v.make, capacityKg: v.capacity_kg }))}
+      loaders={loaderList.map(l => ({ id: l.id, name: l.full_name, phone: l.phone, role: l.role }))}
     />
   );
 }

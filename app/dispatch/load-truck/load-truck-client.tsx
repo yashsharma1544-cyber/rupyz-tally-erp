@@ -3,14 +3,12 @@
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Truck, CheckSquare, Square, ChevronDown, ChevronRight, MapPin, UserPlus } from "lucide-react";
+import { ArrowLeft, ArrowRight, Truck, CheckSquare, Square, ChevronDown, ChevronRight, MapPin, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { useTranslation } from "@/lib/i18n/context";
-import { dispatchSelectedOrders } from "@/app/(app)/dispatches/actions";
+import { dispatchSelectedOrders, createVehicle } from "@/app/(app)/dispatches/actions";
 
 interface OrderItem {
   id: string;
@@ -28,6 +26,20 @@ interface BeatGroup {
   orders: OrderItem[];
 }
 
+interface VehicleOption {
+  id: string;
+  number: string;
+  make: string | null;
+  capacityKg: number | null;
+}
+
+interface LoaderOption {
+  id: string;
+  name: string;
+  phone: string | null;
+  role: string;
+}
+
 function formatINR(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "₹0";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -37,53 +49,38 @@ function formatKg(n: number): string {
   return `${n.toLocaleString("en-IN", { maximumFractionDigits: 1 })} kg`;
 }
 
-type Step = "pick" | "details";
-
-interface UserOption {
-  id: string;
-  name: string;
-  phone: string | null;
-}
+type Step = "vehicle" | "orders";
 
 export function LoadTruckWizard({
-  beatGroups, focusBeatId, drivers, helpers,
+  beatGroups, focusBeatId, vehicles, loaders,
 }: {
   beatGroups: BeatGroup[];
   focusBeatId: string | null;
-  drivers: UserOption[];
-  helpers: UserOption[];
+  vehicles: VehicleOption[];
+  loaders: LoaderOption[];
 }) {
   const router = useRouter();
-  const { t } = useTranslation();
-  const [step, setStep] = useState<Step>("pick");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [step, setStep] = useState<Step>("vehicle");
 
+  // ---- Step 1 state: vehicle + loaders ----
+  const [vehicleOptions, setVehicleOptions] = useState<VehicleOption[]>(vehicles);
+  const [vehicleId, setVehicleId] = useState<string>("");
+  const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [newVehNumber, setNewVehNumber] = useState("");
+  const [newVehMake, setNewVehMake] = useState("");
+  const [newVehCap, setNewVehCap] = useState("");
+  const [addingVehicle, startAddVehicle] = useTransition();
+  const [loaderIds, setLoaderIds] = useState<Set<string>>(new Set());
+
+  // ---- Step 2 state: order selection ----
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(() => {
     const s = new Set<string>();
     if (focusBeatId) s.add(focusBeatId);
     else if (beatGroups.length <= 2) for (const b of beatGroups) s.add(b.beatId);
     return s;
   });
-
-  const [vehicle, setVehicle] = useState("");
-  const [driverMode, setDriverMode] = useState<"registered" | "adhoc">(
-    drivers.length > 0 ? "registered" : "adhoc"
-  );
-  const [driverId, setDriverId] = useState<string>("");
-  const [driver, setDriver] = useState("");
-  const [driverPhone, setDriverPhone] = useState("");
-  const [helperId, setHelperId] = useState<string>("");
-  const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
-
-  function pickRegisteredDriver(id: string) {
-    setDriverId(id);
-    const d = drivers.find(x => x.id === id);
-    if (d) {
-      setDriver(d.name);
-      setDriverPhone(d.phone ?? "");
-    }
-  }
 
   const allOrdersFlat = useMemo(() => {
     const m = new Map<string, { beatName: string; order: OrderItem }>();
@@ -98,241 +95,177 @@ export function LoadTruckWizard({
   const totalKg     = selectedOrders.reduce((s, x) => s + x.order.kg, 0);
   const totalAmount = selectedOrders.reduce((s, x) => s + x.order.totalAmount, 0);
 
-  function toggleOne(id: string) {
-    setSelected(prev => {
+  const selectedVehicle = vehicleOptions.find(v => v.id === vehicleId);
+
+  function toggleLoader(id: string) {
+    setLoaderIds(prev => {
       const s = new Set(prev);
-      if (s.has(id)) s.delete(id);
-      else s.add(id);
-      return s;
-    });
-  }
-  function toggleBeatExpanded(beatId: string) {
-    setExpandedBeats(prev => {
-      const s = new Set(prev);
-      if (s.has(beatId)) s.delete(beatId);
-      else s.add(beatId);
+      if (s.has(id)) s.delete(id); else s.add(id);
       return s;
     });
   }
 
+  function handleAddVehicle() {
+    if (!newVehNumber.trim()) { toast.error("Vehicle number is required"); return; }
+    startAddVehicle(async () => {
+      const res = await createVehicle({
+        number: newVehNumber.trim(),
+        make: newVehMake.trim() || undefined,
+        capacityKg: newVehCap.trim() ? Number(newVehCap) : undefined,
+      });
+      if ("error" in res && res.error) { toast.error(res.error); return; }
+      const v = res.vehicle!;
+      const opt: VehicleOption = { id: v.id, number: v.number, make: v.make ?? null, capacityKg: v.capacity_kg ?? null };
+      setVehicleOptions(prev => prev.some(x => x.id === opt.id) ? prev : [...prev, opt].sort((a, b) => a.number.localeCompare(b.number)));
+      setVehicleId(opt.id);
+      setShowAddVehicle(false);
+      setNewVehNumber(""); setNewVehMake(""); setNewVehCap("");
+      toast.success(`Vehicle ${opt.number} added`);
+    });
+  }
+
+  function toggleOne(id: string) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+  function toggleBeatExpanded(beatId: string) {
+    setExpandedBeats(prev => { const s = new Set(prev); s.has(beatId) ? s.delete(beatId) : s.add(beatId); return s; });
+  }
   function selectAllInBeat(beatId: string) {
     const beat = beatGroups.find(b => b.beatId === beatId);
     if (!beat) return;
-    setSelected(prev => {
-      const s = new Set(prev);
-      for (const o of beat.orders) s.add(o.id);
-      return s;
-    });
+    setSelected(prev => { const s = new Set(prev); for (const o of beat.orders) s.add(o.id); return s; });
   }
   function clearBeat(beatId: string) {
     const beat = beatGroups.find(b => b.beatId === beatId);
     if (!beat) return;
-    setSelected(prev => {
-      const s = new Set(prev);
-      for (const o of beat.orders) s.delete(o.id);
-      return s;
-    });
+    setSelected(prev => { const s = new Set(prev); for (const o of beat.orders) s.delete(o.id); return s; });
   }
   function clearAll() { setSelected(new Set()); }
 
   function handleConfirm() {
-    if (!vehicle.trim()) {
-      toast.error(t("truck_wizard.toast_vehicle_required"));
-      return;
-    }
-    if (driverMode === "registered" && !driverId) {
-      toast.error(t("truck_wizard.toast_pick_driver_or_other"));
-      return;
-    }
-    if (!driver.trim()) {
-      toast.error(t("truck_wizard.toast_driver_required"));
-      return;
-    }
+    if (!vehicleId) { toast.error("Select a vehicle"); return; }
+    if (selected.size === 0) { toast.error("Select at least one order"); return; }
     startTransition(async () => {
       const res = await dispatchSelectedOrders({
         orderIds: Array.from(selected),
-        vehicleNumber: vehicle.trim(),
-        driverName: driver.trim(),
-        driverPhone: driverPhone.trim() || undefined,
-        driverUserId: driverMode === "registered" ? driverId : undefined,
-        helperUserId: helperId || undefined,
-        notes: notes.trim() || undefined,
+        vehicleId,
+        loaderUserIds: Array.from(loaderIds),
       });
-      if ("error" in res && res.error) {
-        toast.error(res.error);
-        return;
-      }
-      const firstFailureErr = res.results?.find(r => !r.ok)?.error;
-      const total     = res.total     ?? 0;
+      if ("error" in res && res.error) { toast.error(res.error); return; }
       const succeeded = res.succeeded ?? 0;
-      const failed    = res.failed    ?? 0;
+      const failed = res.failed ?? 0;
+      const total = res.total ?? 0;
+      const firstFailureErr = res.results?.find(r => !r.ok)?.error;
       if (succeeded === 0) {
-        toast.error(firstFailureErr ?? t("truck_wizard.toast_all_failed", { total }), {
-          duration: 12000,
-          description: firstFailureErr ? t("truck_wizard.toast_n_of_m_failed", { failed, total }) : undefined,
-        });
+        toast.error(firstFailureErr ?? `All ${total} failed`, { duration: 10000 });
         return;
       }
       if (failed > 0) {
-        toast.warning(
-          t("truck_wizard.toast_n_of_m_dispatched", { succeeded, total, failed }),
-          { description: firstFailureErr, duration: 10000 },
-        );
+        toast.warning(`${succeeded} of ${total} loaded · ${failed} failed`, { description: firstFailureErr, duration: 9000 });
       } else {
-        const msg = succeeded === 1
-          ? t("truck_wizard.toast_succeeded_one", { n: succeeded })
-          : t("truck_wizard.toast_succeeded_many", { n: succeeded });
-        toast.success(msg);
+        toast.success(succeeded === 1 ? `1 order loaded` : `${succeeded} orders loaded`);
       }
-      router.push(`/dispatch`);
+      router.push("/dispatch");
     });
   }
 
-  const selectedHelper = helpers.find(h => h.id === helperId);
-
-  // ============ STEP 1: PICK ============
-  if (step === "pick") {
-    const totalAvailableOrders = beatGroups.reduce((s, b) => s + b.orders.length, 0);
-
+  // ============ STEP 1: VEHICLE + LOADERS ============
+  if (step === "vehicle") {
     return (
       <div className="min-h-screen bg-paper pb-24">
         <div className="max-w-md mx-auto px-3 py-4">
           <Link href="/dispatch" className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
-            <ArrowLeft size={11}/> {t("truck_wizard.cancel")}
+            <ArrowLeft size={11}/> Cancel
           </Link>
 
-          <div className="text-2xs text-accent mb-1">{t("truck_wizard.step_1_of_2")}</div>
-          <h1 className="text-base font-semibold leading-tight">
-            {t("truck_wizard.which_orders")}
-          </h1>
-          <p className="text-xs text-ink-muted mt-0.5">
-            {t("truck_wizard.pick_help")}
-          </p>
+          <div className="text-2xs text-accent mb-1">Step 1 of 2</div>
+          <h1 className="text-base font-semibold leading-tight">Vehicle &amp; loaders</h1>
+          <p className="text-xs text-ink-muted mt-0.5">Pick the vehicle to load and who is loading it.</p>
 
-          {selected.size > 0 && (
-            <div className="flex items-center gap-3 mt-3 mb-1 text-xs">
-              <button type="button" onClick={clearAll} className="text-ink-muted hover:underline">
-                {t("truck_wizard.clear_all_selections")}
-              </button>
-            </div>
-          )}
+          {/* Vehicle */}
+          <div className="mt-4">
+            <Label className="text-xs">Vehicle <span className="text-danger">*</span></Label>
+            {!showAddVehicle ? (
+              <div className="flex items-center gap-2 mt-1">
+                <select
+                  className="flex-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  value={vehicleId}
+                  onChange={e => setVehicleId(e.target.value)}
+                >
+                  <option value="">Select a vehicle…</option>
+                  {vehicleOptions.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.number}{v.make ? ` · ${v.make}` : ""}{v.capacityKg ? ` · ${v.capacityKg}kg` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowAddVehicle(true)}
+                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 text-xs rounded border border-paper-line bg-paper-card hover:bg-paper-subtle"
+                >
+                  <Plus size={13}/> Add
+                </button>
+              </div>
+            ) : (
+              <div className="mt-1 border border-paper-line rounded-md p-3 bg-paper-subtle/30 space-y-2">
+                <div className="text-2xs uppercase tracking-wide text-ink-muted">New vehicle</div>
+                <Input placeholder="Number e.g. MH-20 AB 1234" value={newVehNumber} onChange={e => setNewVehNumber(e.target.value)} autoFocus />
+                <div className="flex gap-2">
+                  <Input placeholder="Make (optional)" value={newVehMake} onChange={e => setNewVehMake(e.target.value)} />
+                  <Input placeholder="Capacity kg" inputMode="numeric" value={newVehCap} onChange={e => setNewVehCap(e.target.value)} className="w-28" />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleAddVehicle} disabled={addingVehicle}>
+                    {addingVehicle ? "Adding…" : "Add vehicle"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setShowAddVehicle(false); setNewVehNumber(""); setNewVehMake(""); setNewVehCap(""); }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
 
-          {totalAvailableOrders === 0 ? (
-            <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-4">
-              <p className="text-sm font-semibold mb-0.5">{t("truck_wizard.nothing_to_load")}</p>
-              <p className="text-xs text-ink-muted">{t("truck_wizard.no_approved_now")}</p>
-            </div>
-          ) : (
-            <div className="space-y-2 mt-3">
-              {beatGroups.map(group => {
-                const isExpanded = expandedBeats.has(group.beatId);
-                const beatSelectedCount = group.orders.filter(o => selected.has(o.id)).length;
-                const beatTotalKg = group.orders.reduce((s, o) => s + (selected.has(o.id) ? o.kg : 0), 0);
-                const allInBeatSelected = beatSelectedCount === group.orders.length;
-                const availableLabel = group.orders.length === 1
-                  ? t("truck_wizard.n_orders_available_one", { n: group.orders.length })
-                  : t("truck_wizard.n_orders_available_many", { n: group.orders.length });
-
-                return (
-                  <div
-                    key={group.beatId}
-                    className="bg-paper-card border border-paper-line rounded-md overflow-hidden"
-                  >
+          {/* Loaders */}
+          <div className="mt-5">
+            <Label className="text-xs inline-flex items-center gap-1">
+              <Users size={12}/> Loaders <span className="text-2xs text-ink-subtle font-normal">(who is loading)</span>
+            </Label>
+            {loaders.length === 0 ? (
+              <p className="text-2xs text-ink-subtle mt-1"><em>No loaders configured (van_helper / dispatch users).</em></p>
+            ) : (
+              <div className="mt-1 grid grid-cols-2 gap-1.5">
+                {loaders.map(l => {
+                  const on = loaderIds.has(l.id);
+                  return (
                     <button
+                      key={l.id}
                       type="button"
-                      onClick={() => toggleBeatExpanded(group.beatId)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-paper-subtle/50 transition-colors text-left"
+                      onClick={() => toggleLoader(l.id)}
+                      className={`text-left px-2.5 py-2 rounded border text-xs transition-colors flex items-center gap-2 ${
+                        on ? "border-accent bg-accent-soft/40" : "border-paper-line bg-paper-card hover:bg-paper-subtle"
+                      }`}
                     >
-                      <div className="shrink-0">
-                        {isExpanded
-                          ? <ChevronDown size={14} className="text-ink-muted"/>
-                          : <ChevronRight size={14} className="text-ink-muted"/>
-                        }
-                      </div>
-                      <div className="w-7 h-7 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
-                        <MapPin size={12}/>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate">{group.beatName}</div>
-                        <div className="text-2xs text-ink-muted mt-0.5">
-                          {beatSelectedCount > 0
-                            ? <><span className="text-accent tabular font-semibold">{t("truck_wizard.n_of_m_selected", { n: beatSelectedCount, m: group.orders.length })}</span> · <span className="tabular">{formatKg(beatTotalKg)}</span></>
-                            : <>{availableLabel}</>
-                          }
-                        </div>
-                      </div>
+                      {on ? <CheckSquare size={14} className="text-accent shrink-0"/> : <Square size={14} className="text-ink-subtle shrink-0"/>}
+                      <span className="truncate">{l.name}</span>
                     </button>
-
-                    {isExpanded && (
-                      <div className="border-t border-paper-line divide-y divide-paper-line">
-                        <div className="px-3 py-1.5 bg-paper-subtle/40 flex items-center gap-3 text-2xs">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); allInBeatSelected ? clearBeat(group.beatId) : selectAllInBeat(group.beatId); }}
-                            className="text-accent hover:underline"
-                          >
-                            {allInBeatSelected ? t("truck_wizard.clear_this_beat") : t("truck_wizard.select_all_in_beat")}
-                          </button>
-                        </div>
-
-                        {group.orders.map(o => {
-                          const isSelected = selected.has(o.id);
-                          return (
-                            <button
-                              key={o.id}
-                              type="button"
-                              onClick={() => toggleOne(o.id)}
-                              className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition-colors ${
-                                isSelected ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"
-                              }`}
-                            >
-                              <div className="shrink-0">
-                                {isSelected
-                                  ? <CheckSquare size={16} className="text-accent"/>
-                                  : <Square size={16} className="text-ink-subtle"/>
-                                }
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">{o.customerName}</div>
-                                <div className="text-2xs text-ink-muted mt-0.5">
-                                  <span className="font-mono">{o.rupyzOrderId}</span>
-                                  {o.customerCity && <> · {o.customerCity}</>}
-                                  {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">{t("status.partly_sent_inline")}</span></>}
-                                  {o.appStatus === "loaded" && <> · <span className="text-accent">{t("status.loaded_inline")}</span></>}
-                                </div>
-                                <div className="text-2xs text-ink-muted mt-0.5">
-                                  <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
-                                  <span className="text-ink-subtle"> · </span>
-                                  <span className="tabular">{formatINR(o.totalAmount)}</span>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
           <div className="max-w-md mx-auto">
             <div className="text-2xs text-center text-ink-muted mb-1.5">
-              {selected.size === 0
-                ? t("truck_wizard.tap_to_select_truck")
-                : <><strong className="text-ink tabular">{selected.size}</strong> · <strong className="text-ink tabular">{formatKg(totalKg)}</strong> · <strong className="text-ink tabular">{formatINR(totalAmount)}</strong></>
-              }
+              {selectedVehicle
+                ? <>Vehicle <strong className="text-ink">{selectedVehicle.number}</strong> · <strong className="text-ink">{loaderIds.size}</strong> loader{loaderIds.size === 1 ? "" : "s"}</>
+                : "Select a vehicle to continue"}
             </div>
-            <Button
-              className="w-full"
-              size="lg"
-              disabled={selected.size === 0}
-              onClick={() => setStep("details")}
-            >
-              {t("truck_wizard.next_truck_details")} <ArrowRight size={14}/>
+            <Button className="w-full" size="lg" disabled={!vehicleId} onClick={() => setStep("orders")}>
+              Next: pick orders <ArrowRight size={14}/>
             </Button>
           </div>
         </div>
@@ -340,197 +273,130 @@ export function LoadTruckWizard({
     );
   }
 
-  // ============ STEP 2: DETAILS ============
-  const selectedByBeat = new Map<string, { beatName: string; orders: OrderItem[] }>();
-  for (const x of selectedOrders) {
-    const key = x.beatName;
-    if (!selectedByBeat.has(key)) selectedByBeat.set(key, { beatName: x.beatName, orders: [] });
-    selectedByBeat.get(key)!.orders.push(x.order);
-  }
-  const previewGroups = Array.from(selectedByBeat.values()).sort((a, b) => a.beatName.localeCompare(b.beatName));
-  const orderWordSingle = t("common.order");
-  const orderWordPlural = t("common.orders");
+  // ============ STEP 2: PICK ORDERS ============
+  const totalAvailableOrders = beatGroups.reduce((s, b) => s + b.orders.length, 0);
 
   return (
     <div className="min-h-screen bg-paper pb-24">
       <div className="max-w-md mx-auto px-3 py-4">
         <button
           type="button"
-          onClick={() => setStep("pick")}
+          onClick={() => setStep("vehicle")}
           className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2"
         >
-          <ArrowLeft size={11}/> {t("truck_wizard.back_to_selection")}
+          <ArrowLeft size={11}/> Back to vehicle
         </button>
 
-        <div className="text-2xs text-accent mb-1">{t("truck_wizard.step_2_of_2")}</div>
-        <h1 className="text-base font-semibold leading-tight">{t("truck_wizard.truck_details")}</h1>
+        <div className="text-2xs text-accent mb-1">Step 2 of 2</div>
+        <h1 className="text-base font-semibold leading-tight">Which orders?</h1>
         <p className="text-xs text-ink-muted mt-0.5">
-          {selected.size === 1
-            ? t("truck_wizard.loading_n_orders_one", { n: selected.size })
-            : t("truck_wizard.loading_n_orders_many", { n: selected.size })} ·
-          {" "}<strong className="text-ink tabular">{formatKg(totalKg)}</strong> ·
-          {" "}<strong className="text-ink tabular">{formatINR(totalAmount)}</strong>
-          {previewGroups.length > 1 && <> · {t("truck_wizard.across_n_beats", { n: previewGroups.length })}</>}
+          Loading into <strong className="text-ink">{selectedVehicle?.number}</strong>. Tap orders to load them.
         </p>
 
-        <div className="mt-4">
-          <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-            {t("truck_wizard.orders_on_truck")}
-          </h2>
-          <div className="space-y-2">
-            {previewGroups.map(g => (
-              <div key={g.beatName} className="bg-paper-card border border-paper-line rounded overflow-hidden">
-                <div className="px-3 py-1.5 bg-paper-subtle/40 text-2xs font-semibold text-ink-muted uppercase tracking-wide">
-                  {g.beatName} · {g.orders.length} {g.orders.length === 1 ? orderWordSingle : orderWordPlural}
-                </div>
-                <div className="divide-y divide-paper-line">
-                  {g.orders.map(o => (
-                    <div key={o.id} className="px-3 py-2 flex items-baseline justify-between gap-2 text-sm">
-                      <span className="font-medium truncate flex-1">{o.customerName}</span>
-                      <span className="text-2xs text-ink-muted tabular shrink-0">
-                        {formatKg(o.kg)} · {formatINR(o.totalAmount)}
-                      </span>
+        {selected.size > 0 && (
+          <div className="flex items-center gap-3 mt-3 mb-1 text-xs">
+            <button type="button" onClick={clearAll} className="text-ink-muted hover:underline">Clear all selections</button>
+          </div>
+        )}
+
+        {totalAvailableOrders === 0 ? (
+          <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-4">
+            <p className="text-sm font-semibold mb-0.5">Nothing to load</p>
+            <p className="text-xs text-ink-muted">No approved orders right now.</p>
+          </div>
+        ) : (
+          <div className="space-y-2 mt-3">
+            {beatGroups.map(group => {
+              const isExpanded = expandedBeats.has(group.beatId);
+              const beatSelectedCount = group.orders.filter(o => selected.has(o.id)).length;
+              const beatTotalKg = group.orders.reduce((s, o) => s + (selected.has(o.id) ? o.kg : 0), 0);
+              const allInBeatSelected = beatSelectedCount === group.orders.length;
+              return (
+                <div key={group.beatId} className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleBeatExpanded(group.beatId)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-paper-subtle/50 transition-colors text-left"
+                  >
+                    <div className="shrink-0">
+                      {isExpanded ? <ChevronDown size={14} className="text-ink-muted"/> : <ChevronRight size={14} className="text-ink-muted"/>}
                     </div>
-                  ))}
+                    <div className="w-7 h-7 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
+                      <MapPin size={12}/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm truncate">{group.beatName}</div>
+                      <div className="text-2xs text-ink-muted mt-0.5">
+                        {beatSelectedCount > 0
+                          ? <><span className="text-accent tabular font-semibold">{beatSelectedCount} of {group.orders.length} selected</span> · <span className="tabular">{formatKg(beatTotalKg)}</span></>
+                          : <>{group.orders.length} order{group.orders.length === 1 ? "" : "s"} available</>}
+                      </div>
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-paper-line divide-y divide-paper-line">
+                      <div className="px-3 py-1.5 bg-paper-subtle/40 flex items-center gap-3 text-2xs">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); allInBeatSelected ? clearBeat(group.beatId) : selectAllInBeat(group.beatId); }}
+                          className="text-accent hover:underline"
+                        >
+                          {allInBeatSelected ? "Clear this beat" : "Select all in beat"}
+                        </button>
+                      </div>
+
+                      {group.orders.map(o => {
+                        const isSelected = selected.has(o.id);
+                        return (
+                          <button
+                            key={o.id}
+                            type="button"
+                            onClick={() => toggleOne(o.id)}
+                            className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition-colors ${
+                              isSelected ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"
+                            }`}
+                          >
+                            <div className="shrink-0">
+                              {isSelected ? <CheckSquare size={16} className="text-accent"/> : <Square size={16} className="text-ink-subtle"/>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate">{o.customerName}</div>
+                              <div className="text-2xs text-ink-muted mt-0.5">
+                                <span className="font-mono">{o.rupyzOrderId}</span>
+                                {o.customerCity && <> · {o.customerCity}</>}
+                                {o.appStatus === "partially_dispatched" && <> · <span className="text-warn">partly sent</span></>}
+                                {o.appStatus === "loaded" && <> · <span className="text-accent">loaded</span></>}
+                              </div>
+                              <div className="text-2xs text-ink-muted mt-0.5">
+                                <span className="tabular"><strong className="text-ink">{formatKg(o.kg)}</strong></span>
+                                <span className="text-ink-subtle"> · </span>
+                                <span className="tabular">{formatINR(o.totalAmount)}</span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
-          <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
-            {t("truck_wizard.vehicle_and_driver")}
-          </h2>
-          <div>
-            <Label className="text-xs">{t("truck_wizard.vehicle_label")} <span className="text-danger">*</span></Label>
-            <Input
-              className="mt-1"
-              placeholder="MH-20 AB 1234"
-              value={vehicle}
-              onChange={e => setVehicle(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div>
-            <Label className="text-xs">{t("truck_wizard.driver_label")} <span className="text-danger">*</span></Label>
-            {drivers.length > 0 && (
-              <div className="flex items-center gap-2 mt-1 mb-1.5 text-2xs">
-                <button
-                  type="button"
-                  onClick={() => setDriverMode("registered")}
-                  className={`px-2 py-1 rounded border transition-colors ${
-                    driverMode === "registered"
-                      ? "border-accent bg-accent text-paper-card"
-                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
-                  }`}
-                >
-                  {t("truck_wizard.pick_driver")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setDriverMode("adhoc"); setDriverId(""); setDriver(""); setDriverPhone(""); }}
-                  className={`px-2 py-1 rounded border transition-colors ${
-                    driverMode === "adhoc"
-                      ? "border-accent bg-accent text-paper-card"
-                      : "border-paper-line bg-paper-card hover:bg-paper-subtle"
-                  }`}
-                >
-                  {t("truck_wizard.other_driver")}
-                </button>
-              </div>
-            )}
-
-            {driverMode === "registered" && drivers.length > 0 ? (
-              <select
-                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
-                value={driverId}
-                onChange={(e) => pickRegisteredDriver(e.target.value)}
-              >
-                <option value="">{t("truck_wizard.select_driver_placeholder")}</option>
-                {drivers.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}{d.phone ? ` · ${d.phone}` : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input
-                className="mt-1"
-                placeholder={t("truck_wizard.driver_eg")}
-                value={driver}
-                onChange={e => setDriver(e.target.value)}
-              />
-            )}
-          </div>
-          <div>
-            <Label className="text-xs text-ink-muted">{t("truck_wizard.driver_phone_label")}</Label>
-            <Input
-              className="mt-1"
-              placeholder={driverMode === "registered" && driverId ? "" : t("truck_wizard.driver_phone_placeholder")}
-              inputMode="tel"
-              value={driverPhone}
-              onChange={e => setDriverPhone(e.target.value)}
-              disabled={driverMode === "registered" && !!driverId}
-            />
-          </div>
-
-          {helpers.length > 0 ? (
-            <div>
-              <Label className="text-xs inline-flex items-center gap-1">
-                <UserPlus size={11}/> {t("truck_wizard.helper_label")}
-                <span className="text-2xs text-ink-subtle font-normal">{t("common.optional_paren")}</span>
-              </Label>
-              <select
-                className="w-full mt-1 px-3 py-2 text-sm bg-paper-card border border-paper-line rounded focus:outline-none focus:ring-2 focus:ring-accent/30"
-                value={helperId}
-                onChange={(e) => setHelperId(e.target.value)}
-              >
-                <option value="">{t("truck_wizard.no_helper_placeholder")}</option>
-                {helpers.map(h => (
-                  <option key={h.id} value={h.id}>
-                    {h.name}{h.phone ? ` · ${h.phone}` : ""}
-                  </option>
-                ))}
-              </select>
-              {selectedHelper && (
-                <p className="text-2xs text-ink-muted mt-1">
-                  {t("truck_wizard.helper_will_see", { name: selectedHelper.name, n: selected.size })}
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="text-2xs text-ink-subtle">
-              <em>{t("truck_wizard.no_helpers_configured")}</em>
-            </div>
-          )}
-
-          <div>
-            <Label className="text-xs text-ink-muted">{t("truck_wizard.notes_label")}</Label>
-            <Textarea
-              className="mt-1"
-              rows={2}
-              placeholder={t("truck_wizard.notes_placeholder")}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto">
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handleConfirm}
-            disabled={pending || !vehicle.trim() || !driver.trim()}
-          >
+          <div className="text-2xs text-center text-ink-muted mb-1.5">
+            {selected.size === 0
+              ? "Select orders to load"
+              : <><strong className="text-ink tabular">{selected.size}</strong> · <strong className="text-ink tabular">{formatKg(totalKg)}</strong> · <strong className="text-ink tabular">{formatINR(totalAmount)}</strong></>}
+          </div>
+          <Button className="w-full" size="lg" onClick={handleConfirm} disabled={pending || selected.size === 0}>
             <Truck size={14}/> {pending
-              ? t("truck_wizard.dispatching")
-              : selected.size === 1
-                ? t("truck_wizard.dispatch_n_orders_one", { n: selected.size })
-                : t("truck_wizard.dispatch_n_orders_many", { n: selected.size })}
+              ? "Loading…"
+              : selected.size === 1 ? "Load 1 order" : `Load ${selected.size} orders`}
           </Button>
         </div>
       </div>

@@ -1,11 +1,11 @@
 // =============================================================================
 // /dispatch — godown dispatch app home
 //
-// Mobile-first PWA at /dispatch. Shows beats with approved orders, each as a
-// big tappable tile with order count + kg + amount.
+// Vehicle-first flow: "Load a truck" picks vehicle + loaders + orders.
+// The "Trucks loading" panel now groups by vehicle_loads (load_id) and the
+// "Vehicle left" button captures driver + helper at dispatch time.
 //
 // Auth: admin and dispatch only.
-// i18n: server component, reads cookie via getT().
 // =============================================================================
 
 import { redirect } from "next/navigation";
@@ -37,9 +37,10 @@ interface BeatRow {
 }
 
 interface TruckRow {
+  load_id: string;
   vehicle_number: string;
-  driver_name: string;
-  driver_phone: string;
+  vehicle_id: string;
+  loaders: string;
   dispatch_count: number;
   order_count: number;
   total_qty: number;
@@ -77,7 +78,7 @@ export default async function DispatchHomePage() {
   const truckRows = (trucks ?? []) as TruckRow[];
 
   const allDispatchIds = truckRows.flatMap(t => t.dispatch_ids);
-  const truckOrdersByKey = new Map<string, Array<{
+  const truckOrdersByLoad = new Map<string, Array<{
     orderId: string;
     rupyzOrderId: string;
     customerName: string;
@@ -90,7 +91,7 @@ export default async function DispatchHomePage() {
     const { data: dispatches } = await supabase
       .from("dispatches")
       .select(`
-        id, vehicle_number, driver_name, total_qty, total_amount,
+        id, load_id, total_qty, total_amount,
         order:orders(
           id, rupyz_order_id,
           customer:customers(name, beat:beats(name))
@@ -100,20 +101,19 @@ export default async function DispatchHomePage() {
 
     for (const d of (dispatches ?? []) as Array<{
       id: string;
-      vehicle_number: string | null;
-      driver_name: string | null;
+      load_id: string | null;
       total_qty: number;
       total_amount: number;
       order: { id: string; rupyz_order_id: string; customer: { name: string; beat: { name: string } | { name: string }[] | null } | { name: string; beat: { name: string } | { name: string }[] | null }[] | null } | { id: string; rupyz_order_id: string; customer: { name: string; beat: { name: string } | { name: string }[] | null } | { name: string; beat: { name: string } | { name: string }[] | null }[] | null }[] | null;
     }>) {
-      const key = `${d.vehicle_number ?? ""}::${d.driver_name ?? ""}`;
+      const key = d.load_id ?? "";
       const order = Array.isArray(d.order) ? d.order[0] : d.order;
       if (!order) continue;
       const customer = Array.isArray(order.customer) ? order.customer[0] : order.customer;
       const beatRel = customer?.beat;
       const beat = Array.isArray(beatRel) ? beatRel[0] : beatRel;
-      if (!truckOrdersByKey.has(key)) truckOrdersByKey.set(key, []);
-      truckOrdersByKey.get(key)!.push({
+      if (!truckOrdersByLoad.has(key)) truckOrdersByLoad.set(key, []);
+      truckOrdersByLoad.get(key)!.push({
         orderId: order.id,
         rupyzOrderId: order.rupyz_order_id,
         customerName: customer?.name ?? "—",
@@ -123,6 +123,15 @@ export default async function DispatchHomePage() {
       });
     }
   }
+
+  // Driver/helper pool for the "Vehicle left" dialog: driver + van_helper users
+  const { data: people } = await supabase
+    .from("app_users")
+    .select("id, full_name, phone, role")
+    .in("role", ["driver", "van_helper"])
+    .eq("active", true)
+    .order("full_name");
+  const peopleList = (people ?? []).map(p => ({ id: p.id, name: p.full_name, phone: p.phone, role: p.role }));
 
   const totalOrders = beatRows.reduce((s, b) => s + Number(b.order_count), 0);
   const totalKg     = beatRows.reduce((s, b) => s + Number(b.total_kg), 0);
@@ -171,20 +180,18 @@ export default async function DispatchHomePage() {
 
         {truckRows.length > 0 && (
           <TrucksLoadingPanel
-            trucks={truckRows.map(t => {
-              const key = `${t.vehicle_number ?? ""}::${t.driver_name ?? ""}`;
-              return {
-                vehicleNumber: t.vehicle_number,
-                driverName: t.driver_name,
-                driverPhone: t.driver_phone,
-                dispatchCount: Number(t.dispatch_count),
-                orderCount: Number(t.order_count),
-                totalQty: Number(t.total_qty),
-                totalAmount: Number(t.total_amount),
-                oldestLoadedAt: t.oldest_loaded_at,
-                orders: truckOrdersByKey.get(key) ?? [],
-              };
-            })}
+            people={peopleList}
+            trucks={truckRows.map(t => ({
+              loadId: t.load_id,
+              vehicleNumber: t.vehicle_number,
+              loaders: t.loaders,
+              dispatchCount: Number(t.dispatch_count),
+              orderCount: Number(t.order_count),
+              totalQty: Number(t.total_qty),
+              totalAmount: Number(t.total_amount),
+              oldestLoadedAt: t.oldest_loaded_at,
+              orders: truckOrdersByLoad.get(t.load_id) ?? [],
+            }))}
           />
         )}
 

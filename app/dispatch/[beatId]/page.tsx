@@ -78,19 +78,7 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
     ordersQuery = ordersQuery.eq("customer.beat_id", beatId);
   }
 
-  const [{ data: orders, error }, { data: drivers }, { data: helpers }] = await Promise.all([
-    ordersQuery.order("rupyz_created_at", { ascending: false }),
-    supabase
-      .from("active_drivers")
-      .select("id, full_name, phone")
-      .order("full_name"),
-    supabase
-      .from("app_users")
-      .select("id, full_name, phone")
-      .eq("role", "van_helper")
-      .eq("active", true)
-      .order("full_name"),
-  ]);
+  const { data: orders, error } = await ordersQuery.order("rupyz_created_at", { ascending: false });
 
   if (error) {
     return (
@@ -122,16 +110,6 @@ export default async function BeatDispatchPage({ params }: { params: Promise<{ b
         customerCity: o.customer?.city ?? null,
         kg: kgForItems(o.items ?? []),
         itemCount: (o.items ?? []).length,
-      }))}
-      drivers={(drivers ?? []).map(d => ({
-        id: d.id,
-        name: d.full_name,
-        phone: d.phone ?? null,
-      }))}
-      helpers={(helpers ?? []).map(h => ({
-        id: h.id,
-        name: h.full_name,
-        phone: h.phone ?? null,
       }))}
     />
   );

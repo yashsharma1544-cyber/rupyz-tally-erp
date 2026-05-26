@@ -97,6 +97,7 @@ async function recomputeOrderStatus(
 
 // =============================================================================
 // CREATE DISPATCH
+// EDIT 1+2: added optional loadId; driver/helper already optional; set load_id.
 // =============================================================================
 export async function createDispatch(
   orderId: string,
@@ -107,6 +108,7 @@ export async function createDispatch(
     driverPhone?: string;
     driverUserId?: string;
     helperUserId?: string;
+    loadId?: string;
     notes?: string;
   } = {},
 ) {
@@ -178,6 +180,7 @@ export async function createDispatch(
       driver_phone: meta.driverPhone || null,
       driver_user_id: meta.driverUserId || null,
       helper_user_id: meta.helperUserId || null,
+      load_id: meta.loadId || null,
       notes: meta.notes || null,
       total_qty: totalQty,
       total_amount: totalAmount,
@@ -363,10 +366,7 @@ export async function getPhotoPublicUrl(objectName: string) {
 }
 
 // =============================================================================
-// BULK DISPATCH BY BEAT
-//
-// CHANGED in Phase 2: accepts helperUserId, threads through to createDispatch
-// so every dispatch row created for the beat gets the same helper assignment.
+// BULK DISPATCH BY BEAT  (unchanged)
 // =============================================================================
 export async function bulkDispatchByBeat(input: {
   beatId: string;
@@ -436,39 +436,65 @@ export async function bulkDispatchByBeat(input: {
     revalidatePath("/orders");
     revalidatePath("/dispatches");
 
-    return {
-      ok: failed === 0,
-      succeeded,
-      failed,
-      total: results.length,
-      results,
-    };
+    return { ok: failed === 0, succeeded, failed, total: results.length, results };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
 }
 
 // =============================================================================
-// DISPATCH SELECTED ORDERS
+// CREATE VEHICLE (inline add from the load wizard dropdown)
+// =============================================================================
+export async function createVehicle(input: { number: string; make?: string; capacityKg?: number }) {
+  try {
+    const actor = await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    const number = input.number.trim();
+    if (!number) return { error: "Vehicle number is required" };
+
+    // reuse if a vehicle with this number already exists (case-insensitive)
+    const { data: existing } = await admin
+      .from("vehicles").select("id, number, make, capacity_kg")
+      .ilike("number", number).maybeSingle();
+    if (existing) return { ok: true, vehicle: existing };
+
+    const { data: v, error } = await admin.from("vehicles").insert({
+      number,
+      make: input.make?.trim() || null,
+      capacity_kg: input.capacityKg ?? null,
+      created_by: actor.userId,
+    }).select("id, number, make, capacity_kg").single();
+    if (error) return { error: error.message };
+    revalidatePath("/dispatch/load-truck");
+    return { ok: true, vehicle: v };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// DISPATCH SELECTED ORDERS  — vehicle-first flow
 //
-// CHANGED in Phase 2: accepts helperUserId, threads through to createDispatch.
+// Creates a vehicle_loads parent (vehicle + loaders), then attaches each
+// order's dispatch to it via load_id. Driver/helper are NOT set here — they
+// are captured later at "Vehicle left" (shipTruck).
 // =============================================================================
 export async function dispatchSelectedOrders(input: {
   orderIds: string[];
-  vehicleNumber: string;
-  driverName: string;
-  driverPhone?: string;
-  driverUserId?: string;
-  helperUserId?: string;
+  vehicleId: string;
+  loaderUserIds: string[];
   notes?: string;
 }) {
   try {
-    await requireRoles(["admin", "dispatch"]);
+    const actor = await requireRoles(["admin", "dispatch"]);
     const admin = createAdminClient();
 
-    if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
-    if (!input.driverName.trim()) return { error: "Driver name is required" };
+    if (!input.vehicleId) return { error: "Vehicle is required" };
     if (!input.orderIds || input.orderIds.length === 0) return { error: "No orders selected" };
+
+    const { data: vehicle } = await admin
+      .from("vehicles").select("id, number").eq("id", input.vehicleId).single();
+    if (!vehicle) return { error: "Vehicle not found" };
 
     const { data: orders, error: oErr } = await admin
       .from("orders")
@@ -485,35 +511,46 @@ export async function dispatchSelectedOrders(input: {
       return { error: "Some selected orders no longer exist. Refresh the list." };
     }
 
-    const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
+    // 1. Create the load parent
+    const { data: load, error: lErr } = await admin.from("vehicle_loads").insert({
+      vehicle_id: input.vehicleId,
+      status: "loading",
+      loaded_by: actor.userId,
+      created_by: actor.userId,
+      notes: input.notes?.trim() || null,
+    }).select("id").single();
+    if (lErr || !load) return { error: lErr?.message ?? "Failed to create load" };
 
+    // 2. Record loaders
+    if (input.loaderUserIds?.length) {
+      const loaderRows = Array.from(new Set(input.loaderUserIds)).map(uid => ({
+        load_id: load.id, user_id: uid,
+      }));
+      await admin.from("vehicle_load_loaders").insert(loaderRows);
+    }
+
+    // 3. Attach each order's dispatch to the load (no driver yet)
+    const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
     for (const o of orderList) {
       const { data: items } = await admin
         .from("order_items")
         .select("id, qty, total_dispatched_qty")
         .eq("order_id", o.id);
-
       const lines = (items ?? [])
         .map((it: { id: string; qty: number; total_dispatched_qty: number | null }) => ({
           orderItemId: it.id,
           qty: Number(it.qty) - Number(it.total_dispatched_qty ?? 0),
         }))
         .filter(l => l.qty > 0);
-
       if (lines.length === 0) {
         results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: "Nothing left to dispatch" });
         continue;
       }
-
       const res = await createDispatch(o.id, lines, {
-        vehicleNumber: input.vehicleNumber.trim(),
-        driverName: input.driverName.trim(),
-        driverPhone: input.driverPhone?.trim() || undefined,
-        driverUserId: input.driverUserId,
-        helperUserId: input.helperUserId,
+        vehicleNumber: vehicle.number,
+        loadId: load.id,
         notes: input.notes?.trim() || undefined,
       });
-
       if (res.error) {
         results.push({ orderId: o.id, rupyzOrderId: o.rupyz_order_id, ok: false, error: res.error });
       } else {
@@ -524,56 +561,77 @@ export async function dispatchSelectedOrders(input: {
     const succeeded = results.filter(r => r.ok).length;
     const failed = results.filter(r => !r.ok).length;
 
+    // If nothing attached, clean up the empty load
+    if (succeeded === 0) {
+      await admin.from("vehicle_loads").delete().eq("id", load.id);
+    }
+
     revalidatePath("/dispatch");
     revalidatePath("/orders");
     revalidatePath("/dispatches");
-
-    return {
-      ok: failed === 0,
-      succeeded,
-      failed,
-      total: results.length,
-      results,
-    };
+    return { ok: failed === 0, succeeded, failed, total: results.length, results, loadId: load.id };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
 }
 
 // =============================================================================
-// SHIP TRUCK
+// SHIP TRUCK  — "Vehicle left": capture driver + helper, ship the load
 // =============================================================================
 export async function shipTruck(input: {
-  vehicleNumber: string;
-  driverName: string;
+  loadId: string;
+  driverUserId: string;
+  helperUserId?: string;
 }) {
   try {
     const actor = await requireRoles(["admin", "dispatch"]);
     const admin = createAdminClient();
 
-    if (!input.vehicleNumber.trim()) return { error: "Vehicle number is required" };
+    if (!input.loadId) return { error: "Load is required" };
+    if (!input.driverUserId) return { error: "Driver is required" };
+
+    // driver/helper details from app_users
+    const { data: people } = await admin
+      .from("app_users").select("id, full_name, phone")
+      .in("id", [input.driverUserId, ...(input.helperUserId ? [input.helperUserId] : [])]);
+    const driver = (people ?? []).find(p => p.id === input.driverUserId);
+    if (!driver) return { error: "Driver not found" };
 
     const { data: dispatches, error: dErr } = await admin.from("dispatches")
       .select("id, order_id")
       .eq("status", "pending")
-      .eq("vehicle_number", input.vehicleNumber)
-      .eq("driver_name", input.driverName);
+      .eq("load_id", input.loadId);
     if (dErr) return { error: dErr.message };
-    if (!dispatches || dispatches.length === 0) return { error: "No pending dispatches found for this truck" };
+    if (!dispatches || dispatches.length === 0) return { error: "No pending dispatches for this load" };
 
     const now = new Date().toISOString();
     const dispatchIds = dispatches.map(d => d.id);
     const orderIds = Array.from(new Set(dispatches.map(d => d.order_id)));
 
+    // ship dispatches + stamp driver/helper so the driver app works
     const { error: uErr } = await admin.from("dispatches")
-      .update({ status: "shipped", shipped_at: now, shipped_by: actor.userId })
+      .update({
+        status: "shipped", shipped_at: now, shipped_by: actor.userId,
+        driver_user_id: input.driverUserId,
+        helper_user_id: input.helperUserId || null,
+        driver_name: driver.full_name,
+        driver_phone: driver.phone || null,
+      })
       .in("id", dispatchIds);
     if (uErr) return { error: uErr.message };
 
+    // mark the load dispatched
+    await admin.from("vehicle_loads").update({
+      status: "dispatched", dispatched_at: now,
+      driver_user_id: input.driverUserId,
+      helper_user_id: input.helperUserId || null,
+    }).eq("id", input.loadId);
+
     for (const orderId of orderIds) {
       await logEvent(admin, orderId, "truck_dispatched", actor, undefined, {
-        vehicle_number: input.vehicleNumber,
-        driver_name: input.driverName,
+        load_id: input.loadId,
+        driver_user_id: input.driverUserId,
+        helper_user_id: input.helperUserId || null,
         dispatch_count: dispatches.filter(d => d.order_id === orderId).length,
       });
       await recomputeOrderStatus(admin, orderId);
@@ -582,12 +640,7 @@ export async function shipTruck(input: {
     revalidatePath("/dispatch");
     revalidatePath("/orders");
     revalidatePath("/dispatches");
-
-    return {
-      ok: true,
-      dispatchCount: dispatches.length,
-      orderCount: orderIds.length,
-    };
+    return { ok: true, dispatchCount: dispatches.length, orderCount: orderIds.length };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
