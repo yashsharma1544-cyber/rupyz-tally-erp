@@ -59,3 +59,9 @@ body::before {
   outline-offset: 2px;
   border-radius: 3px;
 }
+
+/* Wide on desktop, mobile-sized on phones (page containers only). */
+@media (min-width: 768px) {
+  .max-w-md.mx-auto { max-width: 80rem !important; }
+}
+
