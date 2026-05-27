@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { getT } from "@/lib/i18n/server";
 import { LoadSessionStart } from "./load-session-start";
+import { DeleteEmptyLoadButton } from "./delete-empty-load-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -218,8 +219,13 @@ export default async function LoadHomePage({
                           <div className="text-ink-subtle">started by {startedBy}</div>
                         )}
                       </div>
-                      <div className="mt-3 text-accent text-xs font-semibold inline-flex items-center gap-1">
-                        Resume <ChevronRight size={13} />
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <span className="text-accent text-xs font-semibold inline-flex items-center gap-1">
+                          Resume <ChevronRight size={13} />
+                        </span>
+                        {loaded === 0 && (
+                          <DeleteEmptyLoadButton loadId={s.id} vehicleNumber={vehNum ?? "this vehicle"} />
+                        )}
                       </div>
                     </Link>
                   );
