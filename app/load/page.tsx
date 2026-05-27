@@ -390,7 +390,7 @@ export default async function LoadHomePage({
 
       <div className="lg:flex lg:gap-0 lg:items-stretch">
         {/* LEFT — list column */}
-        <div className={`p-3 sm:p-6 lg:flex-1 lg:min-w-0 ${paneOpen ? "hidden lg:block" : ""} ${paneOpen ? "lg:max-w-[640px]" : ""}`}>
+        <div className={`p-3 sm:p-6 lg:min-w-0 ${paneOpen ? "hidden lg:block lg:w-[560px] lg:shrink-0" : "lg:flex-1"}`}>
           {/* Active vehicle + KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-3xl">
             <div className="sm:col-span-1 bg-accent-soft border border-accent/30 rounded-md p-3">
@@ -434,7 +434,7 @@ export default async function LoadHomePage({
 
         {/* RIGHT — detail pane */}
         {paneOpen && (
-          <div className="p-3 sm:p-6 lg:w-[520px] lg:shrink-0 lg:border-l lg:border-paper-line lg:bg-paper-card/30 lg:min-h-[calc(100vh-3rem)]">
+          <div className="p-3 sm:p-6 lg:flex-1 lg:min-w-0 lg:border-l lg:border-paper-line lg:bg-paper-card/30 lg:min-h-[calc(100vh-3rem)]">
             <div className="flex items-center justify-between mb-3">
               <Link href={`/load?load=${activeLoad.id}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1">
                 <ArrowLeft size={12} /> Back to queue

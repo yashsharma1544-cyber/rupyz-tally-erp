@@ -177,7 +177,7 @@ export function LoadOrderClient({
           {order.items.length === 0 ? (
             <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center text-sm text-ink-muted">{t("loading.no_line_items")}</div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 xl:space-y-0 xl:grid xl:grid-cols-2 xl:gap-3">
               {order.items.map(it => {
                 const cur = parsedQtys.get(it.id) ?? 0;
                 const isLess = cur < it.orderedQty;
