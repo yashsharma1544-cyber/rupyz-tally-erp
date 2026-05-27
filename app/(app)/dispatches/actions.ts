@@ -466,7 +466,128 @@ export async function createVehicle(input: { number: string; make?: string; capa
     }).select("id, number, make, capacity_kg").single();
     if (error) return { error: error.message };
     revalidatePath("/load");
+    revalidatePath("/vehicles");
     return { ok: true, vehicle: v };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// LIST VEHICLES (manage screen) — all vehicles + usage count from vehicle_loads
+// =============================================================================
+export async function listVehicles() {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+
+    const { data: vehicles, error } = await admin
+      .from("vehicles")
+      .select("id, number, make, capacity_kg, active, created_at")
+      .order("active", { ascending: false })
+      .order("number", { ascending: true });
+    if (error) return { error: error.message };
+
+    // usage counts per vehicle
+    const { data: loads } = await admin.from("vehicle_loads").select("vehicle_id");
+    const usage = new Map<string, number>();
+    for (const l of (loads ?? []) as Array<{ vehicle_id: string }>) {
+      usage.set(l.vehicle_id, (usage.get(l.vehicle_id) ?? 0) + 1);
+    }
+
+    return {
+      ok: true,
+      vehicles: (vehicles ?? []).map((v: { id: string; number: string; make: string | null; capacity_kg: number | null; active: boolean; created_at: string }) => ({
+        id: v.id,
+        number: v.number,
+        make: v.make,
+        capacityKg: v.capacity_kg,
+        active: v.active,
+        usageCount: usage.get(v.id) ?? 0,
+      })),
+    };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// UPDATE VEHICLE — edit number/make/capacity (re-checks unique number)
+// =============================================================================
+export async function updateVehicle(input: { id: string; number: string; make?: string; capacityKg?: number | null }) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    const number = input.number.trim();
+    if (!input.id) return { error: "Vehicle id required" };
+    if (!number) return { error: "Vehicle number is required" };
+
+    // another vehicle already using this number?
+    const { data: clash } = await admin
+      .from("vehicles").select("id").ilike("number", number).neq("id", input.id).maybeSingle();
+    if (clash) return { error: `Another vehicle already uses number "${number}"` };
+
+    const { data: v, error } = await admin.from("vehicles").update({
+      number,
+      make: input.make?.trim() || null,
+      capacity_kg: input.capacityKg ?? null,
+    }).eq("id", input.id).select("id, number, make, capacity_kg, active").single();
+    if (error) return { error: error.message };
+
+    revalidatePath("/vehicles");
+    revalidatePath("/load");
+    return { ok: true, vehicle: v };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// SET VEHICLE ACTIVE — deactivate / reactivate
+// =============================================================================
+export async function setVehicleActive(input: { id: string; active: boolean }) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    if (!input.id) return { error: "Vehicle id required" };
+
+    const { error } = await admin.from("vehicles").update({ active: input.active }).eq("id", input.id);
+    if (error) return { error: error.message };
+
+    revalidatePath("/vehicles");
+    revalidatePath("/load");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// =============================================================================
+// DELETE VEHICLE — hard-delete if never used; otherwise deactivate (keep history)
+// =============================================================================
+export async function deleteVehicle(id: string) {
+  try {
+    await requireRoles(["admin", "dispatch"]);
+    const admin = createAdminClient();
+    if (!id) return { error: "Vehicle id required" };
+
+    const { data: used } = await admin
+      .from("vehicle_loads").select("id").eq("vehicle_id", id).limit(1);
+
+    if (used && used.length > 0) {
+      // In use — can't hard delete; deactivate instead to preserve history.
+      const { error } = await admin.from("vehicles").update({ active: false }).eq("id", id);
+      if (error) return { error: error.message };
+      revalidatePath("/vehicles");
+      revalidatePath("/load");
+      return { ok: true, deactivated: true };
+    }
+
+    const { error } = await admin.from("vehicles").delete().eq("id", id);
+    if (error) return { error: error.message };
+    revalidatePath("/vehicles");
+    revalidatePath("/load");
+    return { ok: true, deleted: true };
   } catch (e: unknown) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
