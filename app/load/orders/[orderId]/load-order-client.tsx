@@ -28,17 +28,21 @@ interface OrderForLoad {
   items: OrderLine[];
 }
 
+// Re-exported so the /load split-pane can build the same shape.
+export type OrderForLoadExport = OrderForLoad;
+
 function formatINR(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "₹0";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
 export function LoadOrderClient({
-  order, loadId, vehicleNumber,
+  order, loadId, vehicleNumber, embedded = false,
 }: {
   order: OrderForLoad;
   loadId: string;
   vehicleNumber: string;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const { t } = useTranslation();
@@ -117,9 +121,9 @@ export function LoadOrderClient({
   const itemsLabel = itemCount === 1 ? t("common.item") : t("common.items");
 
   return (
-    <div className="min-h-screen bg-paper pb-32">
-      <div className="max-w-md mx-auto px-3 py-4">
-        <Link href={`/load?load=${loadId}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2">
+    <div className={embedded ? "" : "min-h-screen bg-paper pb-32"}>
+      <div className={embedded ? "px-1 py-1" : "max-w-md mx-auto px-3 py-4"}>
+        <Link href={`/load?load=${loadId}`} className={`text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 mb-2 ${embedded ? "lg:hidden" : ""}`}>
           <ArrowLeft size={11}/> {t("loading.back_to_queue")}
         </Link>
 
@@ -219,8 +223,12 @@ export function LoadOrderClient({
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
-        <div className="max-w-md mx-auto space-y-1">
+      <div className={
+        embedded
+          ? "sticky bottom-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3 mt-3 -mx-1 rounded-b-md"
+          : "fixed bottom-0 left-0 right-0 lg:left-56 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3"
+      }>
+        <div className={embedded ? "space-y-1" : "max-w-md mx-auto space-y-1"}>
           {isPartial && totalLoaded > 0 && <p className="text-2xs text-warn text-center">⚠ {t("loading.some_lines_short_warn")}</p>}
           {totalLoaded === 0 && <p className="text-2xs text-danger text-center">{t("loading.at_least_one_qty")}</p>}
           <Button onClick={handleSubmitClick} disabled={!canSubmit} variant="outline" className="w-full" size="lg">

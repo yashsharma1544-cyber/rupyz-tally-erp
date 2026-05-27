@@ -14,7 +14,7 @@
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Boxes, ChevronRight, Package, Hourglass, Receipt, Truck, Check, Clock, Users, Plus } from "lucide-react";
+import { Boxes, ChevronRight, Package, Hourglass, Receipt, Truck, Check, Clock, Users, Plus, ArrowLeft, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { PageHeader } from "@/components/layout/page-header";
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { getT } from "@/lib/i18n/server";
 import { LoadSessionStart } from "./load-session-start";
 import { DeleteEmptyLoadButton } from "./delete-empty-load-button";
+import { LoadOrderClient } from "./orders/[orderId]/load-order-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -59,9 +60,9 @@ interface OrderRow {
 export default async function LoadHomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ load?: string; new?: string }>;
+  searchParams: Promise<{ load?: string; new?: string; order?: string }>;
 }) {
-  const { load: loadId, new: forceNew } = await searchParams;
+  const { load: loadId, new: forceNew, order: orderParam } = await searchParams;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -318,6 +319,63 @@ export default async function LoadHomePage({
 
   const itemsLabel = t("common.items");
 
+  // --- Right-pane order detail (master-detail) ---------------------------------
+  // When ?order=<id> is set, fetch that order exactly like the detail page does,
+  // applying the same invoice gate + remaining-qty logic, to render in the pane.
+  type PaneState =
+    | { kind: "none" }
+    | { kind: "gate"; reason: "approved" | "handled"; statusText?: string }
+    | { kind: "order"; order: import("./orders/[orderId]/load-order-client").OrderForLoadExport };
+  let pane: PaneState = { kind: "none" };
+
+  if (orderParam) {
+    const { data: od } = await supabase
+      .from("orders")
+      .select(`
+        id, rupyz_order_id, total_amount, app_status, invoice_number,
+        customer:customers(id, name, city, mobile),
+        items:order_items(id, product_name, qty, loaded_qty, total_dispatched_qty, price, unit)
+      `)
+      .eq("id", orderParam)
+      .maybeSingle();
+
+    if (od) {
+      if (od.app_status === "approved") {
+        pane = { kind: "gate", reason: "approved" };
+      } else if (!["invoiced", "loading", "loaded", "partially_dispatched"].includes(od.app_status)) {
+        pane = { kind: "gate", reason: "handled", statusText: t(`status.${od.app_status}`) };
+      } else {
+        const cust = Array.isArray(od.customer) ? od.customer[0] : od.customer;
+        pane = {
+          kind: "order",
+          order: {
+            id: od.id,
+            rupyzOrderId: od.rupyz_order_id,
+            invoiceNumber: od.invoice_number ?? null,
+            totalAmount: Number(od.total_amount),
+            appStatus: od.app_status,
+            customer: cust ? { id: cust.id, name: cust.name, city: cust.city, mobile: cust.mobile } : null,
+            items: (od.items ?? []).map((it: {
+              id: string; product_name: string; qty: number; loaded_qty: number | null;
+              total_dispatched_qty: number | null; price: number; unit: string | null;
+            }) => {
+              const remaining = Number(it.qty) - Number(it.total_dispatched_qty ?? 0);
+              return {
+                id: it.id,
+                productName: it.product_name,
+                orderedQty: remaining > 0 ? remaining : 0,
+                loadedQty: it.loaded_qty != null ? Number(it.loaded_qty) : null,
+                price: Number(it.price),
+                unit: it.unit,
+              };
+            }).filter((it: { orderedQty: number }) => it.orderedQty > 0),
+          },
+        };
+      }
+    }
+  }
+  const paneOpen = pane.kind !== "none";
+
   return (
     <>
       <PageHeader
@@ -330,60 +388,109 @@ export default async function LoadHomePage({
         }
       />
 
-      <div className="p-3 sm:p-6">
-        {/* Active vehicle + KPI cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-3xl">
-          <div className="sm:col-span-1 bg-accent-soft border border-accent/30 rounded-md p-3">
-            <div className="flex items-center gap-2">
-              <Truck size={16} className="text-accent shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-2xs uppercase tracking-wide text-accent/80 font-semibold">Loading into</div>
-                <div className="font-mono font-bold text-base leading-tight truncate">{activeLoad.vehicleNumber}</div>
+      <div className="lg:flex lg:gap-0 lg:items-stretch">
+        {/* LEFT — list column */}
+        <div className={`p-3 sm:p-6 lg:flex-1 lg:min-w-0 ${paneOpen ? "hidden lg:block" : ""} ${paneOpen ? "lg:max-w-[640px]" : ""}`}>
+          {/* Active vehicle + KPI cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-3xl">
+            <div className="sm:col-span-1 bg-accent-soft border border-accent/30 rounded-md p-3">
+              <div className="flex items-center gap-2">
+                <Truck size={16} className="text-accent shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-2xs uppercase tracking-wide text-accent/80 font-semibold">Loading into</div>
+                  <div className="font-mono font-bold text-base leading-tight truncate">{activeLoad.vehicleNumber}</div>
+                </div>
               </div>
+              {activeLoad.loaders && <div className="text-2xs text-ink-muted truncate mt-1">Loaders: {activeLoad.loaders}</div>}
+              <Link href="/load?new=1" className="mt-2 inline-flex items-center justify-center gap-1 h-7 px-2.5 rounded border border-paper-line bg-paper-card text-2xs hover:bg-paper-subtle">
+                Switch vehicle
+              </Link>
             </div>
-            {activeLoad.loaders && <div className="text-2xs text-ink-muted truncate mt-1">Loaders: {activeLoad.loaders}</div>}
-            <Link href="/load?new=1" className="mt-2 inline-flex items-center justify-center gap-1 h-7 px-2.5 rounded border border-paper-line bg-paper-card text-2xs hover:bg-paper-subtle">
-              Switch vehicle
-            </Link>
+            <KpiTile icon={Check}   label="Loaded on this vehicle" value={loadedHereCount.toLocaleString("en-IN")} />
+            <KpiTile icon={Boxes}   label="Invoiced, ready to load" value={toLoadCount.toLocaleString("en-IN")} />
           </div>
-          <KpiTile icon={Check}   label="Loaded on this vehicle" value={loadedHereCount.toLocaleString("en-IN")} />
-          <KpiTile icon={Boxes}   label="Invoiced, ready to load" value={toLoadCount.toLocaleString("en-IN")} />
+
+          {toLoadCount === 0 && loadedHereCount === 0 ? (
+            <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center max-w-2xl">
+              <Boxes size={28} className="mx-auto text-ink-subtle mb-2" />
+              <p className="font-semibold text-sm mb-0.5">{t("loading.nothing_to_load")}</p>
+              <p className="text-xs text-ink-muted">{t("loading.empty_state_desc")}</p>
+            </div>
+          ) : (
+            <div className="space-y-6 max-w-3xl">
+              {beatGroups.map(([beatId, group]) => (
+                <BeatTable key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={paneOpen} />
+              ))}
+              {unassigned.length > 0 && (
+                <BeatTable beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={paneOpen} />
+              )}
+            </div>
+          )}
+
+          <div className="mt-6 text-2xs text-ink-subtle lg:hidden">
+            <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
+          </div>
         </div>
 
-        {toLoadCount === 0 && loadedHereCount === 0 ? (
-          <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center max-w-2xl">
-            <Boxes size={28} className="mx-auto text-ink-subtle mb-2" />
-            <p className="font-semibold text-sm mb-0.5">{t("loading.nothing_to_load")}</p>
-            <p className="text-xs text-ink-muted">{t("loading.empty_state_desc")}</p>
-          </div>
-        ) : (
-          <div className="space-y-6 max-w-3xl">
-            {beatGroups.map(([beatId, group]) => (
-              <BeatTable key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel} />
-            ))}
-            {unassigned.length > 0 && (
-              <BeatTable beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel} />
+        {/* RIGHT — detail pane */}
+        {paneOpen && (
+          <div className="p-3 sm:p-6 lg:w-[520px] lg:shrink-0 lg:border-l lg:border-paper-line lg:bg-paper-card/30 lg:min-h-[calc(100vh-3rem)]">
+            <div className="flex items-center justify-between mb-3">
+              <Link href={`/load?load=${activeLoad.id}`} className="text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1">
+                <ArrowLeft size={12} /> Back to queue
+              </Link>
+              <Link href={`/load?load=${activeLoad.id}`} className="text-ink-subtle hover:text-ink p-1" aria-label="Close">
+                <X size={16} />
+              </Link>
+            </div>
+
+            {pane.kind === "gate" && pane.reason === "approved" && (
+              <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
+                <div className="w-12 h-12 mx-auto rounded-full bg-warn-soft text-warn flex items-center justify-center mb-3">
+                  <Receipt size={20} />
+                </div>
+                <p className="font-semibold text-base mb-1">Waiting for invoice</p>
+                <p className="text-sm text-ink-muted">
+                  This order hasn&apos;t been invoiced yet. Billing needs to enter the Tally invoice number before it can be loaded.
+                </p>
+              </div>
             )}
+
+            {pane.kind === "gate" && pane.reason === "handled" && (
+              <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
+                <p className="font-semibold text-sm mb-1">{t("loading.already_handled")}</p>
+                <p className="text-xs text-ink-muted">{t("loading.already_handled_desc", { status: pane.statusText ?? "" })}</p>
+              </div>
+            )}
+
+            {pane.kind === "order" && (
+              <LoadOrderClient
+                embedded
+                loadId={activeLoad.id}
+                vehicleNumber={activeLoad.vehicleNumber}
+                order={pane.order}
+              />
+            )}
+
+            {pane.kind === "none" && null}
           </div>
         )}
-
-        <div className="mt-6 text-2xs text-ink-subtle lg:hidden">
-          <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
-        </div>
-
-        <AutoRefresh />
       </div>
+
+      <AutoRefresh />
     </>
   );
 }
 
 function BeatTable({
-  beatName, orders, loadId, itemsLabel,
+  beatName, orders, loadId, itemsLabel, openOrderId, compact,
 }: {
   beatName: string;
   orders: OrderRow[];
   loadId: string;
   itemsLabel: string;
+  openOrderId: string | null;
+  compact: boolean;
 }) {
   return (
     <section>
@@ -392,22 +499,31 @@ function BeatTable({
       </h2>
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[680px]">
+          <table className={`w-full text-sm ${compact ? "" : "min-w-[680px]"}`}>
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                 <th className="px-3 py-2.5 font-medium">Customer</th>
                 <th className="px-3 py-2.5 font-medium">Order #</th>
-                <th className="px-3 py-2.5 font-medium text-right">{itemsLabel}</th>
-                <th className="px-3 py-2.5 font-medium text-right">Value</th>
-                <th className="px-3 py-2.5 font-medium">Invoice</th>
+                {!compact && <th className="px-3 py-2.5 font-medium text-right">{itemsLabel}</th>}
+                {!compact && <th className="px-3 py-2.5 font-medium text-right">Value</th>}
+                {!compact && <th className="px-3 py-2.5 font-medium">Invoice</th>}
                 <th className="px-3 py-2.5 font-medium text-right w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
-              {orders.map(o => (
-                <tr key={o.id} className={`transition-colors ${o.on_this_load ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"}`}>
+              {orders.map(o => {
+                const isOpen = openOrderId === o.id;
+                return (
+                <tr
+                  key={o.id}
+                  className={`transition-colors ${
+                    isOpen
+                      ? "bg-accent/10 border-l-2 border-accent"
+                      : o.on_this_load ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"
+                  }`}
+                >
                   <td className="px-3 py-3">
-                    <Link href={`/load/orders/${o.id}?load=${loadId}`} className="font-medium inline-flex items-center gap-1.5 hover:text-accent">
+                    <Link href={`/load?load=${loadId}&order=${o.id}`} className={`font-medium inline-flex items-center gap-1.5 hover:text-accent ${isOpen ? "text-accent" : ""}`}>
                       {o.on_this_load && <Check size={13} className="text-accent shrink-0" />}
                       {o.customer?.name ?? "—"}
                     </Link>
@@ -417,30 +533,45 @@ function BeatTable({
                         <Check size={9} /> on this vehicle
                       </div>
                     )}
-                  </td>
-                  <td className="px-3 py-3 font-mono text-xs text-ink-muted">{o.rupyz_order_id}</td>
-                  <td className="px-3 py-3 text-right tabular">
-                    <span className="inline-flex items-center gap-0.5"><Package size={10} className="text-ink-subtle" /> {o.item_count}</span>
-                  </td>
-                  <td className="px-3 py-3 text-right tabular font-medium">{formatINR(o.total_amount)}</td>
-                  <td className="px-3 py-3">
-                    {o.invoice_number ? (
-                      <span className="inline-flex items-center gap-1 text-2xs text-accent font-semibold">
-                        <Receipt size={10} /> <span className="font-mono">{o.invoice_number}</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-2xs text-warn font-semibold">
-                        <Hourglass size={10} /> waiting
-                      </span>
+                    {compact && (
+                      <div className="text-2xs text-ink-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="tabular">{formatINR(o.total_amount)}</span>
+                        {o.invoice_number ? (
+                          <span className="inline-flex items-center gap-0.5 text-accent"><Receipt size={9} /> {o.invoice_number}</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-warn"><Hourglass size={9} /> waiting</span>
+                        )}
+                      </div>
                     )}
                   </td>
+                  <td className="px-3 py-3 font-mono text-xs text-ink-muted">{o.rupyz_order_id}</td>
+                  {!compact && (
+                    <td className="px-3 py-3 text-right tabular">
+                      <span className="inline-flex items-center gap-0.5"><Package size={10} className="text-ink-subtle" /> {o.item_count}</span>
+                    </td>
+                  )}
+                  {!compact && <td className="px-3 py-3 text-right tabular font-medium">{formatINR(o.total_amount)}</td>}
+                  {!compact && (
+                    <td className="px-3 py-3">
+                      {o.invoice_number ? (
+                        <span className="inline-flex items-center gap-1 text-2xs text-accent font-semibold">
+                          <Receipt size={10} /> <span className="font-mono">{o.invoice_number}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-2xs text-warn font-semibold">
+                          <Hourglass size={10} /> waiting
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-3 py-3 text-right">
-                    <Link href={`/load/orders/${o.id}?load=${loadId}`} className="text-accent inline-flex items-center gap-1 hover:underline">
-                      Open <ChevronRight size={13} />
+                    <Link href={`/load?load=${loadId}&order=${o.id}`} className={`inline-flex items-center gap-1 hover:underline ${isOpen ? "text-accent font-semibold" : "text-accent"}`}>
+                      {isOpen ? "Open" : "Open"} <ChevronRight size={13} />
                     </Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
