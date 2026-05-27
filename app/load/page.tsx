@@ -492,16 +492,31 @@ function BeatTable({
   openOrderId: string | null;
   compact: boolean;
 }) {
+  const loadedCount = orders.filter(o => o.on_this_load).length;
+  const pendingCount = orders.length - loadedCount;
+  // Loaded rows first, then pending — visually grouped.
+  const sorted = [...orders].sort((a, b) => Number(b.on_this_load) - Number(a.on_this_load));
   return (
     <section>
-      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
-        {beatName} <span className="text-ink-subtle tabular">({orders.length})</span>
+      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2 flex items-center gap-2 flex-wrap">
+        <span>{beatName}</span>
+        {loadedCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-ok normal-case tracking-normal font-semibold">
+            <Check size={10} /> {loadedCount} loaded
+          </span>
+        )}
+        {pendingCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-ink-subtle normal-case tracking-normal">
+            {pendingCount} pending
+          </span>
+        )}
       </h2>
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className={`w-full text-sm ${compact ? "" : "min-w-[560px]"}`}>
+          <table className={`w-full text-sm ${compact ? "" : "min-w-[600px]"}`}>
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                <th className="px-3 py-2.5 font-medium w-28">Status</th>
                 <th className="px-3 py-2.5 font-medium">Customer</th>
                 <th className="px-3 py-2.5 font-medium">Order #</th>
                 {!compact && <th className="px-3 py-2.5 font-medium text-right">{itemsLabel}</th>}
@@ -511,28 +526,41 @@ function BeatTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
-              {orders.map(o => {
+              {sorted.map(o => {
                 const isOpen = openOrderId === o.id;
+                const loaded = o.on_this_load;
                 return (
                 <tr
                   key={o.id}
-                  className={`transition-colors ${
+                  className={`transition-colors border-l-4 ${
                     isOpen
-                      ? "bg-accent/10 border-l-2 border-accent"
-                      : o.on_this_load ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"
+                      ? "border-l-accent bg-accent/10"
+                      : loaded
+                        ? "border-l-ok bg-ok-soft/40"
+                        : "border-l-transparent hover:bg-paper-subtle/40"
                   }`}
                 >
+                  {/* STATUS pill */}
                   <td className="px-3 py-3">
-                    <Link href={`/load?load=${loadId}&order=${o.id}`} className={`font-medium inline-flex items-center gap-1.5 hover:text-accent ${isOpen ? "text-accent" : ""}`}>
-                      {o.on_this_load && <Check size={13} className="text-accent shrink-0" />}
+                    {loaded ? (
+                      <span className="inline-flex items-center gap-1 text-2xs font-semibold rounded-full px-2 py-0.5 bg-ok text-white">
+                        <Check size={11} /> Loaded
+                      </span>
+                    ) : o.invoice_number ? (
+                      <span className="inline-flex items-center gap-1 text-2xs font-semibold rounded-full px-2 py-0.5 bg-warn-soft text-warn border border-warn/30">
+                        <Hourglass size={10} /> Pending
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-2xs font-semibold rounded-full px-2 py-0.5 bg-paper-subtle text-ink-subtle border border-paper-line">
+                        Waiting
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <Link href={`/load?load=${loadId}&order=${o.id}`} className={`font-medium hover:text-accent ${isOpen ? "text-accent" : ""}`}>
                       {o.customer?.name ?? "—"}
                     </Link>
                     {o.customer?.city && <div className="text-2xs text-ink-subtle">{o.customer.city}</div>}
-                    {o.on_this_load && (
-                      <div className="text-2xs text-accent font-semibold inline-flex items-center gap-0.5 mt-0.5">
-                        <Check size={9} /> on this vehicle
-                      </div>
-                    )}
                     {compact && (
                       <div className="text-2xs text-ink-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span className="tabular">{formatINR(o.total_amount)}</span>
@@ -566,7 +594,7 @@ function BeatTable({
                   )}
                   <td className="px-3 py-3 text-right">
                     <Link href={`/load?load=${loadId}&order=${o.id}`} className={`inline-flex items-center gap-1 hover:underline ${isOpen ? "text-accent font-semibold" : "text-accent"}`}>
-                      {isOpen ? "Open" : "Open"} <ChevronRight size={13} />
+                      {loaded ? "Edit" : "Open"} <ChevronRight size={13} />
                     </Link>
                   </td>
                 </tr>
