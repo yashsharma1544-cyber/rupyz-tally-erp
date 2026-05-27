@@ -390,7 +390,7 @@ export default async function LoadHomePage({
 
       <div className="lg:flex lg:gap-0 lg:items-stretch">
         {/* LEFT — list column */}
-        <div className={`p-3 sm:p-6 lg:min-w-0 ${paneOpen ? "hidden lg:block lg:w-[560px] lg:shrink-0" : "lg:flex-1"}`}>
+        <div className={`p-3 sm:p-6 lg:min-w-0 ${paneOpen ? "hidden lg:block lg:flex-1" : "lg:flex-1"}`}>
           {/* Active vehicle + KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-3xl">
             <div className="sm:col-span-1 bg-accent-soft border border-accent/30 rounded-md p-3">
@@ -419,10 +419,10 @@ export default async function LoadHomePage({
           ) : (
             <div className="space-y-6 max-w-3xl">
               {beatGroups.map(([beatId, group]) => (
-                <BeatTable key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={paneOpen} />
+                <BeatTable key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={false} />
               ))}
               {unassigned.length > 0 && (
-                <BeatTable beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={paneOpen} />
+                <BeatTable beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel} openOrderId={orderParam ?? null} compact={false} />
               )}
             </div>
           )}
@@ -499,7 +499,7 @@ function BeatTable({
       </h2>
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className={`w-full text-sm ${compact ? "" : "min-w-[680px]"}`}>
+          <table className={`w-full text-sm ${compact ? "" : "min-w-[560px]"}`}>
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                 <th className="px-3 py-2.5 font-medium">Customer</th>
