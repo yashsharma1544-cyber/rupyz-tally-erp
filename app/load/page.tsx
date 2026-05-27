@@ -1,21 +1,21 @@
 // =============================================================================
-// /load — godown loading app home (vehicle-first)
+// /load — godown loading app home (vehicle-first, desktop redesign)
 //
-// Flow: Invoice (billing) → LOAD → Dispatch.
-//   1. Pick the vehicle + loaders for this session (creates a vehicle_loads row,
-//      redirects to /load?load=<id>).
-//   2. Work the invoice-gated order queue; open each order, confirm qtys,
-//      "Mark loaded" → attaches a pending dispatch to this vehicle load.
-//   3. The vehicle then shows on /dispatch for "Vehicle left" (driver/helper).
+// Same flow + data as before (Invoice → LOAD → Dispatch). Presentation reflowed
+// to the /orders desktop language: PageHeader + KPI cards + active-vehicle
+// banner + the invoice-gated queue as bordered per-beat tables.
+// LoadSessionStart (the picker) is unchanged. Still works on mobile.
 //
 // Auth: admin and dispatch only. Jalna-only queue.
 // =============================================================================
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Boxes, ChevronRight, MapPin, Package, Hourglass, Receipt, Truck, Check } from "lucide-react";
+import { Boxes, ChevronRight, Package, Hourglass, Receipt, Truck, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { getT } from "@/lib/i18n/server";
 import { LoadSessionStart } from "./load-session-start";
 
@@ -110,26 +110,23 @@ export default async function LoadHomePage({
       .in("role", ["van_helper", "dispatch"]).eq("active", true).order("full_name");
 
     return (
-      <div className="min-h-screen bg-paper">
-        <div className="max-w-md mx-auto px-3 py-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-8 h-8 rounded bg-accent text-paper-card flex items-center justify-center shrink-0">
-              <Truck size={16} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-base font-bold leading-tight">Start loading</h1>
-              <p className="text-2xs text-ink-muted">{me.full_name} · pick the vehicle &amp; loaders</p>
-            </div>
+      <>
+        <PageHeader
+          title="Start loading"
+          subtitle={`${me.full_name} · pick the vehicle & loaders`}
+        />
+        <div className="p-3 sm:p-6">
+          <div className="max-w-xl bg-paper-card border border-paper-line rounded-md p-4 sm:p-5">
+            <LoadSessionStart
+              vehicles={(vehicles ?? []).map(v => ({ id: v.id, number: v.number, make: v.make, capacityKg: v.capacity_kg }))}
+              loaders={(loaders ?? []).map(l => ({ id: l.id, name: l.full_name, phone: l.phone }))}
+            />
           </div>
-          <LoadSessionStart
-            vehicles={(vehicles ?? []).map(v => ({ id: v.id, number: v.number, make: v.make, capacityKg: v.capacity_kg }))}
-            loaders={(loaders ?? []).map(l => ({ id: l.id, name: l.full_name, phone: l.phone }))}
-          />
-          <div className="mt-6 text-center text-2xs text-ink-subtle">
+          <div className="mt-6 text-2xs text-ink-subtle lg:hidden">
             <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -181,76 +178,65 @@ export default async function LoadHomePage({
   const itemsLabel = t("common.items");
 
   return (
-    <div className="min-h-screen bg-paper">
-      <div className="max-w-md mx-auto px-3 py-4">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded bg-accent text-paper-card flex items-center justify-center shrink-0">
-            <Boxes size={16} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold leading-tight">{t("loading.page_title")}</h1>
-            <p className="text-2xs text-ink-muted">{me.full_name} · {t("loading.jalna_only")}</p>
-          </div>
-        </div>
+    <>
+      <PageHeader
+        title={t("loading.page_title")}
+        subtitle={`${me.full_name} · ${t("loading.jalna_only")}`}
+        actions={
+          <Link href="/dispatch">
+            <Button size="sm"><Truck size={14} /> Done loading → Dispatch</Button>
+          </Link>
+        }
+      />
 
-        {/* Active vehicle banner */}
-        <div className="bg-accent-soft border border-accent/30 rounded-md p-3 my-3">
-          <div className="flex items-center gap-2">
-            <Truck size={16} className="text-accent shrink-0"/>
-            <div className="flex-1 min-w-0">
-              <div className="text-2xs uppercase tracking-wide text-accent/80 font-semibold">Loading into</div>
-              <div className="font-mono font-bold text-base leading-tight truncate">{activeLoad.vehicleNumber}</div>
-              {activeLoad.loaders && <div className="text-2xs text-ink-muted truncate">Loaders: {activeLoad.loaders}</div>}
+      <div className="p-3 sm:p-6">
+        {/* Active vehicle + KPI cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-3xl">
+          <div className="sm:col-span-1 bg-accent-soft border border-accent/30 rounded-md p-3">
+            <div className="flex items-center gap-2">
+              <Truck size={16} className="text-accent shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-2xs uppercase tracking-wide text-accent/80 font-semibold">Loading into</div>
+                <div className="font-mono font-bold text-base leading-tight truncate">{activeLoad.vehicleNumber}</div>
+              </div>
             </div>
-            <div className="text-right shrink-0">
-              <div className="text-lg font-bold tabular text-accent leading-none">{loadedHereCount}</div>
-              <div className="text-2xs text-ink-muted">loaded</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 mt-2.5">
-            <Link
-              href="/dispatch"
-              className="flex-1 inline-flex items-center justify-center gap-1 h-9 rounded-md bg-accent text-paper-card text-xs font-semibold hover:bg-accent/90"
-            >
-              Done loading → Dispatch
-            </Link>
-            <Link
-              href="/load"
-              className="inline-flex items-center justify-center gap-1 h-9 px-3 rounded-md border border-paper-line bg-paper-card text-xs hover:bg-paper-subtle"
-            >
+            {activeLoad.loaders && <div className="text-2xs text-ink-muted truncate mt-1">Loaders: {activeLoad.loaders}</div>}
+            <Link href="/load" className="mt-2 inline-flex items-center justify-center gap-1 h-7 px-2.5 rounded border border-paper-line bg-paper-card text-2xs hover:bg-paper-subtle">
               Switch vehicle
             </Link>
           </div>
+          <KpiTile icon={Check}   label="Loaded on this vehicle" value={loadedHereCount.toLocaleString("en-IN")} />
+          <KpiTile icon={Boxes}   label="Invoiced, ready to load" value={toLoadCount.toLocaleString("en-IN")} />
         </div>
 
         {toLoadCount === 0 && loadedHereCount === 0 ? (
-          <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
-            <Boxes size={28} className="mx-auto text-ink-subtle mb-2"/>
+          <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center max-w-2xl">
+            <Boxes size={28} className="mx-auto text-ink-subtle mb-2" />
             <p className="font-semibold text-sm mb-0.5">{t("loading.nothing_to_load")}</p>
             <p className="text-xs text-ink-muted">{t("loading.empty_state_desc")}</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6 max-w-3xl">
             {beatGroups.map(([beatId, group]) => (
-              <BeatGroup key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel}/>
+              <BeatTable key={beatId} beatName={group.beatName} orders={group.orders} loadId={activeLoad!.id} itemsLabel={itemsLabel} />
             ))}
             {unassigned.length > 0 && (
-              <BeatGroup beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel}/>
+              <BeatTable beatName={t("loading.no_beat_assigned")} orders={unassigned} loadId={activeLoad!.id} itemsLabel={itemsLabel} />
             )}
           </div>
         )}
 
-        <div className="mt-6 text-center text-2xs text-ink-subtle">
+        <div className="mt-6 text-2xs text-ink-subtle lg:hidden">
           <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />
       </div>
-    </div>
+    </>
   );
 }
 
-function BeatGroup({
+function BeatTable({
   beatName, orders, loadId, itemsLabel,
 }: {
   beatName: string;
@@ -260,55 +246,80 @@ function BeatGroup({
 }) {
   return (
     <section>
-      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-1.5 inline-flex items-center gap-1">
-        <MapPin size={10}/> {beatName}
-        <span className="ml-1 text-ink-subtle tabular">({orders.length})</span>
+      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
+        {beatName} <span className="text-ink-subtle tabular">({orders.length})</span>
       </h2>
-      <div className="space-y-2">
-        {orders.map(o => (
-          <Link
-            key={o.id}
-            href={`/load/orders/${o.id}?load=${loadId}`}
-            className={`block border rounded-md p-3 transition-colors ${
-              o.on_this_load
-                ? "bg-accent-soft/30 border-accent/40"
-                : "bg-paper-card border-paper-line hover:bg-paper-subtle/40 active:bg-paper-subtle"
-            }`}
-          >
-            <div className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm truncate inline-flex items-center gap-1.5">
-                  {o.on_this_load && <Check size={13} className="text-accent shrink-0"/>}
-                  {o.customer?.name ?? "—"}
-                </div>
-                <div className="text-2xs text-ink-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
-                  <span className="font-mono">{o.rupyz_order_id}</span>
-                  {o.customer?.city && <><span className="text-ink-subtle">·</span><span>{o.customer.city}</span></>}
-                  <span className="text-ink-subtle">·</span>
-                  <span className="inline-flex items-center gap-0.5"><Package size={9}/> {o.item_count} {itemsLabel}</span>
-                  <span className="text-ink-subtle">·</span>
-                  <span className="tabular">{formatINR(o.total_amount)}</span>
-                </div>
-                {o.invoice_number ? (
-                  <div className="mt-1 inline-flex items-center gap-1 text-2xs text-accent font-semibold">
-                    <Receipt size={9}/> inv <span className="font-mono">{o.invoice_number}</span>
-                  </div>
-                ) : (
-                  <div className="mt-1 inline-flex items-center gap-1 text-2xs text-warn font-semibold">
-                    <Hourglass size={9}/> waiting for invoice
-                  </div>
-                )}
-                {o.on_this_load && (
-                  <div className="mt-1 inline-flex items-center gap-1 text-2xs text-accent font-semibold">
-                    <Check size={9}/> on this vehicle
-                  </div>
-                )}
-              </div>
-              <ChevronRight size={14} className="text-ink-subtle shrink-0 mt-0.5"/>
-            </div>
-          </Link>
-        ))}
+      <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[680px]">
+            <thead className="bg-paper-subtle/60 border-b border-paper-line">
+              <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                <th className="px-3 py-2.5 font-medium">Customer</th>
+                <th className="px-3 py-2.5 font-medium">Order #</th>
+                <th className="px-3 py-2.5 font-medium text-right">{itemsLabel}</th>
+                <th className="px-3 py-2.5 font-medium text-right">Value</th>
+                <th className="px-3 py-2.5 font-medium">Invoice</th>
+                <th className="px-3 py-2.5 font-medium text-right w-20"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-paper-line">
+              {orders.map(o => (
+                <tr key={o.id} className={`transition-colors ${o.on_this_load ? "bg-accent-soft/30" : "hover:bg-paper-subtle/40"}`}>
+                  <td className="px-3 py-3">
+                    <Link href={`/load/orders/${o.id}?load=${loadId}`} className="font-medium inline-flex items-center gap-1.5 hover:text-accent">
+                      {o.on_this_load && <Check size={13} className="text-accent shrink-0" />}
+                      {o.customer?.name ?? "—"}
+                    </Link>
+                    {o.customer?.city && <div className="text-2xs text-ink-subtle">{o.customer.city}</div>}
+                    {o.on_this_load && (
+                      <div className="text-2xs text-accent font-semibold inline-flex items-center gap-0.5 mt-0.5">
+                        <Check size={9} /> on this vehicle
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 font-mono text-xs text-ink-muted">{o.rupyz_order_id}</td>
+                  <td className="px-3 py-3 text-right tabular">
+                    <span className="inline-flex items-center gap-0.5"><Package size={10} className="text-ink-subtle" /> {o.item_count}</span>
+                  </td>
+                  <td className="px-3 py-3 text-right tabular font-medium">{formatINR(o.total_amount)}</td>
+                  <td className="px-3 py-3">
+                    {o.invoice_number ? (
+                      <span className="inline-flex items-center gap-1 text-2xs text-accent font-semibold">
+                        <Receipt size={10} /> <span className="font-mono">{o.invoice_number}</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-2xs text-warn font-semibold">
+                        <Hourglass size={10} /> waiting
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <Link href={`/load/orders/${o.id}?load=${loadId}`} className="text-accent inline-flex items-center gap-1 hover:underline">
+                      Open <ChevronRight size={13} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
+  );
+}
+
+function KpiTile({
+  icon: Icon, label, value,
+}: { icon: typeof Package; label: string; value: string }) {
+  return (
+    <div className="bg-paper-card border border-paper-line rounded-md p-3">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="p-1 rounded bg-accent-soft">
+          <Icon size={12} className="text-accent" />
+        </span>
+        <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium leading-tight">{label}</span>
+      </div>
+      <div className="text-lg sm:text-xl font-bold tabular truncate">{value}</div>
+    </div>
   );
 }

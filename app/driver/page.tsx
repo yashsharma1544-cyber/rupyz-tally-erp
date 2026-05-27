@@ -1,20 +1,19 @@
 // =============================================================================
-// /driver — driver app home
+// /driver — driver app home (desktop redesign)
 //
-// Shows the logged-in user their assigned dispatches:
-//   - As driver (dispatch.driver_user_id = me)
-//   - As helper (dispatch.helper_user_id = me)
-//
-// Both 'pending' (loading) and 'shipped' (ready to deliver) statuses are shown,
-// grouped by truck. Pending = preview-only.
+// Same data as before (the logged-in user's assigned dispatches as driver or
+// helper, grouped by vehicle). Presentation reflowed to the /orders desktop
+// language: PageHeader + KPI cards + per-vehicle delivery tables.
+// Sits inside the sidebar shell on desktop; still works on mobile.
 // =============================================================================
 
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Truck, MapPin, Clock, Package, UserPlus } from "lucide-react";
+import { ChevronRight, Truck, Clock, Package, UserPlus, IndianRupee } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./sign-out-button";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { PageHeader } from "@/components/layout/page-header";
 import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
@@ -142,140 +141,182 @@ export default async function DriverHomePage() {
   const isHelperRole = me.role === "van_helper";
   const roleLabel = isHelperRole ? t("driver.role_helper") : t("driver.role_driver");
 
-  return (
-    <div className="min-h-screen bg-paper">
-      <div className="max-w-md mx-auto px-3 py-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-9 h-9 rounded-full bg-accent text-paper-card flex items-center justify-center shrink-0">
-            {isHelperRole ? <UserPlus size={16}/> : <Truck size={16}/>}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-bold text-base leading-tight">{t("driver.hi_name", { name: me.full_name })}</h1>
-            <p className="text-2xs text-ink-muted">{roleLabel}{me.phone ? ` · ${me.phone}` : ""}</p>
-          </div>
-          <SignOutButton />
-        </div>
+  // Totals across all assigned trucks (KPI cards)
+  const allShipped = trucks.flatMap(tr => tr.shipped);
+  const allPending = trucks.flatMap(tr => tr.pending);
+  const kpiReadyCount = allShipped.length;
+  const kpiReadyAmount = allShipped.reduce((s, d) => s + Number(d.total_amount), 0);
+  const kpiLoadingCount = allPending.length;
 
+  return (
+    <>
+      <PageHeader
+        title={t("driver.hi_name", { name: me.full_name })}
+        subtitle={`${roleLabel}${me.phone ? ` · ${me.phone}` : ""}`}
+        actions={<SignOutButton />}
+      />
+
+      <div className="p-3 sm:p-6">
         {trucks.length === 0 ? (
-          <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center mt-6">
-            <Truck size={32} className="mx-auto text-ink-subtle mb-2"/>
+          <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center max-w-2xl">
+            <Truck size={32} className="mx-auto text-ink-subtle mb-2" />
             <p className="font-semibold text-sm mb-0.5">{t("driver.no_deliveries_assigned")}</p>
             <p className="text-xs text-ink-muted">
               {isHelperRole ? t("driver.no_deliveries_body_helper") : t("driver.no_deliveries_body_driver")}
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {trucks.map(truck => {
-              const totalQtyShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_qty), 0);
-              const totalAmtShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_amount), 0);
-              const totalQtyPending  = truck.pending.reduce((s, d) => s + Number(d.total_qty), 0);
-              const allDispatches = [...truck.shipped, ...truck.pending];
-              const oldestTs = allDispatches.reduce((ts, d) => {
-                const cur = new Date(d.created_at).getTime();
-                return cur < ts ? cur : ts;
-              }, Date.now());
+          <>
+            {/* KPI cards */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6 max-w-2xl">
+              <KpiTile icon={Truck}       label={t("driver.ready_to_deliver_suffix")} value={kpiReadyCount.toLocaleString("en-IN")} />
+              <KpiTile icon={IndianRupee} label={t("dispatch.kpi_value")}              value={formatINR(kpiReadyAmount)} />
+              <KpiTile icon={Package}     label={t("driver.still_loading_suffix")}     value={kpiLoadingCount.toLocaleString("en-IN")} />
+            </div>
 
-              return (
-                <section key={truck.vehicleNumber}>
-                  <div className="bg-accent text-paper-card rounded-md p-3 mb-2">
-                    <div className="font-mono font-semibold text-base">{truck.vehicleNumber}</div>
-                    <div className="text-2xs opacity-90 mt-0.5 inline-flex items-center gap-1">
-                      <Clock size={9}/> {t("driver.loaded_relative", { relative: formatRelative(new Date(oldestTs).toISOString(), t) })}
-                    </div>
-                    <div className="text-2xs opacity-90 mt-0.5">
-                      <strong className="tabular">{truck.shipped.length}</strong> {t("driver.ready_to_deliver_suffix")}
-                      {truck.pending.length > 0 && <> · <strong className="tabular">{truck.pending.length}</strong> {t("driver.still_loading_suffix")}</>}
-                    </div>
-                  </div>
+            <div className="space-y-6 max-w-3xl">
+              {trucks.map(truck => {
+                const totalQtyShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_qty), 0);
+                const totalAmtShipped  = truck.shipped.reduce((s, d) => s + Number(d.total_amount), 0);
+                const totalQtyPending  = truck.pending.reduce((s, d) => s + Number(d.total_qty), 0);
+                const allDispatches = [...truck.shipped, ...truck.pending];
+                const oldestTs = allDispatches.reduce((ts, d) => {
+                  const cur = new Date(d.created_at).getTime();
+                  return cur < ts ? cur : ts;
+                }, Date.now());
 
-                  {truck.shipped.length > 0 && (
-                    <div className="space-y-2">
-                      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold">
-                        {t("driver.ready_header", { qty: totalQtyShipped, amount: formatINR(totalAmtShipped) })}
-                      </h2>
-                      {truck.shipped.map(d => {
-                        const c = customerOf(d);
-                        const asHelper = d.helper_user_id === user.id && d.driver_user_id !== user.id;
-                        return (
-                          <Link
-                            key={d.id}
-                            href={`/driver/${d.id}`}
-                            className="block bg-paper-card border border-paper-line rounded-md p-3 hover:bg-paper-subtle/40 active:bg-paper-subtle transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
-                                <MapPin size={13}/>
+                return (
+                  <section key={truck.vehicleNumber} className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+                    {/* Vehicle header */}
+                    <div className="bg-accent text-paper-card px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="font-mono font-semibold text-base">{truck.vehicleNumber}</div>
+                        <div className="text-2xs opacity-90 mt-0.5 inline-flex items-center gap-1">
+                          <Clock size={9} /> {t("driver.loaded_relative", { relative: formatRelative(new Date(oldestTs).toISOString(), t) })}
+                        </div>
+                      </div>
+                      <div className="text-2xs opacity-90 text-right">
+                        <strong className="tabular">{truck.shipped.length}</strong> {t("driver.ready_to_deliver_suffix")}
+                        {truck.pending.length > 0 && <> · <strong className="tabular">{truck.pending.length}</strong> {t("driver.still_loading_suffix")}</>}
+                      </div>
+                    </div>
+
+                    {/* Ready-to-deliver table */}
+                    {truck.shipped.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm min-w-[640px]">
+                          <thead className="bg-paper-subtle/60 border-b border-paper-line">
+                            <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                              <th className="px-3 py-2.5 font-medium">Customer</th>
+                              <th className="px-3 py-2.5 font-medium">Order #</th>
+                              <th className="px-3 py-2.5 font-medium">Beat</th>
+                              <th className="px-3 py-2.5 font-medium text-right">{t("common.units")}</th>
+                              <th className="px-3 py-2.5 font-medium text-right">Value</th>
+                              <th className="px-3 py-2.5 font-medium text-right w-20"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-paper-line">
+                            {truck.shipped.map(d => {
+                              const c = customerOf(d);
+                              const asHelper = d.helper_user_id === user.id && d.driver_user_id !== user.id;
+                              return (
+                                <tr key={d.id} className="hover:bg-paper-subtle/40 transition-colors">
+                                  <td className="px-3 py-3">
+                                    <Link href={`/driver/${d.id}`} className="font-medium hover:text-accent">
+                                      {c.name}
+                                    </Link>
+                                    {c.city && <div className="text-2xs text-ink-subtle">{c.city}</div>}
+                                    {asHelper && (
+                                      <span className="inline-flex items-center gap-0.5 text-2xs text-accent mt-0.5">
+                                        <UserPlus size={9} /> {t("driver.as_helper_badge")}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 font-mono text-xs text-ink-muted">{rupyzOrderIdOf(d)}</td>
+                                  <td className="px-3 py-3 text-ink-muted">{c.beatName ?? "—"}</td>
+                                  <td className="px-3 py-3 text-right tabular">{Number(d.total_qty)}</td>
+                                  <td className="px-3 py-3 text-right tabular font-medium">{formatINR(Number(d.total_amount))}</td>
+                                  <td className="px-3 py-3 text-right">
+                                    <Link href={`/driver/${d.id}`} className="text-accent inline-flex items-center gap-1 hover:underline">
+                                      Open <ChevronRight size={13} />
+                                    </Link>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          {truck.shipped.length > 1 && (
+                            <tfoot className="border-t border-paper-line bg-paper-subtle/40">
+                              <tr className="text-2xs text-ink-muted">
+                                <td className="px-3 py-2 font-medium" colSpan={3}>{t("driver.ready_header", { qty: totalQtyShipped, amount: formatINR(totalAmtShipped) })}</td>
+                                <td className="px-3 py-2 text-right tabular font-medium">{totalQtyShipped}</td>
+                                <td className="px-3 py-2 text-right tabular font-medium">{formatINR(totalAmtShipped)}</td>
+                                <td className="px-3 py-2"></td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Still-loading (preview-only) */}
+                    {truck.pending.length > 0 && (
+                      <div className="px-3 py-3 border-t border-paper-line bg-paper-subtle/20">
+                        <h3 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold inline-flex items-center gap-1 mb-2">
+                          <Package size={9} /> {truck.pending.length === 1
+                            ? t("driver.still_loading_header_one", { n: truck.pending.length, qty: totalQtyPending })
+                            : t("driver.still_loading_header_many", { n: truck.pending.length, qty: totalQtyPending })}
+                        </h3>
+                        <div className="space-y-1">
+                          {truck.pending.map(d => {
+                            const c = customerOf(d);
+                            return (
+                              <div key={d.id} className="text-xs text-ink-muted flex flex-wrap items-center gap-x-2">
+                                <span className="font-medium text-ink">{c.name}</span>
+                                <span className="font-mono text-2xs">{rupyzOrderIdOf(d)}</span>
+                                {c.city && <span className="text-2xs">{c.city}</span>}
+                                <span className="text-2xs text-ink-subtle italic">{t("driver.waiting_to_leave_godown")}</span>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-sm truncate">{c.name}</div>
-                                <div className="text-2xs text-ink-muted mt-0.5">
-                                  {c.city && <>{c.city} · </>}
-                                  <span className="font-mono">{rupyzOrderIdOf(d)}</span>
-                                  {c.beatName && <> · {c.beatName}</>}
-                                </div>
-                                <div className="text-2xs text-ink-muted mt-0.5">
-                                  <span className="tabular"><strong className="text-ink">{Number(d.total_qty)}</strong> {t("common.units")}</span>
-                                  <span className="text-ink-subtle"> · </span>
-                                  <span className="tabular">{formatINR(Number(d.total_amount))}</span>
-                                  {asHelper && (
-                                    <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
-                                      <UserPlus size={9}/> {t("driver.as_helper_badge")}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <ChevronRight size={14} className="text-ink-subtle shrink-0"/>
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-                  {truck.pending.length > 0 && (
-                    <div className="mt-3 space-y-1.5">
-                      <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold inline-flex items-center gap-1">
-                        <Package size={9}/> {truck.pending.length === 1
-                          ? t("driver.still_loading_header_one", { n: truck.pending.length, qty: totalQtyPending })
-                          : t("driver.still_loading_header_many", { n: truck.pending.length, qty: totalQtyPending })}
-                      </h2>
-                      {truck.pending.map(d => {
-                        const c = customerOf(d);
-                        return (
-                          <div
-                            key={d.id}
-                            className="bg-paper-card/60 border border-paper-line/70 rounded-md px-3 py-2 opacity-70"
-                          >
-                            <div className="text-sm font-medium truncate">{c.name}</div>
-                            <div className="text-2xs text-ink-muted mt-0.5">
-                              <span className="font-mono">{rupyzOrderIdOf(d)}</span>
-                              {c.city && <> · {c.city}</>}
-                              <span className="text-ink-subtle"> · {t("driver.waiting_to_leave_godown")}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {truck.shipped.length === 0 && truck.pending.length > 0 && (
-                    <p className="text-2xs text-ink-muted text-center mt-3 italic">
-                      {t("driver.nothing_ready_yet")}
-                    </p>
-                  )}
-                </section>
-              );
-            })}
-          </div>
+                    {truck.shipped.length === 0 && truck.pending.length > 0 && (
+                      <p className="text-2xs text-ink-muted text-center py-3 italic">
+                        {t("driver.nothing_ready_yet")}
+                      </p>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </>
         )}
 
-        <div className="mt-8 text-center text-2xs text-ink-subtle">
+        <div className="mt-8 text-2xs text-ink-subtle lg:hidden">
           <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />
       </div>
+    </>
+  );
+}
+
+function KpiTile({
+  icon: Icon, label, value,
+}: { icon: typeof Package; label: string; value: string }) {
+  return (
+    <div className="bg-paper-card border border-paper-line rounded-md p-3">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="p-1 rounded bg-accent-soft">
+          <Icon size={12} className="text-accent" />
+        </span>
+        <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium leading-tight">{label}</span>
+      </div>
+      <div className="text-lg sm:text-xl font-bold tabular truncate">{value}</div>
     </div>
   );
 }

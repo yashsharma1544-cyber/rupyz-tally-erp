@@ -1,9 +1,9 @@
 // =============================================================================
-// /dispatch — godown dispatch app home
+// /dispatch — godown dispatch home (desktop redesign)
 //
-// Vehicle-first flow: "Load a truck" picks vehicle + loaders + orders.
-// The "Trucks loading" panel now groups by vehicle_loads (load_id) and the
-// "Vehicle left" button captures driver + helper at dispatch time.
+// Same data + vehicle-first flow as before. Presentation reflowed to the
+// /orders desktop language: PageHeader + KPI cards + a bordered beats table.
+// Sits inside the sidebar shell on desktop; still works on mobile.
 //
 // Auth: admin and dispatch only.
 // =============================================================================
@@ -14,6 +14,8 @@ import { Truck, ChevronRight, MapPin, Package, IndianRupee } from "lucide-react"
 import { createClient } from "@/lib/supabase/server";
 import { TrucksLoadingPanel } from "./trucks-loading-panel";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
@@ -145,115 +147,121 @@ export default async function DispatchHomePage() {
   const ordersWord = t("dispatch.orders_word");
 
   return (
-    <div className="min-h-screen bg-paper">
-      <div className="max-w-md mx-auto px-3 py-4">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded bg-accent text-paper-card flex items-center justify-center shrink-0">
-            <Truck size={16} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold leading-tight">{t("dispatch.page_title")}</h1>
-            <p className="text-2xs text-ink-muted">{me.full_name}</p>
-          </div>
+    <>
+      <PageHeader
+        title={t("dispatch.page_title")}
+        subtitle={me.full_name}
+        actions={
+          beatRows.length > 0 ? (
+            <Link href="/load">
+              <Button size="sm"><Truck size={14} /> {t("dispatch.load_a_truck")}</Button>
+            </Link>
+          ) : undefined
+        }
+      />
+
+      <div className="p-3 sm:p-6">
+        {/* KPI cards */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-2 max-w-2xl">
+          <KpiTile icon={Package}     label={t("dispatch.kpi_orders")} value={totalOrders.toLocaleString("en-IN")} />
+          <KpiTile icon={Package}     label={t("dispatch.kpi_total")}  value={formatKg(totalKg)} />
+          <KpiTile icon={IndianRupee} label={t("dispatch.kpi_value")}  value={formatINR(totalAmount)} />
         </div>
+        <p className="text-2xs text-ink-subtle mb-5">{acrossBeatsLabel}</p>
 
-        <div className="bg-paper-card border border-paper-line rounded-md p-3 my-3">
-          <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">{t("dispatch.approved_ready")}</div>
-          <div className="grid grid-cols-3 gap-2">
-            <KpiTile icon={Package}   label={t("dispatch.kpi_orders")} value={totalOrders.toLocaleString("en-IN")} />
-            <KpiTile icon={Package}   label={t("dispatch.kpi_total")} value={formatKg(totalKg)} />
-            <KpiTile icon={IndianRupee} label={t("dispatch.kpi_value")} value={formatINR(totalAmount)} />
-          </div>
-          <div className="text-2xs text-ink-subtle mt-2 text-center">
-            {acrossBeatsLabel}
-          </div>
-        </div>
-
-        {beatRows.length > 0 && (
-          <Link
-            href="/load"
-            className="w-full mb-3 inline-flex items-center justify-center gap-1.5 h-11 rounded-md bg-accent text-paper-card text-sm font-semibold hover:bg-accent/90 active:bg-accent/80 transition-colors"
-          >
-            <Truck size={14}/> {t("dispatch.load_a_truck")}
-          </Link>
-        )}
-
+        {/* Trucks currently loading */}
         {truckRows.length > 0 && (
-          <TrucksLoadingPanel
-            people={peopleList}
-            trucks={truckRows.map(t => ({
-              loadId: t.load_id,
-              vehicleNumber: t.vehicle_number,
-              loaders: t.loaders,
-              dispatchCount: Number(t.dispatch_count),
-              orderCount: Number(t.order_count),
-              totalQty: Number(t.total_qty),
-              totalAmount: Number(t.total_amount),
-              oldestLoadedAt: t.oldest_loaded_at,
-              orders: truckOrdersByLoad.get(t.load_id) ?? [],
-            }))}
-          />
+          <div className="mb-6 max-w-3xl">
+            <TrucksLoadingPanel
+              people={peopleList}
+              trucks={truckRows.map(t => ({
+                loadId: t.load_id,
+                vehicleNumber: t.vehicle_number,
+                loaders: t.loaders,
+                dispatchCount: Number(t.dispatch_count),
+                orderCount: Number(t.order_count),
+                totalQty: Number(t.total_qty),
+                totalAmount: Number(t.total_amount),
+                oldestLoadedAt: t.oldest_loaded_at,
+                orders: truckOrdersByLoad.get(t.load_id) ?? [],
+              }))}
+            />
+          </div>
         )}
 
-        {beatRows.length > 0 && (
-          <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2 mt-4">
-            {t("dispatch.approved_ready_to_load")}
-          </h2>
-        )}
+        {/* Approved & ready to load — beats table */}
+        <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
+          {t("dispatch.approved_ready_to_load")}
+        </h2>
 
         {beatRows.length === 0 ? (
-          <div className="bg-paper-card border border-paper-line rounded-md p-6 text-center">
-            <Truck size={28} className="mx-auto text-ink-subtle mb-2"/>
+          <div className="bg-paper-card border border-paper-line rounded-md p-8 text-center max-w-2xl">
+            <Truck size={28} className="mx-auto text-ink-subtle mb-2" />
             <p className="font-semibold text-sm mb-0.5">{t("dispatch.nothing_to_dispatch")}</p>
             <p className="text-xs text-ink-muted">{t("dispatch.empty_desc")}</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {beatRows.map(b => (
-              <Link
-                key={b.beat_id}
-                href={`/dispatch/${b.beat_id}`}
-                className="block bg-paper-card border border-paper-line rounded-md p-3.5 hover:bg-paper-subtle/40 active:bg-paper-subtle transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
-                    <MapPin size={15}/>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="font-semibold text-sm truncate">{b.beat_name}</h2>
-                    <div className="text-2xs text-ink-muted flex items-center gap-2 mt-0.5">
-                      <span className="tabular"><strong className="text-ink">{b.order_count}</strong> {ordersWord}</span>
-                      <span className="text-ink-subtle">·</span>
-                      <span className="tabular"><strong className="text-ink">{formatKg(b.total_kg)}</strong></span>
-                      <span className="text-ink-subtle">·</span>
-                      <span className="tabular">{formatINR(b.total_amount)}</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-ink-subtle shrink-0"/>
-                </div>
-              </Link>
-            ))}
+          <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden max-w-3xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
+                <thead className="bg-paper-subtle/60 border-b border-paper-line">
+                  <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+                    <th className="px-3 py-2.5 font-medium">Beat</th>
+                    <th className="px-3 py-2.5 font-medium text-right">{ordersWord}</th>
+                    <th className="px-3 py-2.5 font-medium text-right">Total</th>
+                    <th className="px-3 py-2.5 font-medium text-right">Value</th>
+                    <th className="px-3 py-2.5 font-medium text-right w-20"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-paper-line">
+                  {beatRows.map(b => (
+                    <tr key={b.beat_id} className="hover:bg-paper-subtle/40 transition-colors">
+                      <td className="px-3 py-3">
+                        <Link href={`/dispatch/${b.beat_id}`} className="font-medium inline-flex items-center gap-2 hover:text-accent">
+                          <span className="w-7 h-7 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
+                            <MapPin size={13} />
+                          </span>
+                          {b.beat_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular">{b.order_count}</td>
+                      <td className="px-3 py-3 text-right tabular">{formatKg(b.total_kg)}</td>
+                      <td className="px-3 py-3 text-right tabular font-medium">{formatINR(b.total_amount)}</td>
+                      <td className="px-3 py-3 text-right">
+                        <Link href={`/dispatch/${b.beat_id}`} className="text-accent inline-flex items-center gap-1 hover:underline">
+                          Open <ChevronRight size={13} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        <div className="mt-6 text-center text-2xs text-ink-subtle">
+        <div className="mt-6 text-2xs text-ink-subtle lg:hidden">
           <Link href="/" className="hover:text-ink-muted">← {t("common.back_to_main")}</Link>
         </div>
 
         <AutoRefresh />
       </div>
-    </div>
+    </>
   );
 }
 
 function KpiTile({
   icon: Icon, label, value,
 }: { icon: typeof Package; label: string; value: string }) {
-  void Icon;
   return (
-    <div className="bg-paper-subtle/50 rounded p-2 text-center">
-      <div className="text-2xs text-ink-muted mb-0.5">{label}</div>
-      <div className="font-bold text-sm tabular truncate">{value}</div>
+    <div className="bg-paper-card border border-paper-line rounded-md p-3">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="p-1 rounded bg-accent-soft">
+          <Icon size={12} className="text-accent" />
+        </span>
+        <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium leading-tight">{label}</span>
+      </div>
+      <div className="text-lg sm:text-xl font-bold tabular truncate">{value}</div>
     </div>
   );
 }

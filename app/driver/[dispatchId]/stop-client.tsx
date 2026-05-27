@@ -294,7 +294,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
       </div>
 
       {/* Sticky footer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
+      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto">
           <Button
             className="w-full"

@@ -219,7 +219,7 @@ export function LoadOrderClient({
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
+      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto space-y-1">
           {isPartial && totalLoaded > 0 && <p className="text-2xs text-warn text-center">⚠ {t("loading.some_lines_short_warn")}</p>}
           {totalLoaded === 0 && <p className="text-2xs text-danger text-center">{t("loading.at_least_one_qty")}</p>}
