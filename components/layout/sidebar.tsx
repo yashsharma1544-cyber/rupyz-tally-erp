@@ -129,26 +129,30 @@ export function Sidebar({ user }: { user: AppUser }) {
           );
         })}
 
-        {isAdmin && (
-          <>
+        <>
             <div className="pt-4 pb-1 px-2.5 text-2xs uppercase tracking-wider text-ink-subtle font-semibold">
               Workflow apps
             </div>
             {opsItems.map((item) => {
               const Icon = item.icon;
+              const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="flex items-center gap-2.5 px-2.5 py-2.5 lg:py-1.5 rounded text-sm text-ink-muted hover:text-ink hover:bg-paper-subtle transition-all"
+                  className={cn(
+                    "flex items-center gap-2.5 px-2.5 py-2.5 lg:py-1.5 rounded text-sm transition-all",
+                    active
+                      ? "bg-accent text-white shadow-sm"
+                      : "text-ink-muted hover:text-ink hover:bg-paper-subtle"
+                  )}
                 >
-                  <Icon size={15} className="text-ink-subtle" />
+                  <Icon size={15} className={active ? "" : "text-ink-subtle"} />
                   <span className="font-medium">{item.label}</span>
                 </Link>
               );
             })}
           </>
-        )}
       </nav>
 
       <div className="border-t border-paper-line p-3">

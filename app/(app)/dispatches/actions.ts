@@ -462,6 +462,7 @@ export async function createVehicle(input: { number: string; make?: string; capa
       number,
       make: input.make?.trim() || null,
       capacity_kg: input.capacityKg ?? null,
+      active: true,
       created_by: actor.userId,
     }).select("id, number, make, capacity_kg").single();
     if (error) return { error: error.message };
