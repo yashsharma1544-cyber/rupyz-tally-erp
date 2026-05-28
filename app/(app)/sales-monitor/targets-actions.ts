@@ -107,47 +107,27 @@ export async function previewAreaTargets(
 
   const areaHistKg = Array.from(beatMap.values()).reduce((a, b) => a + b.beat_kg, 0);
 
-  // Existing saved targets to overlay (manual flags + saved kg)
-  const { data: savedBeats } = await admin
-    .from("beat_jc_targets")
-    .select("beat_id, target_kg, is_manual")
-    .eq("jc_id", jcId);
-  const savedBeatMap = new Map(
-    (savedBeats ?? []).map((b) => [b.beat_id as string, b]),
-  );
-
-  const { data: savedCusts } = await admin
-    .from("jc_customer_targets")
-    .select("customer_id, target_kg")
-    .eq("jc_id", jcId)
-    .eq("area_id", areaId);
-  const savedCustMap = new Map(
-    (savedCusts ?? []).map((c) => [c.customer_id as string, Number(c.target_kg) || 0]),
-  );
-
-  // Build beats with shares + auto targets
+  // Build beats with shares + auto targets — computed FRESH from the entered
+  // area target. (We intentionally do NOT overlay previously-saved targets;
+  // Preview always reflects the area kg you just typed. Manual overrides are
+  // applied in-session and saved on Save.)
   const beats: BeatNode[] = [];
   for (const [beatId, b] of beatMap) {
     const beatShare = areaHistKg > 0 ? (b.beat_kg / areaHistKg) * 100 : 0;
-    const autoBeatKg = round2((beatShare / 100) * areaKg);
-
-    const savedB = savedBeatMap.get(beatId);
-    const beatTarget = savedB ? Number(savedB.target_kg) || 0 : autoBeatKg;
-    const beatIsManual = savedB ? Boolean(savedB.is_manual) : false;
+    const beatTarget = round2((beatShare / 100) * areaKg); // 0-history beats → 0
 
     // Customers: share of THIS beat's hist kg, applied to the beat's target
     const customers: CustomerNode[] = b.customers
       .map((c) => {
         const custShare = b.beat_kg > 0 ? (c.kg / b.beat_kg) * 100 : 0;
         const autoCustKg = round2((custShare / 100) * beatTarget);
-        const savedKg = savedCustMap.get(c.id);
         return {
           customer_id: c.id,
           customer_name: c.name,
           hist_kg: round2(c.kg),
           share_pct: round2(custShare),
-          target_kg: savedKg != null ? round2(savedKg) : autoCustKg,
-          is_manual: savedKg != null && savedKg !== autoCustKg,
+          target_kg: autoCustKg,
+          is_manual: false,
         };
       })
       .sort((a, b2) => b2.hist_kg - a.hist_kg);
@@ -158,7 +138,7 @@ export async function previewAreaTargets(
       hist_kg: round2(b.beat_kg),
       share_pct: round2(beatShare),
       target_kg: beatTarget,
-      is_manual: beatIsManual,
+      is_manual: false,
       customers,
     });
   }
