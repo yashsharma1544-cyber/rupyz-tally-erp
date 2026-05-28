@@ -15,6 +15,10 @@
     {
       "path": "/api/sales-monitor/cron/evening",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/sales-monitor/cron/team-activity",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
