@@ -58,6 +58,33 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
   const tabHref = (k: string) =>
     `/sales-monitor?tab=${k}${viewDate !== todayISO ? `&date=${viewDate}` : ""}`;
 
+  // Rupyz token / sync health — for a warning banner.
+  // Token expired (optimistic 24h expiry, set when admin pastes it) OR the
+  // 15-min sync hasn't landed recently → the Dashboard/MIS data may be stale.
+  let tokenWarning: string | null = null;
+  {
+    const admin = createAdminClient();
+    const [{ data: session }, { data: lastRow }] = await Promise.all([
+      admin.from("rupyz_session").select("expires_at").eq("id", 1).maybeSingle(),
+      admin
+        .from("salesman_daily_activity")
+        .select("synced_at")
+        .order("synced_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    const now = Date.now();
+    const exp = session?.expires_at ? new Date(session.expires_at).getTime() : 0;
+    const lastSync = lastRow?.synced_at ? new Date(lastRow.synced_at).getTime() : 0;
+    const minsSinceSync = lastSync ? Math.floor((now - lastSync) / 60000) : Infinity;
+    if (!exp || now > exp) {
+      tokenWarning = "The Rupyz token has expired — the every-15-min sync is paused, so Dashboard & MIS data may be stale. Refresh the token in Settings.";
+    } else if (minsSinceSync > 45) {
+      const label = minsSinceSync === Infinity ? "never" : `${minsSinceSync} min ago`;
+      tokenWarning = `The Rupyz sync last succeeded ${label}. Data may be stale — check the token in Settings.`;
+    }
+  }
+
   // Data for the Targets + Reports tabs (both need the JC list)
   let targetsData: { jcs: JcRow[]; areas: AreaRow[]; currentJcId: string | null } | null = null;
   if (tab === "targets" || tab === "reports") {
@@ -80,6 +107,19 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
           Team performance, targets &amp; reporting
         </p>
       </div>
+
+      {/* Token / sync health banner */}
+      {tokenWarning && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-warn/40 bg-warn-soft/40 px-3 py-2.5 text-sm">
+          <span className="text-warn font-semibold shrink-0">⚠</span>
+          <div className="flex-1 text-ink">
+            {tokenWarning}{" "}
+            <Link href="/settings" className="text-accent font-medium hover:underline whitespace-nowrap">
+              Open Settings →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Tab bar */}
       <nav className="flex items-center gap-1 border-b border-paper-line mb-5 overflow-x-auto">
