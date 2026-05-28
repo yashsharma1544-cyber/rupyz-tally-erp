@@ -148,7 +148,63 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
   }
 
   function exportPdf() {
-    window.print();
+    if (!rows) return;
+    Promise.all([import("jspdf"), import("jspdf-autotable")]).then(([jsPDFModule, autoTableModule]) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { jsPDF } = jsPDFModule as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const autoTable = (autoTableModule as any).default ?? (autoTableModule as any);
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const data = buildExportRows(downloadLevel, rows, areas, grand);
+      const titleLevel = downloadLevel === "customer" ? "Customer" : downloadLevel === "beat" ? "Beat" : downloadLevel === "area" ? "Area" : "Organisation";
+      const periodShort = allJc ? "All JC" : `JC ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
+
+      // Title block
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Sushil Agencies — Sales Report`, 40, 40);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${periodShort} · ${titleLevel} level`, 40, 58);
+      doc.setFontSize(9);
+      const pctStr = pct(grand.a, grand.t)?.toFixed(1) ?? "—";
+      doc.text(
+        `Target ${fmtKg(grand.t)} kg   |   Achievement ${fmtKg(grand.a)} kg   |   Ach ${pctStr}%   |   Avg/JC ${fmtKg(grand.v)} kg`,
+        40,
+        74,
+      );
+
+      // Table
+      if (data.length > 0) {
+        const head = [Object.keys(data[0])];
+        const body = data.map((r) => Object.values(r).map((v) => (v === "" || v == null ? "" : String(v))));
+        autoTable(doc, {
+          startY: 92,
+          head,
+          body,
+          styles: { fontSize: 9, cellPadding: 4 },
+          headStyles: { fillColor: [40, 80, 60], textColor: 255, fontStyle: "bold" },
+          alternateRowStyles: { fillColor: [248, 248, 245] },
+          margin: { left: 40, right: 40 },
+          theme: "grid",
+        });
+      }
+
+      // Footer with generation timestamp on each page
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pageCount = (doc.internal as any).getNumberOfPages?.() ?? 1;
+      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(120);
+        doc.text(`Generated ${stamp} · Page ${i} of ${pageCount}`, 40, doc.internal.pageSize.getHeight() - 20);
+      }
+
+      const fname = `sales-report-${allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`}-${downloadLevel}.pdf`;
+      doc.save(fname);
+    });
   }
 
   const periodLabel = allJc ? "All JCs" : jcLabel(jcs.find((j) => j.id === jcId) ?? jcs[0]);
@@ -236,7 +292,7 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       )}
 
       {rows && (
-        <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden print:hidden">
+        <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-line">
             <div className="font-semibold text-sm">Target vs Achievement — {periodLabel}</div>
             <div className="text-2xs text-ink-muted mt-0.5">
@@ -320,13 +376,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Print-only summary at the chosen granularity */}
-      {rows && (
-        <div className="hidden print:block">
-          <PrintSummary level={downloadLevel} areas={areas} grand={grand} periodLabel={periodLabel} />
         </div>
       )}
 
@@ -426,92 +475,4 @@ function buildExportRows(
       "Avg Sale (kg)": Math.round(grand.v * 10) / 10,
     },
   ];
-}
-
-// Print-only summary table at the chosen granularity (used for PDF)
-function PrintSummary({
-  level,
-  areas,
-  grand,
-  periodLabel,
-}: {
-  level: ExportLevel;
-  areas: AreaAgg[];
-  grand: { t: number; a: number; v: number };
-  periodLabel: string;
-}) {
-  const head = (
-    <thead className="bg-paper-subtle/60 border-b border-paper-line">
-      <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
-        <th className="px-3 py-2.5 font-medium">{level === "customer" ? "Area / Beat / Customer" : level === "beat" ? "Area / Beat" : level === "area" ? "Area" : "Organisation"}</th>
-        <th className="px-3 py-2.5 font-medium text-right">Target</th>
-        <th className="px-3 py-2.5 font-medium text-right">Achievement</th>
-        <th className="px-3 py-2.5 font-medium text-right">Ach %</th>
-        <th className="px-3 py-2.5 font-medium text-right">Avg/JC</th>
-      </tr>
-    </thead>
-  );
-
-  const titleLevel = level === "customer" ? "Customer" : level === "beat" ? "Beat" : level === "area" ? "Area" : "Organisation";
-
-  return (
-    <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-      <div className="px-4 py-3 border-b border-paper-line">
-        <div className="font-semibold text-sm">Sales report — {periodLabel} · {titleLevel} level</div>
-        <div className="text-2xs text-ink-muted mt-0.5">
-          Target {fmtKg(grand.t)} kg · Achievement {fmtKg(grand.a)} kg · {pct(grand.a, grand.t)?.toFixed(1) ?? "—"}% · Avg/JC {fmtKg(grand.v)} kg
-        </div>
-      </div>
-      <table className="w-full text-sm">
-        {head}
-        <tbody className="divide-y divide-paper-line">
-          {level === "org" && (
-            <tr>
-              <td className="px-3 py-2">Sushil Agencies</td>
-              <td className="px-3 py-2 text-right tabular">{fmtKg(grand.t)}</td>
-              <td className="px-3 py-2 text-right tabular">{fmtKg(grand.a)}</td>
-              <td className={`px-3 py-2 text-right tabular ${pctClass(pct(grand.a, grand.t))}`}>{pct(grand.a, grand.t)?.toFixed(0) ?? "—"}%</td>
-              <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(grand.v)}</td>
-            </tr>
-          )}
-          {level === "area" &&
-            areas.map((a) => (
-              <tr key={a.area_id}>
-                <td className="px-3 py-2">{a.area_name}</td>
-                <td className="px-3 py-2 text-right tabular">{fmtKg(a.target)}</td>
-                <td className="px-3 py-2 text-right tabular">{fmtKg(a.ach)}</td>
-                <td className={`px-3 py-2 text-right tabular ${pctClass(pct(a.ach, a.target))}`}>{pct(a.ach, a.target)?.toFixed(0) ?? "—"}%</td>
-                <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
-              </tr>
-            ))}
-          {level === "beat" &&
-            areas.flatMap((a) =>
-              a.beats.map((b) => (
-                <tr key={b.beat_id}>
-                  <td className="px-3 py-2">{a.area_name} / {b.beat_name}</td>
-                  <td className="px-3 py-2 text-right tabular">{fmtKg(b.target)}</td>
-                  <td className="px-3 py-2 text-right tabular">{fmtKg(b.ach)}</td>
-                  <td className={`px-3 py-2 text-right tabular ${pctClass(pct(b.ach, b.target))}`}>{pct(b.ach, b.target)?.toFixed(0) ?? "—"}%</td>
-                  <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(b.avg)}</td>
-                </tr>
-              )),
-            )}
-          {level === "customer" &&
-            areas.flatMap((a) =>
-              a.beats.flatMap((b) =>
-                b.customers.map((c) => (
-                  <tr key={c.customer_id} className="text-xs">
-                    <td className="px-3 py-1.5">{a.area_name} / {b.beat_name} / {c.customer_name}</td>
-                    <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.target_kg)}</td>
-                    <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.achievement_kg)}</td>
-                    <td className={`px-3 py-1.5 text-right tabular ${pctClass(pct(c.achievement_kg, c.target_kg))}`}>{pct(c.achievement_kg, c.target_kg)?.toFixed(0) ?? "—"}%</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink-muted">{fmtKg(c.avg_kg)}</td>
-                  </tr>
-                )),
-              ),
-            )}
-        </tbody>
-      </table>
-    </div>
-  );
 }
