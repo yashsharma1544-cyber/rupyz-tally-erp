@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { DashboardTab } from "./dashboard-tab";
+import { MisTab } from "./mis-tab";
 import { TargetsTab } from "./targets-tab";
 import { ReportsTab } from "./reports-tab";
 
@@ -102,7 +103,7 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
 
       {/* Tab content */}
       {tab === "dashboard" && <DashboardTab viewDate={viewDate} todayISO={todayISO} />}
-      {tab === "mis" && <ComingSoon name="MIS" desc="A mirror of the Rupyz MIS / team-activity screen — header stats, per-salesman SC/TC/PC/NC, and customer-level tabs." />}
+      {tab === "mis" && <MisTab viewDate={viewDate} todayISO={todayISO} />}
       {tab === "reports" && targetsData && (
         <ReportsTab jcs={targetsData.jcs} currentJcId={targetsData.currentJcId} />
       )}
