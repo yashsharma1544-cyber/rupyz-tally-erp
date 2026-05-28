@@ -42,7 +42,7 @@ const navItems = [
   { href: "/drivers",                      label: "Drivers",        icon: Truck,           roles: "admin" },
   { href: "/vehicles",                     label: "Vehicles",       icon: Truck,           roles: "admin" },
   { href: "/sales-monitor",                label: "Sales Monitor",  icon: TrendingUp,      roles: "admin" },
-  { href: "/sales-monitor/journey-cycles", label: "Journey Cycles", icon: CalendarRange,   roles: "admin" },
+  { href: "/sales-monitor/journey-cycles", label: "PJP"           , icon: CalendarRange,   roles: "admin" },
   { href: "/targets",                      label: "Beat Targets",   icon: Target,          roles: "admin" },
   { href: "/users",                        label: "Users",          icon: Shield,          roles: "admin" },
   { href: "/settings",                     label: "Settings",       icon: Settings,        roles: "admin" },
