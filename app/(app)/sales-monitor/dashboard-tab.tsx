@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
+import { FocusKanban } from "./focus-kanban";
 
 type ActivityRow = {
   rupyz_user_id: number;
@@ -197,14 +198,12 @@ export async function DashboardTab({ viewDate, todayISO }: { viewDate: string; t
         </p>
       </section>
 
-      {/* Focus customers placeholder (next build step) */}
+      {/* Focus customers */}
       <section>
         <h2 className="text-2xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
           Focus customers — no order in 30 days
         </h2>
-        <div className="bg-paper-card border border-dashed border-paper-line rounded-md p-6 text-center text-sm text-ink-muted">
-          Kanban by beat (today&apos;s PJP beats) — building next.
-        </div>
+        <FocusKanban viewDate={viewDate} />
       </section>
     </div>
   );
