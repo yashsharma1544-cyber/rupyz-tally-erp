@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { DashboardTab } from "./dashboard-tab";
 import { TargetsTab } from "./targets-tab";
+import { ReportsTab } from "./reports-tab";
 
 export const dynamic = "force-dynamic";
 
@@ -56,9 +57,9 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
   const tabHref = (k: string) =>
     `/sales-monitor?tab=${k}${viewDate !== todayISO ? `&date=${viewDate}` : ""}`;
 
-  // Data for the Targets tab
+  // Data for the Targets + Reports tabs (both need the JC list)
   let targetsData: { jcs: JcRow[]; areas: AreaRow[]; currentJcId: string | null } | null = null;
-  if (tab === "targets") {
+  if (tab === "targets" || tab === "reports") {
     const admin = createAdminClient();
     const [{ data: jcs }, { data: areas }] = await Promise.all([
       admin.from("journey_cycles").select("id, jc_number, start_date, end_date").order("start_date"),
@@ -102,7 +103,9 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
       {/* Tab content */}
       {tab === "dashboard" && <DashboardTab viewDate={viewDate} todayISO={todayISO} />}
       {tab === "mis" && <ComingSoon name="MIS" desc="A mirror of the Rupyz MIS / team-activity screen — header stats, per-salesman SC/TC/PC/NC, and customer-level tabs." />}
-      {tab === "reports" && <ComingSoon name="Reports" desc="Area → Beat → Customer drill-down: Target vs Achievement vs Average Sale, with JC filter and PDF / Excel export." />}
+      {tab === "reports" && targetsData && (
+        <ReportsTab jcs={targetsData.jcs} currentJcId={targetsData.currentJcId} />
+      )}
       {tab === "targets" && targetsData && (
         <TargetsTab jcs={targetsData.jcs} areas={targetsData.areas} currentJcId={targetsData.currentJcId} />
       )}
