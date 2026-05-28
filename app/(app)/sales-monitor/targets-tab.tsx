@@ -47,7 +47,7 @@ export function TargetsTab({
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
 
-  const jcLabel = (j: JC) => `JC ${j.jc_number} (${j.start_date.slice(5)} \u2192 ${j.end_date.slice(5)})`;
+  const jcLabel = (j: JC) => `JC ${j.jc_number} (${j.start_date.slice(5)} → ${j.end_date.slice(5)})`;
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -265,7 +265,7 @@ export function TargetsTab({
               <input type="number" inputMode="decimal" value={areaKg} onChange={(e) => setAreaKg(e.target.value)} placeholder="e.g. 100000" className="mt-1 w-full h-9 px-2 rounded border border-paper-line bg-paper text-sm tabular" />
             </label>
             <button onClick={runPreview} disabled={loading} className="h-9 px-4 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50">
-              {loading ? "Calculating\u2026" : "Preview cascade"}
+              {loading ? "Calculating…" : "Preview cascade"}
             </button>
           </div>
         ) : (
@@ -281,7 +281,7 @@ export function TargetsTab({
               <input type="number" inputMode="decimal" value={orgKg} onChange={(e) => setOrgKg(e.target.value)} placeholder="e.g. 250000" className="mt-1 w-full h-9 px-2 rounded border border-paper-line bg-paper text-sm tabular" />
             </label>
             <button onClick={runOrgPreview} disabled={loading} className="h-9 px-4 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50">
-              {loading ? "Calculating\u2026" : "Preview cascade"}
+              {loading ? "Calculating…" : "Preview cascade"}
             </button>
           </div>
         )}
@@ -295,11 +295,11 @@ export function TargetsTab({
             <div>
               <div className="font-semibold text-sm">{preview.area_name}</div>
               <div className="text-2xs text-ink-muted">
-                Area target {fmtKg(preview.area_kg)} kg \u00b7 historical {fmtKg(preview.area_hist_kg)} kg \u00b7 beats sum {fmtKg(beatTotal)} kg
+                Area target {fmtKg(preview.area_kg)} kg · historical {fmtKg(preview.area_hist_kg)} kg · beats sum {fmtKg(beatTotal)} kg
               </div>
             </div>
             <button onClick={runSave} disabled={saving} className="h-9 px-4 rounded bg-ok text-white text-sm font-medium hover:bg-ok/90 disabled:opacity-50">
-              {saving ? "Saving\u2026" : "Save targets"}
+              {saving ? "Saving…" : "Save targets"}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -321,7 +321,7 @@ export function TargetsTab({
             </table>
           </div>
           <div className="px-4 py-2.5 text-2xs text-ink-subtle border-t border-paper-line">
-            Edit a beat&apos;s kg to override it (re-splits its customers by share). Edit a customer&apos;s kg to set it directly. Manual edits are flagged. Beat totals float \u2014 they don&apos;t force the area total.
+            Edit a beat&apos;s kg to override it (re-splits its customers by share). Edit a customer&apos;s kg to set it directly. Manual edits are flagged. Beat totals float — they don&apos;t force the area total.
           </div>
         </div>
       )}
@@ -331,13 +331,13 @@ export function TargetsTab({
         <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-line flex items-center justify-between flex-wrap gap-2">
             <div>
-              <div className="font-semibold text-sm">Sushil Agencies \u2014 organisation target</div>
+              <div className="font-semibold text-sm">Sushil Agencies — organisation target</div>
               <div className="text-2xs text-ink-muted">
-                Org target {fmtKg(orgPreview.org_kg)} kg \u00b7 historical {fmtKg(orgPreview.org_hist_kg)} kg \u00b7 areas sum {fmtKg(orgAreaTotal)} kg
+                Org target {fmtKg(orgPreview.org_kg)} kg · historical {fmtKg(orgPreview.org_hist_kg)} kg · areas sum {fmtKg(orgAreaTotal)} kg
               </div>
             </div>
             <button onClick={runOrgSave} disabled={saving} className="h-9 px-4 rounded bg-ok text-white text-sm font-medium hover:bg-ok/90 disabled:opacity-50">
-              {saving ? "Saving\u2026" : "Save all targets"}
+              {saving ? "Saving…" : "Save all targets"}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -370,7 +370,7 @@ export function TargetsTab({
           </div>
           <div className="px-4 py-2.5 text-2xs text-ink-subtle border-t border-paper-line">
             Org target splits into areas by each area&apos;s share of total sales; each area then splits into beats and customers.
-            Edit an area&apos;s kg to override it (re-splits its beats/customers). Manual edits are flagged. Totals float \u2014 overrides don&apos;t force the parent total.
+            Edit an area&apos;s kg to override it (re-splits its beats/customers). Manual edits are flagged. Totals float — overrides don&apos;t force the parent total.
           </div>
         </div>
       )}
@@ -437,7 +437,7 @@ function AreaRows({
       <tr className="bg-paper-subtle/30 hover:bg-paper-subtle/50 font-semibold">
         <td className="px-3 py-2.5">
           <button onClick={onToggle} className="inline-flex items-center gap-1.5 hover:text-accent">
-            <span className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>\u203a</span>
+            <span className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
             {area.area_name}
           </button>
           {area.is_manual && <span className="ml-2 text-2xs text-warn font-medium">manual</span>}
@@ -486,7 +486,7 @@ function BeatRows({
       <tr className="hover:bg-paper-subtle/40">
         <td className={`px-3 py-2.5 ${nested ? "pl-8" : ""}`}>
           <button onClick={onToggle} className="inline-flex items-center gap-1.5 font-medium hover:text-accent">
-            <span className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>\u203a</span>
+            <span className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
             {beat.beat_name}
           </button>
           {beat.is_manual && <span className="ml-2 text-2xs text-warn font-medium">manual</span>}
