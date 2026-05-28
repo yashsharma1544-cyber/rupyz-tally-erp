@@ -48,6 +48,7 @@ type AreaAgg = {
 export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: string | null }) {
   const [jcId, setJcId] = useState<string>(currentJcId ?? jcs[0]?.id ?? "");
   const [allJc, setAllJc] = useState(false);
+  const [downloadLevel, setDownloadLevel] = useState<"customer" | "beat" | "area" | "org">("customer");
   const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -136,24 +137,13 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
 
   function exportExcel() {
     if (!rows) return;
-    // dynamic import keeps the page light
     import("xlsx").then((XLSX) => {
-      const data = rows.map((r) => ({
-        Area: r.area_name,
-        Beat: r.beat_name,
-        Customer: r.customer_name,
-        "Target (kg)": r.target_kg,
-        "Achievement (kg)": r.achievement_kg,
-        "Avg Sale (kg)": r.avg_kg,
-        "Ach %": r.target_kg > 0 ? Math.round((r.achievement_kg / r.target_kg) * 1000) / 10 : "",
-        "Last Order": r.last_order_date ?? "",
-        "Last Order kg": r.last_order_kg,
-      }));
+      const data = buildExportRows(downloadLevel, rows, areas, grand);
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Report");
-      const label = allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
-      XLSX.writeFile(wb, `sales-report-${label}.xlsx`);
+      const jcLabelShort = allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
+      XLSX.writeFile(wb, `sales-report-${jcLabelShort}-${downloadLevel}.xlsx`);
     });
   }
 
@@ -193,7 +183,20 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
             {loading ? "Loading…" : "Run report"}
           </button>
           {rows && (
-            <div className="flex gap-2 ml-auto">
+            <div className="flex gap-2 ml-auto items-end">
+              <label className="block">
+                <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Download level</span>
+                <select
+                  value={downloadLevel}
+                  onChange={(e) => setDownloadLevel(e.target.value as typeof downloadLevel)}
+                  className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm"
+                >
+                  <option value="customer">Customer</option>
+                  <option value="beat">Beat</option>
+                  <option value="area">Area</option>
+                  <option value="org">Organisation</option>
+                </select>
+              </label>
               <button onClick={exportExcel} className="h-9 px-3 rounded border border-paper-line bg-paper-card text-sm hover:bg-paper-subtle">
                 Export Excel
               </button>
@@ -233,7 +236,7 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       )}
 
       {rows && (
-        <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+        <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden print:hidden">
           <div className="px-4 py-3 border-b border-paper-line">
             <div className="font-semibold text-sm">Target vs Achievement — {periodLabel}</div>
             <div className="text-2xs text-ink-muted mt-0.5">
@@ -320,6 +323,13 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         </div>
       )}
 
+      {/* Print-only summary at the chosen granularity */}
+      {rows && (
+        <div className="hidden print:block">
+          <PrintSummary level={downloadLevel} areas={areas} grand={grand} periodLabel={periodLabel} />
+        </div>
+      )}
+
       {!rows && !loading && (
         <div className="bg-paper-card border border-dashed border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">
           Pick a Journey Cycle (or All JC) and Run report.
@@ -350,6 +360,158 @@ function ReportKpi({
       <div className="text-2xs uppercase tracking-wide text-ink-muted font-medium">{label}</div>
       <div className={`text-xl font-bold tabular mt-0.5 ${valueClass ?? "text-ink"}`}>{value}</div>
       {sub && <div className="text-2xs text-ink-subtle mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// Build flat export rows at the chosen granularity (used for Excel)
+type ExportLevel = "customer" | "beat" | "area" | "org";
+function buildExportRows(
+  level: ExportLevel,
+  rows: ReportRow[],
+  areas: AreaAgg[],
+  grand: { t: number; a: number; v: number },
+): Record<string, string | number>[] {
+  const achPct = (a: number, t: number) =>
+    t > 0 ? Math.round((a / t) * 1000) / 10 : "";
+
+  if (level === "customer") {
+    return rows.map((r) => ({
+      Area: r.area_name,
+      Beat: r.beat_name,
+      Customer: r.customer_name,
+      "Target (kg)": Math.round(r.target_kg * 10) / 10,
+      "Achievement (kg)": Math.round(r.achievement_kg * 10) / 10,
+      "Ach %": achPct(r.achievement_kg, r.target_kg),
+      "Avg Sale (kg)": Math.round(r.avg_kg * 10) / 10,
+      "Last Order": r.last_order_date ?? "",
+      "Last Order kg": Math.round(r.last_order_kg * 10) / 10,
+    }));
+  }
+
+  if (level === "beat") {
+    const out: Record<string, string | number>[] = [];
+    for (const a of areas) {
+      for (const b of a.beats) {
+        out.push({
+          Area: a.area_name,
+          Beat: b.beat_name,
+          "Target (kg)": Math.round(b.target * 10) / 10,
+          "Achievement (kg)": Math.round(b.ach * 10) / 10,
+          "Ach %": achPct(b.ach, b.target),
+          "Avg Sale (kg)": Math.round(b.avg * 10) / 10,
+        });
+      }
+    }
+    return out;
+  }
+
+  if (level === "area") {
+    return areas.map((a) => ({
+      Area: a.area_name,
+      "Target (kg)": Math.round(a.target * 10) / 10,
+      "Achievement (kg)": Math.round(a.ach * 10) / 10,
+      "Ach %": achPct(a.ach, a.target),
+      "Avg Sale (kg)": Math.round(a.avg * 10) / 10,
+    }));
+  }
+
+  // org
+  return [
+    {
+      Organisation: "Sushil Agencies",
+      "Target (kg)": Math.round(grand.t * 10) / 10,
+      "Achievement (kg)": Math.round(grand.a * 10) / 10,
+      "Ach %": achPct(grand.a, grand.t),
+      "Avg Sale (kg)": Math.round(grand.v * 10) / 10,
+    },
+  ];
+}
+
+// Print-only summary table at the chosen granularity (used for PDF)
+function PrintSummary({
+  level,
+  areas,
+  grand,
+  periodLabel,
+}: {
+  level: ExportLevel;
+  areas: AreaAgg[];
+  grand: { t: number; a: number; v: number };
+  periodLabel: string;
+}) {
+  const head = (
+    <thead className="bg-paper-subtle/60 border-b border-paper-line">
+      <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+        <th className="px-3 py-2.5 font-medium">{level === "customer" ? "Area / Beat / Customer" : level === "beat" ? "Area / Beat" : level === "area" ? "Area" : "Organisation"}</th>
+        <th className="px-3 py-2.5 font-medium text-right">Target</th>
+        <th className="px-3 py-2.5 font-medium text-right">Achievement</th>
+        <th className="px-3 py-2.5 font-medium text-right">Ach %</th>
+        <th className="px-3 py-2.5 font-medium text-right">Avg/JC</th>
+      </tr>
+    </thead>
+  );
+
+  const titleLevel = level === "customer" ? "Customer" : level === "beat" ? "Beat" : level === "area" ? "Area" : "Organisation";
+
+  return (
+    <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+      <div className="px-4 py-3 border-b border-paper-line">
+        <div className="font-semibold text-sm">Sales report — {periodLabel} · {titleLevel} level</div>
+        <div className="text-2xs text-ink-muted mt-0.5">
+          Target {fmtKg(grand.t)} kg · Achievement {fmtKg(grand.a)} kg · {pct(grand.a, grand.t)?.toFixed(1) ?? "—"}% · Avg/JC {fmtKg(grand.v)} kg
+        </div>
+      </div>
+      <table className="w-full text-sm">
+        {head}
+        <tbody className="divide-y divide-paper-line">
+          {level === "org" && (
+            <tr>
+              <td className="px-3 py-2">Sushil Agencies</td>
+              <td className="px-3 py-2 text-right tabular">{fmtKg(grand.t)}</td>
+              <td className="px-3 py-2 text-right tabular">{fmtKg(grand.a)}</td>
+              <td className={`px-3 py-2 text-right tabular ${pctClass(pct(grand.a, grand.t))}`}>{pct(grand.a, grand.t)?.toFixed(0) ?? "—"}%</td>
+              <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(grand.v)}</td>
+            </tr>
+          )}
+          {level === "area" &&
+            areas.map((a) => (
+              <tr key={a.area_id}>
+                <td className="px-3 py-2">{a.area_name}</td>
+                <td className="px-3 py-2 text-right tabular">{fmtKg(a.target)}</td>
+                <td className="px-3 py-2 text-right tabular">{fmtKg(a.ach)}</td>
+                <td className={`px-3 py-2 text-right tabular ${pctClass(pct(a.ach, a.target))}`}>{pct(a.ach, a.target)?.toFixed(0) ?? "—"}%</td>
+                <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
+              </tr>
+            ))}
+          {level === "beat" &&
+            areas.flatMap((a) =>
+              a.beats.map((b) => (
+                <tr key={b.beat_id}>
+                  <td className="px-3 py-2">{a.area_name} / {b.beat_name}</td>
+                  <td className="px-3 py-2 text-right tabular">{fmtKg(b.target)}</td>
+                  <td className="px-3 py-2 text-right tabular">{fmtKg(b.ach)}</td>
+                  <td className={`px-3 py-2 text-right tabular ${pctClass(pct(b.ach, b.target))}`}>{pct(b.ach, b.target)?.toFixed(0) ?? "—"}%</td>
+                  <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(b.avg)}</td>
+                </tr>
+              )),
+            )}
+          {level === "customer" &&
+            areas.flatMap((a) =>
+              a.beats.flatMap((b) =>
+                b.customers.map((c) => (
+                  <tr key={c.customer_id} className="text-xs">
+                    <td className="px-3 py-1.5">{a.area_name} / {b.beat_name} / {c.customer_name}</td>
+                    <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.target_kg)}</td>
+                    <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.achievement_kg)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular ${pctClass(pct(c.achievement_kg, c.target_kg))}`}>{pct(c.achievement_kg, c.target_kg)?.toFixed(0) ?? "—"}%</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink-muted">{fmtKg(c.avg_kg)}</td>
+                  </tr>
+                )),
+              ),
+            )}
+        </tbody>
+      </table>
     </div>
   );
 }
