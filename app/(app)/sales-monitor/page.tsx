@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { DashboardTab } from "./dashboard-tab";
+import { TargetsTab } from "./targets-tab";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,19 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
   const tabHref = (k: string) =>
     `/sales-monitor?tab=${k}${viewDate !== todayISO ? `&date=${viewDate}` : ""}`;
 
+  // Data for the Targets tab
+  let targetsData: { jcs: JcRow[]; areas: AreaRow[]; currentJcId: string | null } | null = null;
+  if (tab === "targets") {
+    const admin = createAdminClient();
+    const [{ data: jcs }, { data: areas }] = await Promise.all([
+      admin.from("journey_cycles").select("id, jc_number, start_date, end_date").order("start_date"),
+      admin.from("areas").select("id, name").order("name"),
+    ]);
+    const jcList = (jcs ?? []) as JcRow[];
+    const current = jcList.find((j) => j.start_date <= todayISO && j.end_date >= todayISO);
+    targetsData = { jcs: jcList, areas: (areas ?? []) as AreaRow[], currentJcId: current?.id ?? null };
+  }
+
   return (
     <div className="max-w-md mx-auto p-3 sm:p-6">
       {/* Header */}
@@ -88,10 +103,15 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
       {tab === "dashboard" && <DashboardTab viewDate={viewDate} todayISO={todayISO} />}
       {tab === "mis" && <ComingSoon name="MIS" desc="A mirror of the Rupyz MIS / team-activity screen — header stats, per-salesman SC/TC/PC/NC, and customer-level tabs." />}
       {tab === "reports" && <ComingSoon name="Reports" desc="Area → Beat → Customer drill-down: Target vs Achievement vs Average Sale, with JC filter and PDF / Excel export." />}
-      {tab === "targets" && <ComingSoon name="Targets" desc="Assign targets by Area (kg, JC-wise) → auto-split to Beats then Customers by sales-share." />}
+      {tab === "targets" && targetsData && (
+        <TargetsTab jcs={targetsData.jcs} areas={targetsData.areas} currentJcId={targetsData.currentJcId} />
+      )}
     </div>
   );
 }
+
+type JcRow = { id: string; jc_number: number; start_date: string; end_date: string };
+type AreaRow = { id: string; name: string };
 
 function ComingSoon({ name, desc }: { name: string; desc: string }) {
   return (
