@@ -114,7 +114,7 @@ export async function DashboardTab({ viewDate, todayISO }: { viewDate: string; t
         <KpiTile label="Scheduled (SC)" value={tot.sc.toLocaleString("en-IN")} />
         <KpiTile label="Visited (TC)" value={tot.tc.toLocaleString("en-IN")} sub={`${pct(tot.tc, tot.sc)} of SC`} />
         <KpiTile label="Productive (PC)" value={tot.pc.toLocaleString("en-IN")} sub={`${pct(tot.pc, tot.tc)} of TC`} accent="ok" />
-        <KpiTile label="Order value" value={inr(tot.value)} sub={`${fmtKg(tot.kg)} kg`} />
+        <KpiTile label="Order qty (kg)" value={fmtKg(tot.kg)} sub={inr(tot.value)} />
       </div>
 
       {/* Per-salesman table */}
