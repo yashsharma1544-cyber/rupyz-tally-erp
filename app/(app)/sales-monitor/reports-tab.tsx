@@ -106,6 +106,19 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     [areas],
   );
 
+  // KPI extras: beat counts by achievement bucket, and the gap-to-target
+  const kpi = useMemo(() => {
+    if (!rows) return null;
+    const allBeats = areas.flatMap((a) => a.beats);
+    const beatsWithTarget = allBeats.filter((b) => b.target > 0);
+    const onTrack = beatsWithTarget.filter((b) => b.ach / b.target >= 1).length;
+    const lagging = beatsWithTarget.filter((b) => b.ach / b.target < 0.5).length;
+    const gap = Math.max(0, grand.t - grand.a);
+    const custWithTarget = rows.filter((r) => r.target_kg > 0).length;
+    const custAchieved = rows.filter((r) => r.target_kg > 0 && r.achievement_kg >= r.target_kg).length;
+    return { onTrack, lagging, totalBeats: beatsWithTarget.length, gap, custWithTarget, custAchieved };
+  }, [rows, areas, grand]);
+
   function toggleArea(id: string) {
     setOpenAreas((p) => {
       const n = new Set(p);
@@ -192,6 +205,32 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         </div>
         {err && <div className="mt-3 text-sm text-danger">{err}</div>}
       </div>
+
+      {rows && kpi && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-4">
+          <ReportKpi
+            label="Target"
+            value={`${fmtKg(grand.t)} kg`}
+            sub={`${areas.length} areas`}
+          />
+          <ReportKpi
+            label="Achievement"
+            value={`${fmtKg(grand.a)} kg`}
+            sub={grand.t > 0 ? `gap ${fmtKg(kpi.gap)} kg` : "no target set"}
+          />
+          <ReportKpi
+            label="Achievement %"
+            value={pct(grand.a, grand.t) != null ? `${pct(grand.a, grand.t)!.toFixed(1)}%` : "—"}
+            valueClass={pctClass(pct(grand.a, grand.t))}
+            sub="of target"
+          />
+          <ReportKpi
+            label="On-track beats"
+            value={`${kpi.onTrack}/${kpi.totalBeats}`}
+            sub={`${kpi.lagging} under 50%`}
+          />
+        </div>
+      )}
 
       {rows && (
         <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
@@ -293,4 +332,24 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
 // Helper to group multiple <tr> without a wrapping element
 function FragmentArea({ children }: { children: ReactNode }) {
   return <>{children}</>;
+}
+
+function ReportKpi({
+  label,
+  value,
+  sub,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="bg-paper-card border border-paper-line rounded-md p-3">
+      <div className="text-2xs uppercase tracking-wide text-ink-muted font-medium">{label}</div>
+      <div className={`text-xl font-bold tabular mt-0.5 ${valueClass ?? "text-ink"}`}>{value}</div>
+      {sub && <div className="text-2xs text-ink-subtle mt-0.5">{sub}</div>}
+    </div>
+  );
 }
