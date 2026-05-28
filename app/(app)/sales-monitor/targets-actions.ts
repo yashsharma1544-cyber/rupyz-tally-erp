@@ -33,6 +33,23 @@ export type AreaPreview = {
   beats: BeatNode[];
 };
 
+export type OrgAreaNode = {
+  area_id: string;
+  area_name: string;
+  hist_kg: number;
+  share_pct: number; // share of org
+  target_kg: number;
+  is_manual: boolean;
+  beats: BeatNode[];
+};
+
+export type OrgPreview = {
+  jc_id: string;
+  org_kg: number;
+  org_hist_kg: number;
+  areas: OrgAreaNode[];
+};
+
 type DistRow = {
   beat_id: string;
   beat_name: string;
@@ -62,25 +79,15 @@ function round2(n: number): number {
 }
 
 /**
- * Build the cascade preview for one area + JC + entered area target.
- * Read-only: computes shares from Rupyz history (area_distribution_rupyz),
- * applies the area target proportionally, and overlays any already-saved
- * targets (so re-opening shows what was saved, incl. manual values).
+ * Compute one area's beat→customer cascade for a given area target, fresh from
+ * Rupyz history. Returns the beats[] and the area's historical total. Shared by
+ * previewAreaTargets (single area) and previewOrgTargets (all areas).
  */
-export async function previewAreaTargets(
-  jcId: string,
+async function computeAreaCascade(
+  admin: ReturnType<typeof createAdminClient>,
   areaId: string,
   areaKg: number,
-): Promise<{ error: string } | AreaPreview> {
-  const auth = await requireAdmin();
-  if (!auth.ok) return { error: auth.error };
-
-  const admin = createAdminClient();
-
-  // Area name
-  const { data: area } = await admin.from("areas").select("name").eq("id", areaId).maybeSingle();
-
-  // Historical distribution (beat + customer kg) from Rupyz, window <= 2026-03-31
+): Promise<{ beats: BeatNode[]; areaHistKg: number } | { error: string }> {
   const { data: distData, error: distErr } = await admin.rpc("area_distribution_rupyz", {
     p_area_id: areaId,
   });
@@ -107,16 +114,11 @@ export async function previewAreaTargets(
 
   const areaHistKg = Array.from(beatMap.values()).reduce((a, b) => a + b.beat_kg, 0);
 
-  // Build beats with shares + auto targets — computed FRESH from the entered
-  // area target. (We intentionally do NOT overlay previously-saved targets;
-  // Preview always reflects the area kg you just typed. Manual overrides are
-  // applied in-session and saved on Save.)
   const beats: BeatNode[] = [];
   for (const [beatId, b] of beatMap) {
     const beatShare = areaHistKg > 0 ? (b.beat_kg / areaHistKg) * 100 : 0;
     const beatTarget = round2((beatShare / 100) * areaKg); // 0-history beats → 0
 
-    // Customers: share of THIS beat's hist kg, applied to the beat's target
     const customers: CustomerNode[] = b.customers
       .map((c) => {
         const custShare = b.beat_kg > 0 ? (c.kg / b.beat_kg) * 100 : 0;
@@ -144,15 +146,80 @@ export async function previewAreaTargets(
   }
 
   beats.sort((a, b) => b.hist_kg - a.hist_kg);
+  return { beats, areaHistKg };
+}
+
+/**
+ * Build the cascade preview for one area + JC + entered area target.
+ * Read-only: computes shares fresh from Rupyz history.
+ */
+export async function previewAreaTargets(
+  jcId: string,
+  areaId: string,
+  areaKg: number,
+): Promise<{ error: string } | AreaPreview> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
+
+  const admin = createAdminClient();
+  const { data: area } = await admin.from("areas").select("name").eq("id", areaId).maybeSingle();
+
+  const cascade = await computeAreaCascade(admin, areaId, areaKg);
+  if ("error" in cascade) return { error: cascade.error };
 
   return {
     jc_id: jcId,
     area_id: areaId,
     area_name: area?.name ?? "—",
     area_kg: areaKg,
-    area_hist_kg: round2(areaHistKg),
-    beats,
+    area_hist_kg: round2(cascade.areaHistKg),
+    beats: cascade.beats,
   };
+}
+
+/**
+ * Org-level preview: split the org target across areas by each area's share of
+ * total org sales (org_area_shares), then cascade each area target to its
+ * beats/customers. Fresh compute, no stale overlay. 0-history areas → 0.
+ */
+export async function previewOrgTargets(
+  jcId: string,
+  orgKg: number,
+): Promise<{ error: string } | OrgPreview> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
+
+  const admin = createAdminClient();
+
+  const { data: shareData, error: shareErr } = await admin.rpc("org_area_shares", {});
+  if (shareErr) return { error: `Org shares failed: ${shareErr.message}` };
+  const shares = (shareData ?? []) as Array<{ area_id: string; area_name: string; area_kg: number }>;
+
+  const orgHistKg = shares.reduce((a, s) => a + (Number(s.area_kg) || 0), 0);
+
+  const areas: OrgAreaNode[] = [];
+  for (const s of shares) {
+    const areaHist = Number(s.area_kg) || 0;
+    const sharePct = orgHistKg > 0 ? (areaHist / orgHistKg) * 100 : 0;
+    const areaTarget = round2((sharePct / 100) * orgKg); // 0-history areas → 0
+
+    const cascade = await computeAreaCascade(admin, s.area_id, areaTarget);
+    if ("error" in cascade) return { error: cascade.error };
+
+    areas.push({
+      area_id: s.area_id,
+      area_name: s.area_name,
+      hist_kg: round2(areaHist),
+      share_pct: round2(sharePct),
+      target_kg: areaTarget,
+      is_manual: false,
+      beats: cascade.beats,
+    });
+  }
+
+  areas.sort((a, b) => b.hist_kg - a.hist_kg);
+
+  return { jc_id: jcId, org_kg: orgKg, org_hist_kg: round2(orgHistKg), areas };
 }
 
 /**
@@ -216,4 +283,36 @@ export async function saveAreaTargets(payload: {
   }
 
   return { ok: true };
+}
+
+/**
+ * Persist a full org cascade: save each area's beat/customer cascade via the
+ * same path as saveAreaTargets. Areas are saved independently; the first error
+ * stops and is reported.
+ */
+export async function saveOrgTargets(payload: {
+  jcId: string;
+  areas: Array<{
+    areaId: string;
+    areaKg: number;
+    beats: Array<{ beat_id: string; share_pct: number; target_kg: number; is_manual: boolean }>;
+    customers: Array<{ beat_id: string; customer_id: string; target_kg: number; is_manual: boolean }>;
+  }>;
+}): Promise<{ ok: true; savedAreas: number } | { error: string }> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
+
+  let saved = 0;
+  for (const a of payload.areas) {
+    const res = await saveAreaTargets({
+      jcId: payload.jcId,
+      areaId: a.areaId,
+      areaKg: a.areaKg,
+      beats: a.beats,
+      customers: a.customers,
+    });
+    if ("error" in res) return { error: `${res.error} (area save failed after ${saved} saved)` };
+    saved += 1;
+  }
+  return { ok: true, savedAreas: saved };
 }
