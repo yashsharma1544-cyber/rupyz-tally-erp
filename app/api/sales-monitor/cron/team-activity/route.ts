@@ -203,6 +203,7 @@ export async function GET(req: NextRequest) {
   const dateParam = url.searchParams.get("date");
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
+  const triggeredBy = url.searchParams.get("triggered_by") ?? "cron";
 
   let dates: string[] = [];
   if (isISODate(startParam) && isISODate(endParam)) {
@@ -219,12 +220,44 @@ export async function GET(req: NextRequest) {
 
   const admin = createAdminClient();
 
+  // Start a sync_run_log row — captures every invocation, success or fail
+  const { data: logRow } = await admin
+    .from("sync_run_log")
+    .insert({
+      sync_kind: "team_activity",
+      triggered_by: triggeredBy,
+      dates_synced: dates,
+    })
+    .select("id")
+    .single();
+  const runId = logRow?.id as number | undefined;
+
+  const finishLog = async (patch: {
+    ok: boolean;
+    records_seen?: number;
+    records_upserted?: number;
+    error_message?: string | null;
+  }) => {
+    if (!runId) return;
+    await admin
+      .from("sync_run_log")
+      .update({
+        finished_at: new Date().toISOString(),
+        ok: patch.ok,
+        records_seen: patch.records_seen ?? 0,
+        records_upserted: patch.records_upserted ?? 0,
+        error_message: patch.error_message ?? null,
+      })
+      .eq("id", runId);
+  };
+
   const { data: session } = await admin
     .from("rupyz_session")
     .select("org_id, access_token")
     .eq("id", 1)
     .maybeSingle();
   if (!session?.access_token || !session.org_id) {
+    await finishLog({ ok: false, error_message: "rupyz_session not configured" });
     return NextResponse.json(
       { error: "rupyz_session not configured (no token/org). Set the Rupyz token in Settings." },
       { status: 503 },
@@ -239,24 +272,39 @@ export async function GET(req: NextRequest) {
 
   const results = [];
   let totalUpserted = 0;
+  let totalRecords = 0;
   for (const date of dates) {
     const r = await syncDate(admin, Number(session.org_id), session.access_token, date, byRupyz);
     if (r.auth_failed) {
+      await finishLog({
+        ok: false,
+        records_seen: totalRecords,
+        records_upserted: totalUpserted,
+        error_message: "Rupyz token rejected",
+      });
       return NextResponse.json(
         { error: "Rupyz token rejected — refresh it in Settings.", failedOn: date, partial: results },
         { status: 401 },
       );
     }
     if (typeof r.upserted === "number") totalUpserted += r.upserted;
+    if (typeof r.records === "number") totalRecords += r.records;
     results.push(r);
   }
 
-  // Heartbeat — stamp the successful run on rupyz_session so the staleness
-  // banner reflects "cron ran" not "data landed".
+  // Heartbeat — stamp the successful run on rupyz_session
   await admin
     .from("rupyz_session")
     .update({ last_team_activity_sync_at: new Date().toISOString() })
     .eq("id", 1);
 
-  return NextResponse.json({ ok: true, days: dates.length, totalUpserted, results });
+  const firstErr = results.find((r) => r.error)?.error ?? null;
+  await finishLog({
+    ok: true,
+    records_seen: totalRecords,
+    records_upserted: totalUpserted,
+    error_message: firstErr,
+  });
+
+  return NextResponse.json({ ok: true, days: dates.length, totalUpserted, results, runId });
 }
