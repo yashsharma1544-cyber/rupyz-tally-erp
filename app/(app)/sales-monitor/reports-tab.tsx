@@ -156,50 +156,146 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       const autoTable = (autoTableModule as any).default ?? (autoTableModule as any);
 
       const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      // Theme palette
+      const ACCENT_R = 15, ACCENT_G = 76, ACCENT_B = 67;          // brand teal
+      const HEAD_BG_R = 241, HEAD_BG_G = 245, HEAD_BG_B = 243;    // header background
+      const HEAD_TX_R = 40, HEAD_TX_G = 70, HEAD_TX_B = 60;       // header text
+      const BODY_TX_R = 40, BODY_TX_G = 40, BODY_TX_B = 40;       // body text
+      const ALT_R = 251, ALT_G = 251, ALT_B = 248;                // alternate row
+
       const data = buildExportRows(downloadLevel, rows, areas, grand);
-      const titleLevel = downloadLevel === "customer" ? "Customer" : downloadLevel === "beat" ? "Beat" : downloadLevel === "area" ? "Area" : "Organisation";
-      const periodShort = allJc ? "All JC" : `JC ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
-
-      // Title block
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Sushil Agencies — Sales Report`, 40, 40);
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${periodShort} · ${titleLevel} level`, 40, 58);
-      doc.setFontSize(9);
+      const titleLevel =
+        downloadLevel === "customer" ? "Customer-wise"
+          : downloadLevel === "beat" ? "Beat-wise"
+          : downloadLevel === "area" ? "Area-wise"
+          : "Organisation Summary";
+      const periodShort = allJc ? "All Journey Cycles" : `Journey Cycle ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
       const pctStr = pct(grand.a, grand.t)?.toFixed(1) ?? "—";
-      doc.text(
-        `Target ${fmtKg(grand.t)} kg   |   Achievement ${fmtKg(grand.a)} kg   |   Ach ${pctStr}%   |   Avg/JC ${fmtKg(grand.v)} kg`,
-        40,
-        74,
-      );
+      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
-      // Table
+      // ---- Cell formatting --------------------------------------------------
+      const formatCell = (header: string, value: string | number): string => {
+        if (value === "" || value == null) return "—";
+        if (typeof value === "number") {
+          const lower = header.toLowerCase();
+          if (lower.endsWith("%")) return value.toFixed(1) + "%";
+          if (lower.includes("kg")) return value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+          return value.toLocaleString("en-IN");
+        }
+        const str = String(value);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+          return new Date(str + "T00:00:00Z").toLocaleDateString("en-IN", {
+            day: "numeric", month: "short", year: "2-digit", timeZone: "UTC",
+          });
+        }
+        return str;
+      };
+
+      // ---- Per-column alignment (right for numeric/percent, left for text) --
+      const columnStyles: Record<number, { halign: "left" | "right" | "center" }> = {};
+      let headers: string[] = [];
       if (data.length > 0) {
-        const head = [Object.keys(data[0])];
-        const body = data.map((r) => Object.values(r).map((v) => (v === "" || v == null ? "" : String(v))));
-        autoTable(doc, {
-          startY: 92,
-          head,
-          body,
-          styles: { fontSize: 9, cellPadding: 4 },
-          headStyles: { fillColor: [40, 80, 60], textColor: 255, fontStyle: "bold" },
-          alternateRowStyles: { fillColor: [248, 248, 245] },
-          margin: { left: 40, right: 40 },
-          theme: "grid",
+        headers = Object.keys(data[0]);
+        headers.forEach((h, i) => {
+          const lower = h.toLowerCase();
+          if (lower.includes("kg") || lower.endsWith("%") || lower.includes("ach %")) {
+            columnStyles[i] = { halign: "right" };
+          }
         });
       }
 
-      // Footer with generation timestamp on each page
+      // ---- Table ------------------------------------------------------------
+      if (data.length > 0) {
+        const body = data.map((row) => headers.map((h) => formatCell(h, (row as Record<string, string | number>)[h])));
+        autoTable(doc, {
+          startY: 162, // leaves room for the page-1 hero header
+          head: [headers],
+          body,
+          theme: "plain",
+          styles: {
+            fontSize: 9.5,
+            cellPadding: { top: 9, right: 12, bottom: 9, left: 12 },
+            textColor: [BODY_TX_R, BODY_TX_G, BODY_TX_B],
+            font: "helvetica",
+            valign: "middle",
+          },
+          headStyles: {
+            fillColor: [HEAD_BG_R, HEAD_BG_G, HEAD_BG_B],
+            textColor: [HEAD_TX_R, HEAD_TX_G, HEAD_TX_B],
+            fontStyle: "bold",
+            fontSize: 9.5,
+            halign: "left",
+            cellPadding: { top: 11, right: 12, bottom: 11, left: 12 },
+          },
+          alternateRowStyles: { fillColor: [ALT_R, ALT_G, ALT_B] },
+          columnStyles,
+          margin: { left: 50, right: 50, top: 64 }, // continuation pages: room for compact header
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          didDrawPage: (hookData: any) => {
+            // Brand accent bar
+            doc.setFillColor(ACCENT_R, ACCENT_G, ACCENT_B);
+            doc.rect(0, 0, pageWidth, hookData.pageNumber === 1 ? 6 : 3, "F");
+
+            if (hookData.pageNumber === 1) {
+              // Centred hero header
+              doc.setFontSize(20);
+              doc.setFont("helvetica", "bold");
+              doc.setTextColor(25, 25, 25);
+              doc.text("Sushil Agencies", pageWidth / 2, 50, { align: "center" });
+
+              doc.setFontSize(12);
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(110, 110, 110);
+              doc.text("Sales Report", pageWidth / 2, 70, { align: "center" });
+
+              doc.setFontSize(10);
+              doc.setTextColor(60, 60, 60);
+              doc.text(`${periodShort}  •  ${titleLevel}`, pageWidth / 2, 90, { align: "center" });
+
+              // Divider
+              doc.setDrawColor(220, 220, 220);
+              doc.setLineWidth(0.5);
+              doc.line(pageWidth * 0.32, 102, pageWidth * 0.68, 102);
+
+              // KPI strip — centred
+              doc.setFontSize(10);
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(80, 80, 80);
+              const kpi = `Target  ${fmtKg(grand.t)} kg     |     Achievement  ${fmtKg(grand.a)} kg     |     Ach %  ${pctStr}%     |     Avg / JC  ${fmtKg(grand.v)} kg`;
+              doc.text(kpi, pageWidth / 2, 126, { align: "center" });
+            } else {
+              // Compact running header
+              doc.setFontSize(10);
+              doc.setFont("helvetica", "bold");
+              doc.setTextColor(40, 40, 40);
+              doc.text("Sushil Agencies  —  Sales Report", pageWidth / 2, 30, { align: "center" });
+              doc.setFontSize(8);
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(130, 130, 130);
+              doc.text(`${periodShort}  •  ${titleLevel}`, pageWidth / 2, 44, { align: "center" });
+            }
+
+            // Footer left (timestamp)
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(150, 150, 150);
+            doc.text(`Generated ${stamp}`, 50, pageHeight - 22);
+          },
+        });
+      }
+
+      // Second pass: add "Page X of Y" footer (totals only known after table renders)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pageCount = (doc.internal as any).getNumberOfPages?.() ?? 1;
-      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
-      for (let i = 1; i <= pageCount; i++) {
+      const totalPages = (doc as any).getNumberOfPages?.() ?? 1;
+      for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         doc.setFontSize(8);
-        doc.setTextColor(120);
-        doc.text(`Generated ${stamp} · Page ${i} of ${pageCount}`, 40, doc.internal.pageSize.getHeight() - 20);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 50, pageHeight - 22, { align: "right" });
       }
 
       const fname = `sales-report-${allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`}-${downloadLevel}.pdf`;
