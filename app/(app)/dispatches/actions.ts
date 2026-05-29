@@ -95,10 +95,6 @@ async function recomputeOrderStatus(
   await admin.from("orders").update({ app_status: newStatus }).eq("id", orderId);
 }
 
-// =============================================================================
-// CREATE DISPATCH
-// EDIT 1+2: added optional loadId; driver/helper already optional; set load_id.
-// =============================================================================
 export async function createDispatch(
   orderId: string,
   items: { orderItemId: string; qty: number }[],
@@ -211,9 +207,6 @@ export async function createDispatch(
   }
 }
 
-// =============================================================================
-// SHIP DISPATCH (truck leaves warehouse)
-// =============================================================================
 export async function shipDispatch(dispatchId: string) {
   try {
     const actor = await requireRoles(["admin", "dispatch"]);
@@ -244,13 +237,15 @@ export async function shipDispatch(dispatchId: string) {
 
 // =============================================================================
 // MARK DISPATCH DELIVERED (with POD)
+// Requires: photo URL, GPS coords (latitude + longitude), photo_taken_at
 // =============================================================================
 export async function markDelivered(
   dispatchId: string,
   pod: {
     photoUrl: string;
-    latitude: number | null;
-    longitude: number | null;
+    photoTakenAt: string;
+    latitude: number;
+    longitude: number;
     accuracyM?: number | null;
     receiverName?: string;
     notes?: string;
@@ -273,10 +268,16 @@ export async function markDelivered(
     }
 
     if (!pod.photoUrl) return { error: "POD photo required" };
+    if (typeof pod.latitude !== "number" || typeof pod.longitude !== "number" ||
+        !Number.isFinite(pod.latitude) || !Number.isFinite(pod.longitude)) {
+      return { error: "Location (GPS) is required. Please enable location services on your phone and try again." };
+    }
+    if (!pod.photoTakenAt) return { error: "Photo timestamp missing — please retake the photo." };
 
     const { error: pErr } = await admin.from("pods").insert({
       dispatch_id: dispatchId,
       photo_url: pod.photoUrl,
+      photo_taken_at: pod.photoTakenAt,
       latitude: pod.latitude,
       longitude: pod.longitude,
       accuracy_m: pod.accuracyM ?? null,
@@ -296,6 +297,7 @@ export async function markDelivered(
     await logEvent(admin, d.order_id, "dispatch_delivered", actor, undefined, {
       dispatch_id: dispatchId,
       captured_by_role: actor.role,
+      photo_taken_at: pod.photoTakenAt,
     });
     await recomputeOrderStatus(admin, d.order_id);
 
@@ -308,9 +310,6 @@ export async function markDelivered(
   }
 }
 
-// =============================================================================
-// CANCEL DISPATCH
-// =============================================================================
 export async function cancelDispatch(dispatchId: string, reason: string) {
   try {
     if (!reason || reason.trim().length < 3) return { error: "Cancel reason required" };
@@ -341,9 +340,6 @@ export async function cancelDispatch(dispatchId: string, reason: string) {
   }
 }
 
-// =============================================================================
-// UPLOAD POD PHOTO
-// =============================================================================
 export async function getPhotoUploadUrl(dispatchId: string) {
   try {
     await requireRoles(["admin", "dispatch", "delivery", "driver", "van_helper"]);
@@ -365,9 +361,6 @@ export async function getPhotoPublicUrl(objectName: string) {
   return data.publicUrl;
 }
 
-// =============================================================================
-// BULK DISPATCH BY BEAT  (unchanged)
-// =============================================================================
 export async function bulkDispatchByBeat(input: {
   beatId: string;
   vehicleNumber: string;
@@ -442,9 +435,6 @@ export async function bulkDispatchByBeat(input: {
   }
 }
 
-// =============================================================================
-// CREATE VEHICLE (inline add from the load wizard dropdown)
-// =============================================================================
 export async function createVehicle(input: { number: string; make?: string; capacityKg?: number }) {
   try {
     const actor = await requireRoles(["admin", "dispatch"]);
@@ -452,7 +442,6 @@ export async function createVehicle(input: { number: string; make?: string; capa
     const number = input.number.trim();
     if (!number) return { error: "Vehicle number is required" };
 
-    // reuse if a vehicle with this number already exists (case-insensitive)
     const { data: existing } = await admin
       .from("vehicles").select("id, number, make, capacity_kg")
       .ilike("number", number).maybeSingle();
@@ -474,9 +463,6 @@ export async function createVehicle(input: { number: string; make?: string; capa
   }
 }
 
-// =============================================================================
-// LIST VEHICLES (manage screen) — all vehicles + usage count from vehicle_loads
-// =============================================================================
 export async function listVehicles() {
   try {
     await requireRoles(["admin", "dispatch"]);
@@ -489,7 +475,6 @@ export async function listVehicles() {
       .order("number", { ascending: true });
     if (error) return { error: error.message };
 
-    // usage counts per vehicle
     const { data: loads } = await admin.from("vehicle_loads").select("vehicle_id");
     const usage = new Map<string, number>();
     for (const l of (loads ?? []) as Array<{ vehicle_id: string }>) {
@@ -512,9 +497,6 @@ export async function listVehicles() {
   }
 }
 
-// =============================================================================
-// UPDATE VEHICLE — edit number/make/capacity (re-checks unique number)
-// =============================================================================
 export async function updateVehicle(input: { id: string; number: string; make?: string; capacityKg?: number | null }) {
   try {
     await requireRoles(["admin", "dispatch"]);
@@ -523,7 +505,6 @@ export async function updateVehicle(input: { id: string; number: string; make?: 
     if (!input.id) return { error: "Vehicle id required" };
     if (!number) return { error: "Vehicle number is required" };
 
-    // another vehicle already using this number?
     const { data: clash } = await admin
       .from("vehicles").select("id").ilike("number", number).neq("id", input.id).maybeSingle();
     if (clash) return { error: `Another vehicle already uses number "${number}"` };
@@ -543,9 +524,6 @@ export async function updateVehicle(input: { id: string; number: string; make?: 
   }
 }
 
-// =============================================================================
-// SET VEHICLE ACTIVE — deactivate / reactivate
-// =============================================================================
 export async function setVehicleActive(input: { id: string; active: boolean }) {
   try {
     await requireRoles(["admin", "dispatch"]);
@@ -563,9 +541,6 @@ export async function setVehicleActive(input: { id: string; active: boolean }) {
   }
 }
 
-// =============================================================================
-// DELETE VEHICLE — hard-delete if never used; otherwise deactivate (keep history)
-// =============================================================================
 export async function deleteVehicle(id: string) {
   try {
     await requireRoles(["admin", "dispatch"]);
@@ -576,7 +551,6 @@ export async function deleteVehicle(id: string) {
       .from("vehicle_loads").select("id").eq("vehicle_id", id).limit(1);
 
     if (used && used.length > 0) {
-      // In use — can't hard delete; deactivate instead to preserve history.
       const { error } = await admin.from("vehicles").update({ active: false }).eq("id", id);
       if (error) return { error: error.message };
       revalidatePath("/vehicles");
@@ -594,14 +568,6 @@ export async function deleteVehicle(id: string) {
   }
 }
 
-// =============================================================================
-// START VEHICLE LOAD  — begin a loading session at /load
-//
-// Creates a vehicle_loads parent (status 'loading') with the chosen vehicle +
-// loaders. Orders are then attached to this load as the team marks each one
-// loaded (see markOrderLoaded in /load/orders/[orderId]/actions.ts).
-// Returns the load id, which /load threads through as ?load=<id>.
-// =============================================================================
 export async function startVehicleLoad(input: { vehicleId: string; loaderUserIds: string[] }) {
   try {
     const actor = await requireRoles(["admin", "dispatch"]);
@@ -632,10 +598,6 @@ export async function startVehicleLoad(input: { vehicleId: string; loaderUserIds
   }
 }
 
-// =============================================================================
-// CANCEL VEHICLE LOAD  — abandon an empty/in-progress loading session
-// (only allowed while still 'loading'; detaches nothing if dispatches exist)
-// =============================================================================
 export async function cancelVehicleLoad(loadId: string) {
   try {
     await requireRoles(["admin", "dispatch"]);
@@ -655,18 +617,6 @@ export async function cancelVehicleLoad(loadId: string) {
   }
 }
 
-// =============================================================================
-// DISPATCH SELECTED ORDERS  — vehicle-first flow (with per-item load quantities)
-//
-// Creates a vehicle_loads parent (vehicle + loaders), then attaches each
-// order's dispatch to it via load_id. Driver/helper are NOT set here — they
-// are captured later at "Vehicle left" (shipTruck).
-//
-// Two input modes (backward compatible):
-//   • loadLines: explicit per-order, per-item quantities (mandatory-open flow)
-//   • orderIds:  legacy "load full remaining" for each order
-// If loadLines is provided it takes precedence; orderIds is ignored.
-// =============================================================================
 export async function dispatchSelectedOrders(input: {
   orderIds?: string[];
   loadLines?: { orderId: string; items: { orderItemId: string; qty: number }[] }[];
@@ -705,13 +655,11 @@ export async function dispatchSelectedOrders(input: {
       return { error: "Some selected orders no longer exist. Refresh the list." };
     }
 
-    // line lookup for the per-item mode
     const linesByOrder = new Map<string, { orderItemId: string; qty: number }[]>();
     if (useLines) {
       for (const l of input.loadLines!) linesByOrder.set(l.orderId, l.items);
     }
 
-    // 1. Create the load parent
     const { data: load, error: lErr } = await admin.from("vehicle_loads").insert({
       vehicle_id: input.vehicleId,
       status: "loading",
@@ -721,7 +669,6 @@ export async function dispatchSelectedOrders(input: {
     }).select("id").single();
     if (lErr || !load) return { error: lErr?.message ?? "Failed to create load" };
 
-    // 2. Record loaders
     if (input.loaderUserIds?.length) {
       const loaderRows = Array.from(new Set(input.loaderUserIds)).map(uid => ({
         load_id: load.id, user_id: uid,
@@ -729,7 +676,6 @@ export async function dispatchSelectedOrders(input: {
       await admin.from("vehicle_load_loaders").insert(loaderRows);
     }
 
-    // 3. Attach each order's dispatch to the load (no driver yet)
     const results: Array<{ orderId: string; rupyzOrderId: string; ok: boolean; error?: string; dispatchNumber?: string }> = [];
     for (const o of orderList) {
       let lines: { orderItemId: string; qty: number }[];
@@ -766,7 +712,6 @@ export async function dispatchSelectedOrders(input: {
     const succeeded = results.filter(r => r.ok).length;
     const failed = results.filter(r => !r.ok).length;
 
-    // If nothing attached, clean up the empty load
     if (succeeded === 0) {
       await admin.from("vehicle_loads").delete().eq("id", load.id);
     }
@@ -780,9 +725,6 @@ export async function dispatchSelectedOrders(input: {
   }
 }
 
-// =============================================================================
-// SHIP TRUCK  — "Vehicle left": capture driver + helper, ship the load
-// =============================================================================
 export async function shipTruck(input: {
   loadId: string;
   driverUserId: string;
@@ -795,7 +737,6 @@ export async function shipTruck(input: {
     if (!input.loadId) return { error: "Load is required" };
     if (!input.driverUserId) return { error: "Driver is required" };
 
-    // driver/helper details from app_users
     const { data: people } = await admin
       .from("app_users").select("id, full_name, phone")
       .in("id", [input.driverUserId, ...(input.helperUserId ? [input.helperUserId] : [])]);
@@ -813,7 +754,6 @@ export async function shipTruck(input: {
     const dispatchIds = dispatches.map(d => d.id);
     const orderIds = Array.from(new Set(dispatches.map(d => d.order_id)));
 
-    // ship dispatches + stamp driver/helper so the driver app works
     const { error: uErr } = await admin.from("dispatches")
       .update({
         status: "shipped", shipped_at: now, shipped_by: actor.userId,
@@ -825,7 +765,6 @@ export async function shipTruck(input: {
       .in("id", dispatchIds);
     if (uErr) return { error: uErr.message };
 
-    // mark the load dispatched
     await admin.from("vehicle_loads").update({
       status: "dispatched", dispatched_at: now,
       driver_user_id: input.driverUserId,

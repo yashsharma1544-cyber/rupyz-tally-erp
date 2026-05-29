@@ -50,6 +50,7 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
 
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [photoTakenAt, setPhotoTakenAt] = useState<string | null>(null);
   const [receiverName, setReceiverName] = useState("");
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
@@ -64,31 +65,37 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setPhotoFile(file);
+    // Record the moment the photo file was selected — closest we can get to
+    // "when the photo was taken" on the client (separate from the server-side
+    // delivered_at stamped when markDelivered runs).
+    setPhotoTakenAt(new Date().toISOString());
     if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
     setPhotoPreviewUrl(URL.createObjectURL(file));
   }
 
   function clearPhoto() {
     setPhotoFile(null);
+    setPhotoTakenAt(null);
     if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
     setPhotoPreviewUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // Try to read GPS, but don't block if denied. Returns null if unavailable.
+  // GPS is REQUIRED — returns null if denied/timeout/no-geolocation, and the
+  // caller blocks the delivery in that case.
   function getCurrentPosition(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
     if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);
     return new Promise(resolve => {
       navigator.geolocation.getCurrentPosition(
         pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
         () => resolve(null),
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
       );
     });
   }
 
   function handleMarkDelivered() {
-    if (!photoFile) {
+    if (!photoFile || !photoTakenAt) {
       toast.error(t("driver_stop.toast_capture_photo_first"));
       return;
     }
@@ -99,23 +106,29 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
 
     startTransition(async () => {
       try {
-        // 1. Try to capture GPS (non-blocking)
+        // 1. GPS is REQUIRED — block if not available
+        toast.info("Getting location…");
         const gps = await getCurrentPosition();
+        if (!gps) {
+          toast.error(
+            "Location is required to mark delivered. Please enable location services for this site and try again.",
+          );
+          return;
+        }
 
-        // 2. Get signed upload URL
+        // 2. Signed upload URL
         const uploadInfo = await getPhotoUploadUrl(dispatch.id);
         if ("error" in uploadInfo && uploadInfo.error) {
           toast.error(t("driver_stop.toast_upload_prep_failed", { error: uploadInfo.error }));
           return;
         }
-        // After the guard, narrow to success branch
         if (!("ok" in uploadInfo) || !uploadInfo.objectName || !uploadInfo.token) {
           toast.error(t("driver_stop.toast_upload_prep_unexpected"));
           return;
         }
         const { objectName, token } = uploadInfo;
 
-        // 3. Upload photo to Supabase storage via signed URL
+        // 3. Upload photo
         const supabase = createClient();
         const { error: upErr } = await supabase.storage
           .from("pod-photos")
@@ -127,16 +140,16 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           return;
         }
 
-        // 4. Build public URL for the uploaded photo
         const { data: urlData } = supabase.storage.from("pod-photos").getPublicUrl(objectName);
         const photoUrl = urlData.publicUrl;
 
-        // 5. Mark dispatch delivered
+        // 4. Mark dispatch delivered with required GPS + photo timestamp
         const res = await markDelivered(dispatch.id, {
           photoUrl,
-          latitude: gps?.lat ?? null,
-          longitude: gps?.lng ?? null,
-          accuracyM: gps?.accuracy ?? null,
+          photoTakenAt,
+          latitude: gps.lat,
+          longitude: gps.lng,
+          accuracyM: gps.accuracy,
           receiverName: receiverName.trim() || undefined,
           notes: notes.trim() || undefined,
         });
@@ -159,7 +172,6 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           <ArrowLeft size={11}/> {t("driver_stop.back_to_deliveries")}
         </Link>
 
-        {/* Customer header */}
         <h1 className="text-lg font-semibold leading-tight">{dispatch.customer.name}</h1>
         <div className="text-xs text-ink-muted mt-0.5 space-y-0.5">
           {dispatch.customer.address && <div>{dispatch.customer.address}</div>}
@@ -182,7 +194,6 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         </div>
         <div className="text-2xs font-mono text-ink-subtle mt-1">{dispatch.rupyzOrderId}</div>
 
-        {/* Status banner if pending */}
         {!isShipped && (
           <div className="mt-3 bg-warn-soft border border-warn/40 rounded-md p-3 text-xs text-ink">
             <strong className="block mb-0.5">{t("driver_stop.truck_still_loading_title")}</strong>
@@ -190,7 +201,6 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           </div>
         )}
 
-        {/* Items */}
         <div className="mt-4">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
             {t("driver_stop.items_header", { qty: dispatch.totalQty, amount: formatINR(dispatch.totalAmount) })}
@@ -211,7 +221,6 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           </div>
         </div>
 
-        {/* Optional fields */}
         <div className="mt-5 pt-4 border-t border-paper-line space-y-3">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold">
             {t("driver_stop.delivery_details")}
@@ -239,13 +248,11 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
           </div>
         </div>
 
-        {/* Photo capture */}
         <div className="mt-5 pt-4 border-t border-paper-line">
           <h2 className="text-xs uppercase tracking-wide text-ink-muted font-semibold mb-2">
             {t("driver_stop.pod_photo")}
           </h2>
 
-          {/* Hidden file input — opens native camera on phone */}
           <input
             ref={fileInputRef}
             type="file"
@@ -265,11 +272,17 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
               <Camera size={32} className="mx-auto text-ink-subtle mb-2"/>
               <p className="text-sm font-semibold">{t("driver_stop.tap_to_take_photo")}</p>
               <p className="text-2xs text-ink-muted mt-1">{t("driver_stop.required_to_mark")}</p>
+              <p className="text-2xs text-warn mt-1">Location access also required.</p>
             </button>
           ) : (
             <div className="relative bg-paper-card border border-paper-line rounded-md overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={photoPreviewUrl} alt="POD" className="w-full max-h-[60vh] object-contain bg-ink"/>
+              {photoTakenAt && (
+                <div className="px-3 py-1.5 text-2xs text-ink-muted bg-paper-subtle/50 border-t border-paper-line">
+                  Captured {new Date(photoTakenAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </div>
+              )}
               <div className="p-2 flex gap-2">
                 <button
                   type="button"
@@ -293,7 +306,6 @@ export function DriverStopClient({ dispatch }: { dispatch: DispatchStop }) {
         </div>
       </div>
 
-      {/* Sticky footer */}
       <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-paper-card/95 backdrop-blur border-t border-paper-line p-3">
         <div className="max-w-md mx-auto">
           <Button

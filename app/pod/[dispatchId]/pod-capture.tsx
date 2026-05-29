@@ -22,6 +22,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
 
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoTakenAt, setPhotoTakenAt] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [coordsErr, setCoordsErr] = useState<string | null>(null);
   const [receiverName, setReceiverName] = useState("");
@@ -45,6 +46,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
     const file = e.target.files?.[0];
     if (!file) return;
     setPhoto(file);
+    setPhotoTakenAt(new Date().toISOString());
     const reader = new FileReader();
     reader.onload = (ev) => setPhotoPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
@@ -60,10 +62,11 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
   }
 
   function handleSubmit() {
-    if (!photo) { toast.error(t("pod.toast_capture_photo_first")); return; }
+    if (!photo || !photoTakenAt) { toast.error(t("pod.toast_capture_photo_first")); return; }
     if (!coords) { toast.error(t("pod.toast_wait_location")); return; }
 
     const photoFile = photo;
+    const takenAt = photoTakenAt;
     const c = coords;
 
     startTransition(async () => {
@@ -80,6 +83,7 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
       // 3. Mark dispatch delivered (server action)
       const res = await markDelivered(dispatch.id, {
         photoUrl: publicUrl,
+        photoTakenAt: takenAt,
         latitude: c.lat,
         longitude: c.lng,
         accuracyM: c.accuracy,
@@ -188,11 +192,16 @@ export function PODCapture({ dispatch, me }: { dispatch: Dispatch; me: AppUser }
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={photoPreview} alt="POD" className="w-full rounded border border-paper-line"/>
               <button
-                onClick={() => { setPhoto(null); setPhotoPreview(null); }}
+                onClick={() => { setPhoto(null); setPhotoPreview(null); setPhotoTakenAt(null); }}
                 className="absolute top-2 right-2 bg-paper-card/90 backdrop-blur px-2 py-1 rounded text-xs hover:bg-paper-card"
               >
                 {t("pod.retake")}
               </button>
+              {photoTakenAt && (
+                <div className="mt-2 text-2xs text-ink-muted">
+                  Captured {new Date(photoTakenAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </div>
+              )}
             </div>
           ) : (
             <label className="block border-2 border-dashed border-paper-line rounded-lg p-8 text-center cursor-pointer hover:border-accent">
