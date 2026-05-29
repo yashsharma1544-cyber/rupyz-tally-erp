@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { Download } from "lucide-react";
 import { getReportRows, type ReportRow } from "./reports-actions";
 
 type JC = { id: string; jc_number: number; start_date: string; end_date: string };
@@ -147,7 +148,18 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     });
   }
 
+  // -------- PDF generation (scope-aware, multi-table) --------
+  type PdfScope =
+    | { kind: "org" }
+    | { kind: "area"; area: AreaAgg }
+    | { kind: "beat"; area: AreaAgg; beat: BeatAgg }
+    | { kind: "customer"; area: AreaAgg; beat: BeatAgg; customer: ReportRow };
+
   function exportPdf() {
+    generatePdf({ kind: "org" });
+  }
+
+  function generatePdf(scope: PdfScope) {
     if (!rows) return;
     Promise.all([import("jspdf"), import("jspdf-autotable")]).then(([jsPDFModule, autoTableModule]) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -156,151 +168,287 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       const autoTable = (autoTableModule as any).default ?? (autoTableModule as any);
 
       const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
 
-      // Theme palette
-      const ACCENT_R = 15, ACCENT_G = 76, ACCENT_B = 67;          // brand teal
-      const HEAD_BG_R = 241, HEAD_BG_G = 245, HEAD_BG_B = 243;    // header background
-      const HEAD_TX_R = 40, HEAD_TX_G = 70, HEAD_TX_B = 60;       // header text
-      const BODY_TX_R = 40, BODY_TX_G = 40, BODY_TX_B = 40;       // body text
-      const ALT_R = 251, ALT_G = 251, ALT_B = 248;                // alternate row
+      // ----- Theme palette -----
+      const ACCENT: [number, number, number] = [15, 76, 67];        // brand teal
+      const HEAD_BG: [number, number, number] = [241, 245, 243];    // soft tint
+      const HEAD_TX: [number, number, number] = [40, 70, 60];
+      const BODY_TX: [number, number, number] = [40, 40, 40];
+      const ALT_BG: [number, number, number] = [251, 251, 248];
+      const MUTED: [number, number, number] = [120, 120, 120];
 
-      const data = buildExportRows(downloadLevel, rows, areas, grand);
-      const titleLevel =
-        downloadLevel === "customer" ? "Customer-wise"
-          : downloadLevel === "beat" ? "Beat-wise"
-          : downloadLevel === "area" ? "Area-wise"
-          : "Organisation Summary";
-      const periodShort = allJc ? "All Journey Cycles" : `Journey Cycle ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
-      const pctStr = pct(grand.a, grand.t)?.toFixed(1) ?? "—";
-      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+      // ----- Scope-derived metrics + labels -----
+      type Totals = { t: number; a: number; v: number };
+      let scopeLabel = "Organisation";
+      let scopeName = "Sushil Agencies";
+      let scopeTotals: Totals = { t: grand.t, a: grand.a, v: grand.v };
+      let fileSlug = "organisation";
 
-      // ---- Cell formatting --------------------------------------------------
-      const formatCell = (header: string, value: string | number): string => {
-        if (value === "" || value == null) return "—";
-        if (typeof value === "number") {
-          const lower = header.toLowerCase();
-          if (lower.endsWith("%")) return value.toFixed(1) + "%";
-          if (lower.includes("kg")) return value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
-          return value.toLocaleString("en-IN");
-        }
-        const str = String(value);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-          return new Date(str + "T00:00:00Z").toLocaleDateString("en-IN", {
-            day: "numeric", month: "short", year: "2-digit", timeZone: "UTC",
-          });
-        }
-        return str;
-      };
-
-      // ---- Per-column alignment (right for numeric/percent, left for text) --
-      const columnStyles: Record<number, { halign: "left" | "right" | "center" }> = {};
-      let headers: string[] = [];
-      if (data.length > 0) {
-        headers = Object.keys(data[0]);
-        headers.forEach((h, i) => {
-          const lower = h.toLowerCase();
-          if (lower.includes("kg") || lower.endsWith("%") || lower.includes("ach %")) {
-            columnStyles[i] = { halign: "right" };
-          }
-        });
+      if (scope.kind === "area") {
+        scopeLabel = "Area";
+        scopeName = scope.area.area_name;
+        scopeTotals = { t: scope.area.target, a: scope.area.ach, v: scope.area.avg };
+        fileSlug = `area-${slug(scope.area.area_name)}`;
+      } else if (scope.kind === "beat") {
+        scopeLabel = "Beat";
+        scopeName = `${scope.area.area_name} / ${scope.beat.beat_name}`;
+        scopeTotals = { t: scope.beat.target, a: scope.beat.ach, v: scope.beat.avg };
+        fileSlug = `beat-${slug(scope.beat.beat_name)}`;
+      } else if (scope.kind === "customer") {
+        scopeLabel = "Customer";
+        scopeName = scope.customer.customer_name;
+        scopeTotals = { t: scope.customer.target_kg, a: scope.customer.achievement_kg, v: scope.customer.avg_kg };
+        fileSlug = `customer-${slug(scope.customer.customer_name)}`;
       }
 
-      // ---- Table ------------------------------------------------------------
-      if (data.length > 0) {
-        const body = data.map((row) => headers.map((h) => formatCell(h, (row as Record<string, string | number>)[h])));
+      const pctOf = (a: number, t: number) => (t > 0 ? (a / t) * 100 : null);
+      const pctStr = pctOf(scopeTotals.a, scopeTotals.t)?.toFixed(1) ?? "—";
+      const periodShort = allJc ? "All Journey Cycles" : `Journey Cycle ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
+      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+
+      // Track cursor Y between sections
+      let cursorY = 170;
+
+      // ----- Hero header (page 1) -----
+      doc.setFillColor(...ACCENT);
+      doc.rect(0, 0, pageW, 8, "F");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor(25, 25, 25);
+      doc.text("Sushil Agencies", pageW / 2, 52, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(...MUTED);
+      doc.text("Sales Report", pageW / 2, 70, { align: "center" });
+
+      // Scope pill (centered with rounded background)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      const pillText = `${scopeLabel}: ${scopeName}`;
+      const pillW = doc.getTextWidth(pillText) + 28;
+      const pillX = (pageW - pillW) / 2;
+      doc.setFillColor(...HEAD_BG);
+      doc.roundedRect(pillX, 84, pillW, 22, 11, 11, "F");
+      doc.setTextColor(...HEAD_TX);
+      doc.text(pillText, pageW / 2, 99, { align: "center" });
+
+      // Period line
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(95, 95, 95);
+      doc.text(periodShort, pageW / 2, 122, { align: "center" });
+
+      // Thin divider
+      doc.setDrawColor(225, 225, 225);
+      doc.setLineWidth(0.5);
+      doc.line(pageW * 0.30, 134, pageW * 0.70, 134);
+
+      // ----- KEY METRICS table (4-col stat card) -----
+      const kmHeaders = ["Target", "Achievement", "Ach %", "Avg / JC"];
+      const kmBody = [[
+        `${fmtKg(scopeTotals.t)} kg`,
+        `${fmtKg(scopeTotals.a)} kg`,
+        `${pctStr}%`,
+        `${fmtKg(scopeTotals.v)} kg`,
+      ]];
+      // center the metrics table
+      const metricsW = 620;
+      const metricsLeft = (pageW - metricsW) / 2;
+      autoTable(doc, {
+        startY: 150,
+        head: [kmHeaders],
+        body: kmBody,
+        theme: "plain",
+        tableWidth: metricsW,
+        margin: { left: metricsLeft, right: metricsLeft },
+        styles: {
+          fontSize: 10,
+          font: "helvetica",
+          halign: "center",
+          cellPadding: { top: 10, right: 10, bottom: 10, left: 10 },
+          lineWidth: 0,
+        },
+        headStyles: {
+          fillColor: HEAD_BG,
+          textColor: HEAD_TX,
+          fontStyle: "bold",
+          fontSize: 9,
+          halign: "center",
+        },
+        bodyStyles: {
+          fillColor: [255, 255, 255],
+          textColor: BODY_TX,
+          fontStyle: "bold",
+          fontSize: 13,
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cursorY = ((doc as any).lastAutoTable?.finalY ?? 200) + 28;
+
+      // ----- Section helper -----
+      const drawSectionTitle = (title: string) => {
+        if (cursorY > pageH - 100) { doc.addPage(); drawContinuationHeader(); cursorY = 80; }
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(25, 25, 25);
+        doc.text(title, 50, cursorY);
+        // Small accent underline
+        doc.setDrawColor(...ACCENT);
+        doc.setLineWidth(1.5);
+        doc.line(50, cursorY + 5, 50 + doc.getTextWidth(title), cursorY + 5);
+        cursorY += 16;
+      };
+
+      const drawContinuationHeader = () => {
+        doc.setFillColor(...ACCENT);
+        doc.rect(0, 0, pageW, 4, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(40, 40, 40);
+        doc.text(`Sushil Agencies  —  ${scopeLabel}: ${scopeName}`, pageW / 2, 28, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...MUTED);
+        doc.text(periodShort, pageW / 2, 42, { align: "center" });
+      };
+
+      // ----- Generic data-table renderer (full-width, themed) -----
+      const drawDataTable = (head: string[], body: (string | number)[][], rightAlignFromCol: number) => {
+        const cols: Record<number, { halign: "left" | "right" }> = {};
+        for (let i = rightAlignFromCol; i < head.length; i++) cols[i] = { halign: "right" };
         autoTable(doc, {
-          startY: 162, // leaves room for the page-1 hero header
-          head: [headers],
-          body,
+          startY: cursorY,
+          head: [head],
+          body: body.map((r) => r.map((v) => (v === "" || v == null ? "—" : String(v)))),
           theme: "plain",
           styles: {
             fontSize: 9.5,
-            cellPadding: { top: 9, right: 12, bottom: 9, left: 12 },
-            textColor: [BODY_TX_R, BODY_TX_G, BODY_TX_B],
             font: "helvetica",
+            cellPadding: { top: 8, right: 12, bottom: 8, left: 12 },
+            textColor: BODY_TX,
             valign: "middle",
           },
           headStyles: {
-            fillColor: [HEAD_BG_R, HEAD_BG_G, HEAD_BG_B],
-            textColor: [HEAD_TX_R, HEAD_TX_G, HEAD_TX_B],
+            fillColor: HEAD_BG,
+            textColor: HEAD_TX,
             fontStyle: "bold",
             fontSize: 9.5,
-            halign: "left",
-            cellPadding: { top: 11, right: 12, bottom: 11, left: 12 },
+            cellPadding: { top: 10, right: 12, bottom: 10, left: 12 },
           },
-          alternateRowStyles: { fillColor: [ALT_R, ALT_G, ALT_B] },
-          columnStyles,
-          margin: { left: 50, right: 50, top: 64 }, // continuation pages: room for compact header
+          alternateRowStyles: { fillColor: ALT_BG },
+          columnStyles: cols,
+          margin: { left: 50, right: 50, top: 60 },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          didDrawPage: (hookData: any) => {
-            // Brand accent bar
-            doc.setFillColor(ACCENT_R, ACCENT_G, ACCENT_B);
-            doc.rect(0, 0, pageWidth, hookData.pageNumber === 1 ? 6 : 3, "F");
+          didDrawPage: (h: any) => { if (h.pageNumber > 1) drawContinuationHeader(); },
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cursorY = ((doc as any).lastAutoTable?.finalY ?? cursorY) + 28;
+      };
 
-            if (hookData.pageNumber === 1) {
-              // Centred hero header
-              doc.setFontSize(20);
-              doc.setFont("helvetica", "bold");
-              doc.setTextColor(25, 25, 25);
-              doc.text("Sushil Agencies", pageWidth / 2, 50, { align: "center" });
+      // ----- SCOPE-SPECIFIC SECTIONS -----
+      const fmtN = (n: number) => fmtKg(n);
+      const fmtP = (a: number, t: number) => (pctOf(a, t)?.toFixed(1) ?? "—") + (pctOf(a, t) != null ? "%" : "");
 
-              doc.setFontSize(12);
-              doc.setFont("helvetica", "normal");
-              doc.setTextColor(110, 110, 110);
-              doc.text("Sales Report", pageWidth / 2, 70, { align: "center" });
-
-              doc.setFontSize(10);
-              doc.setTextColor(60, 60, 60);
-              doc.text(`${periodShort}  •  ${titleLevel}`, pageWidth / 2, 90, { align: "center" });
-
-              // Divider
-              doc.setDrawColor(220, 220, 220);
-              doc.setLineWidth(0.5);
-              doc.line(pageWidth * 0.32, 102, pageWidth * 0.68, 102);
-
-              // KPI strip — centred
-              doc.setFontSize(10);
-              doc.setFont("helvetica", "normal");
-              doc.setTextColor(80, 80, 80);
-              const kpi = `Target  ${fmtKg(grand.t)} kg     |     Achievement  ${fmtKg(grand.a)} kg     |     Ach %  ${pctStr}%     |     Avg / JC  ${fmtKg(grand.v)} kg`;
-              doc.text(kpi, pageWidth / 2, 126, { align: "center" });
-            } else {
-              // Compact running header
-              doc.setFontSize(10);
-              doc.setFont("helvetica", "bold");
-              doc.setTextColor(40, 40, 40);
-              doc.text("Sushil Agencies  —  Sales Report", pageWidth / 2, 30, { align: "center" });
-              doc.setFontSize(8);
-              doc.setFont("helvetica", "normal");
-              doc.setTextColor(130, 130, 130);
-              doc.text(`${periodShort}  •  ${titleLevel}`, pageWidth / 2, 44, { align: "center" });
-            }
-
-            // Footer left (timestamp)
-            doc.setFontSize(8);
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(150, 150, 150);
-            doc.text(`Generated ${stamp}`, 50, pageHeight - 22);
+      if (scope.kind === "org") {
+        // 1) Areas table
+        drawSectionTitle("Performance by Area");
+        drawDataTable(
+          ["Area", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
+          areas.map((a) => [a.area_name, fmtN(a.target), fmtN(a.ach), fmtP(a.ach, a.target), fmtN(a.avg)]),
+          1,
+        );
+        // 2) Beats table (rolled up across all areas, sorted by target desc)
+        const allBeats = areas.flatMap((a) => a.beats.map((b) => ({ area: a.area_name, ...b })));
+        allBeats.sort((x, y) => y.target - x.target);
+        drawSectionTitle("Performance by Beat");
+        drawDataTable(
+          ["Area", "Beat", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
+          allBeats.map((b) => [b.area, b.beat_name, fmtN(b.target), fmtN(b.ach), fmtP(b.ach, b.target), fmtN(b.avg)]),
+          2,
+        );
+      } else if (scope.kind === "area") {
+        // 1) Beats in this area
+        drawSectionTitle("Beats in this Area");
+        drawDataTable(
+          ["Beat", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
+          scope.area.beats.map((b) => [b.beat_name, fmtN(b.target), fmtN(b.ach), fmtP(b.ach, b.target), fmtN(b.avg)]),
+          1,
+        );
+        // 2) Customers in this area (top 50 by target)
+        const custs = scope.area.beats.flatMap((b) => b.customers.map((c) => ({ beat: b.beat_name, ...c })));
+        custs.sort((x, y) => y.target_kg - x.target_kg);
+        drawSectionTitle(`Customers in this Area (${custs.length})`);
+        drawDataTable(
+          ["Beat", "Customer", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
+          custs.slice(0, 100).map((c) => [c.beat, c.customer_name, fmtN(c.target_kg), fmtN(c.achievement_kg), fmtP(c.achievement_kg, c.target_kg), fmtN(c.avg_kg)]),
+          2,
+        );
+      } else if (scope.kind === "beat") {
+        drawSectionTitle("Customers in this Beat");
+        drawDataTable(
+          ["Customer", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)", "Last Order"],
+          scope.beat.customers.map((c) => [
+            c.customer_name,
+            fmtN(c.target_kg),
+            fmtN(c.achievement_kg),
+            fmtP(c.achievement_kg, c.target_kg),
+            fmtN(c.avg_kg),
+            c.last_order_date
+              ? `${fmtDate(c.last_order_date)}${c.last_order_kg > 0 ? ` (${fmtN(c.last_order_kg)} kg)` : ""}`
+              : "—",
+          ]),
+          1,
+        );
+      } else {
+        // customer scope — 2-col details table
+        drawSectionTitle("Customer Details");
+        const c = scope.customer;
+        autoTable(doc, {
+          startY: cursorY,
+          body: [
+            ["Customer", c.customer_name],
+            ["Beat", c.beat_name],
+            ["Area", c.area_name],
+            ["Target", `${fmtKg(c.target_kg)} kg`],
+            ["Achievement", `${fmtKg(c.achievement_kg)} kg`],
+            ["Achievement %", `${pctOf(c.achievement_kg, c.target_kg)?.toFixed(1) ?? "—"}%`],
+            ["Average / JC", `${fmtKg(c.avg_kg)} kg`],
+            ["Last order date", c.last_order_date ? fmtDate(c.last_order_date) : "—"],
+            ["Last order quantity", c.last_order_kg > 0 ? `${fmtKg(c.last_order_kg)} kg` : "—"],
+          ],
+          theme: "plain",
+          styles: { fontSize: 10, font: "helvetica", cellPadding: { top: 8, right: 14, bottom: 8, left: 14 } },
+          columnStyles: {
+            0: { fontStyle: "bold", textColor: HEAD_TX, fillColor: HEAD_BG, cellWidth: 180 },
+            1: { textColor: BODY_TX, halign: "right" },
           },
+          margin: { left: 150, right: 150 },
         });
       }
 
-      // Second pass: add "Page X of Y" footer (totals only known after table renders)
+      // ----- Footer on every page -----
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const totalPages = (doc as any).getNumberOfPages?.() ?? 1;
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 50, pageHeight - 22, { align: "right" });
+        doc.setFontSize(8);
+        doc.setTextColor(...MUTED);
+        doc.text(`Generated ${stamp}`, 50, pageH - 22);
+        doc.text(`Page ${i} of ${totalPages}`, pageW - 50, pageH - 22, { align: "right" });
       }
 
-      const fname = `sales-report-${allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`}-${downloadLevel}.pdf`;
-      doc.save(fname);
+      const jcShort = allJc ? "AllJC" : `JC${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
+      doc.save(`sales-report-${jcShort}-${fileSlug}.pdf`);
     });
+  }
+
+  function slug(s: string): string {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   }
 
   const periodLabel = allJc ? "All JCs" : jcLabel(jcs.find((j) => j.id === jcId) ?? jcs[0]);
@@ -417,10 +565,19 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
                     <FragmentArea key={a.area_id}>
                       <tr className="bg-paper-subtle/30 hover:bg-paper-subtle/50 font-semibold">
                         <td className="px-3 py-2.5">
-                          <button onClick={() => toggleArea(a.area_id)} className="inline-flex items-center gap-1.5 hover:text-accent">
-                            <span className={`transition-transform ${aOpen ? "rotate-90" : ""}`}>›</span>
-                            {a.area_name}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => toggleArea(a.area_id)} className="inline-flex items-center gap-1.5 hover:text-accent">
+                              <span className={`transition-transform ${aOpen ? "rotate-90" : ""}`}>›</span>
+                              {a.area_name}
+                            </button>
+                            <button
+                              onClick={() => generatePdf({ kind: "area", area: a })}
+                              title={`Download PDF — ${a.area_name}`}
+                              className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                            >
+                              <Download size={14} />
+                            </button>
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-right tabular">{fmtKg(a.target)}</td>
                         <td className="px-3 py-2.5 text-right tabular">{fmtKg(a.ach)}</td>
@@ -436,10 +593,19 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
                             <FragmentArea key={b.beat_id}>
                               <tr className="hover:bg-paper-subtle/40">
                                 <td className="px-3 py-2 pl-8">
-                                  <button onClick={() => toggleBeat(b.beat_id)} className="inline-flex items-center gap-1.5 font-medium hover:text-accent">
-                                    <span className={`transition-transform ${bOpen ? "rotate-90" : ""}`}>›</span>
-                                    {b.beat_name}
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button onClick={() => toggleBeat(b.beat_id)} className="inline-flex items-center gap-1.5 font-medium hover:text-accent">
+                                      <span className={`transition-transform ${bOpen ? "rotate-90" : ""}`}>›</span>
+                                      {b.beat_name}
+                                    </button>
+                                    <button
+                                      onClick={() => generatePdf({ kind: "beat", area: a, beat: b })}
+                                      title={`Download PDF — ${b.beat_name}`}
+                                      className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                                    >
+                                      <Download size={13} />
+                                    </button>
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2 text-right tabular">{fmtKg(b.target)}</td>
                                 <td className="px-3 py-2 text-right tabular">{fmtKg(b.ach)}</td>
@@ -452,7 +618,18 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
                                   const cPct = pct(c.achievement_kg, c.target_kg);
                                   return (
                                     <tr key={c.customer_id} className="bg-paper-subtle/10 text-xs">
-                                      <td className="px-3 py-1.5 pl-14 text-ink-muted">{c.customer_name}</td>
+                                      <td className="px-3 py-1.5 pl-14 text-ink-muted">
+                                        <div className="flex items-center gap-2">
+                                          <span>{c.customer_name}</span>
+                                          <button
+                                            onClick={() => generatePdf({ kind: "customer", area: a, beat: b, customer: c })}
+                                            title={`Download PDF — ${c.customer_name}`}
+                                            className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                                          >
+                                            <Download size={12} />
+                                          </button>
+                                        </div>
+                                      </td>
                                       <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.target_kg)}</td>
                                       <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.achievement_kg)}</td>
                                       <td className={`px-3 py-1.5 text-right tabular ${pctClass(cPct)}`}>{cPct != null ? cPct.toFixed(0) + "%" : "—"}</td>
