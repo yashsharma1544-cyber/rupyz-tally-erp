@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
+import { DownloadPdfButton } from "../../_download-button";
 
 export const dynamic = "force-dynamic";
 
@@ -84,9 +85,19 @@ export default async function AreaReportPage({
       </div>
 
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">{areaName}</h1>
-        <p className="text-sm text-ink-muted mt-0.5">{jcLabel} · {beats.length} beats</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">{areaName}</h1>
+          <p className="text-sm text-ink-muted mt-0.5">{jcLabel} · {beats.length} beats</p>
+        </div>
+        <DownloadPdfButton
+          scope="area"
+          scopeName={areaName}
+          periodLabel={jcLabel}
+          totals={{ target: tot.t, achievement: tot.a, avg: tot.v }}
+          children={beats.map((b) => ({ name: b.beat_name, target: b.target, ach: b.ach, avg: b.avg }))}
+          filenameSlug={`area-${areaName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}`}
+        />
       </div>
 
       {/* KPI strip */}
@@ -121,9 +132,12 @@ export default async function AreaReportPage({
                     <td className="px-3 py-2.5">
                       <Link
                         href={`/sales-monitor/reports/beat/${b.beat_id}?${childQuery}`}
+                        target="_blank"
+                        rel="noopener"
                         className="font-medium hover:text-accent inline-flex items-center gap-1"
                       >
                         {b.beat_name}
+
                       </Link>
                       <span className="ml-2 text-2xs text-ink-subtle">{b.customers} customers</span>
                     </td>

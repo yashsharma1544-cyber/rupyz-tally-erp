@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
+import { DownloadPdfButton } from "../../_download-button";
 
 export const dynamic = "force-dynamic";
 
@@ -75,16 +76,33 @@ export default async function BeatReportPage({
           <ArrowLeft size={12} /> Reports
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
           {areaName}
         </Link>
         <span>/</span>
         <span className="text-ink font-medium">Beat: {beatName}</span>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold">{beatName}</h1>
-        <p className="text-sm text-ink-muted mt-0.5">{areaName} · {jcLabel} · {customers.length} customers</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">{beatName}</h1>
+          <p className="text-sm text-ink-muted mt-0.5">{areaName} · {jcLabel} · {customers.length} customers</p>
+        </div>
+        <DownloadPdfButton
+          scope="beat"
+          scopeName={beatName}
+          parentChain={[areaName]}
+          periodLabel={jcLabel}
+          totals={{ target: tot.t, achievement: tot.a, avg: tot.v }}
+          children={customers.map((c) => ({
+            name: c.customer_name,
+            target: c.target_kg,
+            ach: c.achievement_kg,
+            avg: c.avg_kg,
+            extra: c.last_order_date ? `${fmtDate(c.last_order_date)}${c.last_order_kg > 0 ? ` (${fmtKg(c.last_order_kg)} kg)` : ""}` : "—",
+          }))}
+          filenameSlug={`beat-${beatName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}`}
+        />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -118,9 +136,12 @@ export default async function BeatReportPage({
                     <td className="px-3 py-2.5">
                       <Link
                         href={`/sales-monitor/reports/customer/${c.customer_id}?${childQuery}`}
+                        target="_blank"
+                        rel="noopener"
                         className="font-medium hover:text-accent inline-flex items-center gap-1"
                       >
                         {c.customer_name}
+
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular">{fmtKg(c.target_kg)}</td>

@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
+import { DownloadPdfButton } from "../../_download-button";
 
 export const dynamic = "force-dynamic";
 
@@ -71,27 +72,37 @@ export default async function CustomerReportPage({
           <ArrowLeft size={12} /> Reports
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
           {c.area_name}
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
           {c.beat_name}
         </Link>
         <span>/</span>
         <span className="text-ink font-medium">{c.customer_name}</span>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold">{c.customer_name}</h1>
-        <p className="text-sm text-ink-muted mt-0.5">
-          {c.beat_name} · {c.area_name} · {jcLabel}
-        </p>
-        {cust?.phone && (
-          <p className="text-sm mt-1">
-            <a href={`tel:${cust.phone}`} className="text-accent hover:underline">{cust.phone}</a>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">{c.customer_name}</h1>
+          <p className="text-sm text-ink-muted mt-0.5">
+            {c.beat_name} · {c.area_name} · {jcLabel}
           </p>
-        )}
+          {cust?.phone && (
+            <p className="text-sm mt-1">
+              <a href={`tel:${cust.phone}`} className="text-accent hover:underline">{cust.phone}</a>
+            </p>
+          )}
+        </div>
+        <DownloadPdfButton
+          scope="customer"
+          scopeName={c.customer_name}
+          parentChain={[c.area_name, c.beat_name]}
+          periodLabel={jcLabel}
+          totals={{ target: c.target_kg, achievement: c.achievement_kg, avg: c.avg_kg }}
+          filenameSlug={`customer-${c.customer_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}`}
+        />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
