@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Download } from "lucide-react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Download, ExternalLink } from "lucide-react";
 import { getReportRows, type ReportRow } from "./reports-actions";
 
 type JC = { id: string; jc_number: number; start_date: string; end_date: string };
@@ -53,8 +54,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
   const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
-  const [openBeats, setOpenBeats] = useState<Set<string>>(new Set());
 
   const jcLabel = (j: JC) => `JC ${j.jc_number} (${j.start_date.slice(5)} → ${j.end_date.slice(5)})`;
 
@@ -120,21 +119,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     const custAchieved = rows.filter((r) => r.target_kg > 0 && r.achievement_kg >= r.target_kg).length;
     return { onTrack, lagging, totalBeats: beatsWithTarget.length, gap, custWithTarget, custAchieved };
   }, [rows, areas, grand]);
-
-  function toggleArea(id: string) {
-    setOpenAreas((p) => {
-      const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  }
-  function toggleBeat(id: string) {
-    setOpenBeats((p) => {
-      const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  }
 
   function exportExcel() {
     if (!rows) return;
@@ -560,94 +544,43 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
               <tbody className="divide-y divide-paper-line">
                 {areas.map((a) => {
                   const aPct = pct(a.ach, a.target);
-                  const aOpen = openAreas.has(a.area_id);
+                  const childQuery = allJc ? "all=true" : `jc=${jcId}`;
                   return (
-                    <FragmentArea key={a.area_id}>
-                      <tr className="bg-paper-subtle/30 hover:bg-paper-subtle/50 font-semibold">
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => toggleArea(a.area_id)} className="inline-flex items-center gap-1.5 hover:text-accent">
-                              <span className={`transition-transform ${aOpen ? "rotate-90" : ""}`}>›</span>
-                              {a.area_name}
-                            </button>
-                            <button
-                              onClick={() => generatePdf({ kind: "area", area: a })}
-                              title={`Download PDF — ${a.area_name}`}
-                              className="ml-auto text-ink-subtle hover:text-accent p-0.5"
-                            >
-                              <Download size={14} />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular">{fmtKg(a.target)}</td>
-                        <td className="px-3 py-2.5 text-right tabular">{fmtKg(a.ach)}</td>
-                        <td className={`px-3 py-2.5 text-right tabular ${pctClass(aPct)}`}>{aPct != null ? aPct.toFixed(0) + "%" : "—"}</td>
-                        <td className="px-3 py-2.5 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
-                        <td className="px-3 py-2.5"></td>
-                      </tr>
-                      {aOpen &&
-                        a.beats.map((b) => {
-                          const bPct = pct(b.ach, b.target);
-                          const bOpen = openBeats.has(b.beat_id);
-                          return (
-                            <FragmentArea key={b.beat_id}>
-                              <tr className="hover:bg-paper-subtle/40">
-                                <td className="px-3 py-2 pl-8">
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={() => toggleBeat(b.beat_id)} className="inline-flex items-center gap-1.5 font-medium hover:text-accent">
-                                      <span className={`transition-transform ${bOpen ? "rotate-90" : ""}`}>›</span>
-                                      {b.beat_name}
-                                    </button>
-                                    <button
-                                      onClick={() => generatePdf({ kind: "beat", area: a, beat: b })}
-                                      title={`Download PDF — ${b.beat_name}`}
-                                      className="ml-auto text-ink-subtle hover:text-accent p-0.5"
-                                    >
-                                      <Download size={13} />
-                                    </button>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 text-right tabular">{fmtKg(b.target)}</td>
-                                <td className="px-3 py-2 text-right tabular">{fmtKg(b.ach)}</td>
-                                <td className={`px-3 py-2 text-right tabular ${pctClass(bPct)}`}>{bPct != null ? bPct.toFixed(0) + "%" : "—"}</td>
-                                <td className="px-3 py-2 text-right tabular text-ink-muted">{fmtKg(b.avg)}</td>
-                                <td className="px-3 py-2"></td>
-                              </tr>
-                              {bOpen &&
-                                b.customers.map((c) => {
-                                  const cPct = pct(c.achievement_kg, c.target_kg);
-                                  return (
-                                    <tr key={c.customer_id} className="bg-paper-subtle/10 text-xs">
-                                      <td className="px-3 py-1.5 pl-14 text-ink-muted">
-                                        <div className="flex items-center gap-2">
-                                          <span>{c.customer_name}</span>
-                                          <button
-                                            onClick={() => generatePdf({ kind: "customer", area: a, beat: b, customer: c })}
-                                            title={`Download PDF — ${c.customer_name}`}
-                                            className="ml-auto text-ink-subtle hover:text-accent p-0.5"
-                                          >
-                                            <Download size={12} />
-                                          </button>
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.target_kg)}</td>
-                                      <td className="px-3 py-1.5 text-right tabular">{fmtKg(c.achievement_kg)}</td>
-                                      <td className={`px-3 py-1.5 text-right tabular ${pctClass(cPct)}`}>{cPct != null ? cPct.toFixed(0) + "%" : "—"}</td>
-                                      <td className="px-3 py-1.5 text-right tabular text-ink-subtle">{fmtKg(c.avg_kg)}</td>
-                                      <td className="px-3 py-1.5 text-right text-ink-subtle whitespace-nowrap">
-                                        {fmtDate(c.last_order_date)}{c.last_order_kg > 0 ? ` · ${fmtKg(c.last_order_kg)}kg` : ""}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                            </FragmentArea>
-                          );
-                        })}
-                    </FragmentArea>
+                    <tr key={a.area_id} className="hover:bg-paper-subtle/40">
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/sales-monitor/reports/area/${a.area_id}?${childQuery}`}
+                            target="_blank"
+                            rel="noopener"
+                            className="font-semibold hover:text-accent inline-flex items-center gap-1.5"
+                          >
+                            {a.area_name}
+                            <ExternalLink size={12} className="text-ink-subtle" />
+                          </Link>
+                          <span className="text-2xs text-ink-subtle">{a.beats.length} beats</span>
+                          <button
+                            onClick={() => generatePdf({ kind: "area", area: a })}
+                            title={`Download PDF — ${a.area_name}`}
+                            className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                          >
+                            <Download size={14} />
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.target)}</td>
+                      <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.ach)}</td>
+                      <td className={`px-3 py-3 text-right tabular ${pctClass(aPct)}`}>{aPct != null ? aPct.toFixed(0) + "%" : "—"}</td>
+                      <td className="px-3 py-3 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
+                      <td className="px-3 py-3"></td>
+                    </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 py-2.5 text-2xs text-ink-subtle border-t border-paper-line">
+            Click an area name to open its detail page (with beats) in a new tab. From there you can drill into each beat and customer.
           </div>
         </div>
       )}
@@ -661,10 +594,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
   );
 }
 
-// Helper to group multiple <tr> without a wrapping element
-function FragmentArea({ children }: { children: ReactNode }) {
-  return <>{children}</>;
-}
 
 function ReportKpi({
   label,
