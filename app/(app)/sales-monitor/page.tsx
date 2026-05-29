@@ -64,18 +64,10 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
   let tokenWarning: string | null = null;
   {
     const admin = createAdminClient();
-    const [{ data: session }, { data: lastRow }] = await Promise.all([
-      admin.from("rupyz_session").select("expires_at").eq("id", 1).maybeSingle(),
-      admin
-        .from("salesman_daily_activity")
-        .select("synced_at")
-        .order("synced_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+    const { data: session } = await admin.from("rupyz_session").select("expires_at, last_team_activity_sync_at").eq("id", 1).maybeSingle();
     const now = Date.now();
     const exp = session?.expires_at ? new Date(session.expires_at).getTime() : 0;
-    const lastSync = lastRow?.synced_at ? new Date(lastRow.synced_at).getTime() : 0;
+    const lastSync = session?.last_team_activity_sync_at ? new Date(session.last_team_activity_sync_at).getTime() : 0;
     const minsSinceSync = lastSync ? Math.floor((now - lastSync) / 60000) : Infinity;
     if (!exp || now > exp) {
       tokenWarning = "The Rupyz token has expired — the every-15-min sync is paused, so Dashboard & MIS data may be stale. Refresh the token in Settings.";

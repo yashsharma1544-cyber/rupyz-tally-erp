@@ -4,25 +4,25 @@
 // Pulls Rupyz "team activity" (the MIS / team-activity dashboard) for a date
 // and upserts one row per salesman into salesman_daily_activity.
 //
-// Source endpoint (same API + token your order sync uses):
-//   GET {RUPYZ_BASE}/v2/organization/{orgId}/activity/team/dashboard/
-//        ?page_no=1&by_date_range=CUSTOM&start_date=<d>&end_date=<d>
-//   headers: accept, authorization: Bearer <token>, os: WEB, source: WEB
-//
-// Token: read from rupyz_session (id=1). There is NO auto-refresh — if Rupyz
-// rejects the token, an admin must paste a fresh one in Settings (same as the
-// order sync). We surface a clear 401 in that case.
+// Heartbeat: every successful run (HTTP 200) updates
+// rupyz_session.last_team_activity_sync_at = now(), regardless of whether
+// any records were upserted. The staleness banner reads from THAT, not from
+// max(salesman_daily_activity.synced_at), so quiet days (Rupyz returning
+// zero records before any salesman has started) don't trigger a false alarm.
 //
 // Query params:
 //   ?date=YYYY-MM-DD          one day (default: today IST)
 //   ?start=YYYY-MM-DD&end=... inclusive range (for backfilling a whole JC)
 //
-// Auth: if CRON_SECRET is set, require Authorization: Bearer <CRON_SECRET>
-// (Vercel cron sends this automatically). If unset, the route is open — set
-// CRON_SECRET in production.
+// Auth (either is accepted):
+//   1. Authorization: Bearer <CRON_SECRET>      (Vercel cron sends this)
+//   2. Logged-in admin session (cookie-based)   (you, hitting the URL in
+//      a browser tab while signed in to the app)
+// If CRON_SECRET is unset, the route is open — set CRON_SECRET in production.
 // =============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -75,6 +75,38 @@ interface RupyzRecord {
   end_day?: string | null;
   distance_travelled?: number;
   is_fake_location_detected?: boolean;
+}
+
+/**
+ * Accept either CRON_SECRET bearer (Vercel cron) OR a logged-in admin session
+ * (so you can force a run from a browser tab without hunting for the secret).
+ */
+async function authOk(req: NextRequest): Promise<boolean> {
+  const secret = process.env.CRON_SECRET;
+
+  // Path 1: CRON_SECRET bearer
+  if (secret) {
+    const auth = req.headers.get("authorization") ?? "";
+    if (auth === `Bearer ${secret}`) return true;
+  } else {
+    // No CRON_SECRET configured -> route is open (dev only)
+    return true;
+  }
+
+  // Path 2: admin session via cookies
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    const { data: appUser } = await supabase
+      .from("app_users")
+      .select("role, active")
+      .eq("id", user.id)
+      .single();
+    return Boolean(appUser?.active && appUser.role === "admin");
+  } catch {
+    return false;
+  }
 }
 
 async function syncDate(
@@ -163,13 +195,8 @@ async function syncDate(
 }
 
 export async function GET(req: NextRequest) {
-  // Auth (Vercel cron sends Authorization: Bearer <CRON_SECRET>)
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!(await authOk(req))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const url = new URL(req.url);
@@ -177,13 +204,11 @@ export async function GET(req: NextRequest) {
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
 
-  // Build the list of dates to sync
   let dates: string[] = [];
   if (isISODate(startParam) && isISODate(endParam)) {
     const s = new Date(startParam + "T00:00:00Z");
     const e = new Date(endParam + "T00:00:00Z");
     if (e < s) return NextResponse.json({ error: "end before start" }, { status: 400 });
-    // Cap to 40 days to avoid runaway loops
     for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
       dates.push(d.toISOString().slice(0, 10));
       if (dates.length >= 40) break;
@@ -194,7 +219,6 @@ export async function GET(req: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Token + org from rupyz_session
   const { data: session } = await admin
     .from("rupyz_session")
     .select("org_id, access_token")
@@ -207,7 +231,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // salesmen map: rupyz_id -> salesman uuid
   const { data: salesmen } = await admin.from("salesmen").select("id, rupyz_id");
   const byRupyz = new Map<number, string>();
   for (const s of (salesmen ?? []) as Array<{ id: string; rupyz_id: number | null }>) {
@@ -227,6 +250,13 @@ export async function GET(req: NextRequest) {
     if (typeof r.upserted === "number") totalUpserted += r.upserted;
     results.push(r);
   }
+
+  // Heartbeat — stamp the successful run on rupyz_session so the staleness
+  // banner reflects "cron ran" not "data landed".
+  await admin
+    .from("rupyz_session")
+    .update({ last_team_activity_sync_at: new Date().toISOString() })
+    .eq("id", 1);
 
   return NextResponse.json({ ok: true, days: dates.length, totalUpserted, results });
 }
