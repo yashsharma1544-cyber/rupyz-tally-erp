@@ -44,7 +44,7 @@ function prettyDate(iso: string): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-export async function DashboardTab({ viewDate, todayISO }: { viewDate: string; todayISO: string }) {
+export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDate: string; todayISO: string; lastSyncAt: string | null }) {
   const admin = createAdminClient();
 
   const { data, error } = await admin
@@ -108,6 +108,7 @@ export async function DashboardTab({ viewDate, todayISO }: { viewDate: string; t
         {error && (
           <span className="text-2xs text-danger ml-2">Failed to load: {error.message}</span>
         )}
+        <LastUpdated lastSyncAt={lastSyncAt} />
       </div>
 
       {/* KPI tiles */}
@@ -227,5 +228,31 @@ function KpiTile({
       <div className={`text-xl font-bold tabular mt-0.5 ${valueColor}`}>{value}</div>
       {sub && <div className="text-2xs text-ink-subtle mt-0.5">{sub}</div>}
     </div>
+  );
+}
+
+function LastUpdated({ lastSyncAt }: { lastSyncAt: string | null }) {
+  if (!lastSyncAt) {
+    return (
+      <span className="ml-auto text-2xs text-ink-subtle italic" title="Sync has not run yet">
+        Last updated: never
+      </span>
+    );
+  }
+  const date = new Date(lastSyncAt);
+  const minsAgo = Math.floor((Date.now() - date.getTime()) / 60000);
+  const colour =
+    minsAgo > 45 ? "text-danger" : minsAgo > 20 ? "text-warn" : "text-ok";
+  const fullStamp = date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const relative =
+    minsAgo < 1 ? "just now"
+      : minsAgo < 60 ? `${minsAgo} min ago`
+        : minsAgo < 60 * 24 ? `${Math.floor(minsAgo / 60)} h ago`
+          : `${Math.floor(minsAgo / (60 * 24))} d ago`;
+  return (
+    <span className="ml-auto text-2xs text-ink-subtle" title={`Synced ${fullStamp}`}>
+      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle ${colour.replace("text-", "bg-")}`}></span>
+      Last updated <span className={`${colour} font-medium`}>{relative}</span>
+    </span>
   );
 }

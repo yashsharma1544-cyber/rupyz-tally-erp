@@ -62,18 +62,24 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
   // Token expired (optimistic 24h expiry, set when admin pastes it) OR the
   // 15-min sync hasn't landed recently → the Dashboard/MIS data may be stale.
   let tokenWarning: string | null = null;
+  let lastSyncAt: string | null = null;
   {
     const admin = createAdminClient();
-    const { data: session } = await admin.from("rupyz_session").select("expires_at, last_team_activity_sync_at").eq("id", 1).maybeSingle();
+    const { data: session } = await admin
+      .from("rupyz_session")
+      .select("expires_at, last_team_activity_sync_at")
+      .eq("id", 1)
+      .maybeSingle();
+    lastSyncAt = (session as { last_team_activity_sync_at?: string | null } | null)?.last_team_activity_sync_at ?? null;
     const now = Date.now();
     const exp = session?.expires_at ? new Date(session.expires_at).getTime() : 0;
-    const lastSync = session?.last_team_activity_sync_at ? new Date(session.last_team_activity_sync_at).getTime() : 0;
+    const lastSync = lastSyncAt ? new Date(lastSyncAt).getTime() : 0;
     const minsSinceSync = lastSync ? Math.floor((now - lastSync) / 60000) : Infinity;
     if (!exp || now > exp) {
       tokenWarning = "The Rupyz token has expired — the every-15-min sync is paused, so Dashboard & MIS data may be stale. Refresh the token in Settings.";
     } else if (minsSinceSync > 45) {
       const label = minsSinceSync === Infinity ? "never" : `${minsSinceSync} min ago`;
-      tokenWarning = `The Rupyz sync last succeeded ${label}. Data may be stale — check the token in Settings.`;
+      tokenWarning = `The Rupyz team-activity cron last ran ${label}. Sync may have stopped — check Vercel cron logs.`;
     }
   }
 
@@ -134,7 +140,7 @@ export default async function SalesMonitorPage({ searchParams }: PageProps) {
       </nav>
 
       {/* Tab content */}
-      {tab === "dashboard" && <DashboardTab viewDate={viewDate} todayISO={todayISO} />}
+      {tab === "dashboard" && <DashboardTab viewDate={viewDate} todayISO={todayISO} lastSyncAt={lastSyncAt} />}
       {tab === "mis" && <MisTab viewDate={viewDate} todayISO={todayISO} />}
       {tab === "reports" && targetsData && (
         <ReportsTab jcs={targetsData.jcs} currentJcId={targetsData.currentJcId} />
