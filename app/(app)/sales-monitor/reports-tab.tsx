@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Download, ExternalLink } from "lucide-react";
+import { Download } from "lucide-react";
 import { getReportRows, type ReportRow } from "./reports-actions";
 
 type JC = { id: string; jc_number: number; start_date: string; end_date: string };
@@ -551,12 +551,9 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/sales-monitor/reports/area/${a.area_id}?${childQuery}`}
-                            target="_blank"
-                            rel="noopener"
                             className="font-semibold hover:text-accent inline-flex items-center gap-1.5"
                           >
                             {a.area_name}
-                            <ExternalLink size={12} className="text-ink-subtle" />
                           </Link>
                           <span className="text-2xs text-ink-subtle">{a.beats.length} beats</span>
                           <button

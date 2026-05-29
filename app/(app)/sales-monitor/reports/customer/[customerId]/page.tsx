@@ -71,11 +71,11 @@ export default async function CustomerReportPage({
           <ArrowLeft size={12} /> Reports
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} className="hover:text-accent">
           {c.area_name}
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} className="hover:text-accent">
           {c.beat_name}
         </Link>
         <span>/</span>

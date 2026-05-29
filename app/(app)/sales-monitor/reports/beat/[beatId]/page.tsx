@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
@@ -75,7 +75,7 @@ export default async function BeatReportPage({
           <ArrowLeft size={12} /> Reports
         </Link>
         <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
+        <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} className="hover:text-accent">
           {areaName}
         </Link>
         <span>/</span>
@@ -118,12 +118,9 @@ export default async function BeatReportPage({
                     <td className="px-3 py-2.5">
                       <Link
                         href={`/sales-monitor/reports/customer/${c.customer_id}?${childQuery}`}
-                        target="_blank"
-                        rel="noopener"
                         className="font-medium hover:text-accent inline-flex items-center gap-1"
                       >
                         {c.customer_name}
-                        <ExternalLink size={11} className="text-ink-subtle" />
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular">{fmtKg(c.target_kg)}</td>
