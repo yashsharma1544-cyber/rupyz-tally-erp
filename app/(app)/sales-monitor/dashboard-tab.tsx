@@ -58,7 +58,114 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
 
   const rows = (data ?? []) as ActivityRow[];
 
-  // Totals
+  // ---------------------------------------------------------------------------
+  // Pull today's PJP plan so we can show planned beats per salesman even when
+  // the salesman has not started the day (no activity row yet from Rupyz).
+  // ---------------------------------------------------------------------------
+  type PlanInfo = {
+    beats: string[];
+    name: string | null;
+    mobile: string | null;
+  };
+  const planBySalesman = new Map<string, PlanInfo>();
+
+  const { data: jcRows } = await admin
+    .from("journey_cycles")
+    .select("id, start_date, end_date")
+    .lte("start_date", viewDate)
+    .gte("end_date", viewDate)
+    .limit(1);
+  const jc = jcRows && jcRows[0];
+
+  if (jc) {
+    const startMs = new Date((jc.start_date as string) + "T00:00:00Z").getTime();
+    const viewMs = new Date(viewDate + "T00:00:00Z").getTime();
+    const jcDay = Math.floor((viewMs - startMs) / 86400000) + 1;
+
+    const { data: pjp } = await admin
+      .from("beat_journey_plan")
+      .select("salesman_id, beat:beats(name), salesman:app_users(full_name, mobile)")
+      .eq("jc_id", jc.id)
+      .eq("jc_day", jcDay)
+      .not("salesman_id", "is", null);
+
+    for (const row of pjp ?? []) {
+      const sid = row.salesman_id as string | null;
+      if (!sid) continue;
+      const beat = Array.isArray(row.beat) ? row.beat[0] : row.beat;
+      const sm = Array.isArray(row.salesman) ? row.salesman[0] : row.salesman;
+      const beatName = (beat as { name: string } | null)?.name ?? null;
+      const fullName = (sm as { full_name: string | null } | null)?.full_name ?? null;
+      const mobile = (sm as { mobile: string | null } | null)?.mobile ?? null;
+      if (!planBySalesman.has(sid)) {
+        planBySalesman.set(sid, { beats: [], name: fullName, mobile });
+      }
+      if (beatName) planBySalesman.get(sid)!.beats.push(beatName);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build the display rows = union of activity rows + plan-only rows.
+  // Activity rows take precedence (they have real numbers). Plan-only rows get
+  // zero counts and are flagged so the UI can render them subtly.
+  // ---------------------------------------------------------------------------
+  type DisplayRow = {
+    key: string;
+    salesman_id: string | null;
+    name: string | null;
+    beatLabel: string;
+    sc_count: number;
+    tc_count: number;
+    pc_count: number;
+    order_value: number;
+    weight_kg: number;
+    planOnly: boolean;
+  };
+
+  const seenSalesmen = new Set<string>();
+  const displayRows: DisplayRow[] = [];
+
+  for (const r of rows) {
+    const plannedBeats = r.salesman_id ? planBySalesman.get(r.salesman_id)?.beats ?? [] : [];
+    const activityBeats = r.beat_list && r.beat_list.length > 0 ? r.beat_list.map(b => b.name) : [];
+    // Prefer planned beats (what we expected), but show worked-elsewhere beats too if different.
+    const allBeats = Array.from(new Set([...plannedBeats, ...activityBeats]));
+    const beatLabel = allBeats.length > 0 ? allBeats.join(", ") : "—";
+    displayRows.push({
+      key: r.salesman_id ?? `unmapped-${r.rupyz_user_id}`,
+      salesman_id: r.salesman_id,
+      name: r.name,
+      beatLabel,
+      sc_count: r.sc_count || 0,
+      tc_count: r.tc_count || 0,
+      pc_count: r.pc_count || 0,
+      order_value: Number(r.order_value) || 0,
+      weight_kg: Number(r.weight_kg) || 0,
+      planOnly: false,
+    });
+    if (r.salesman_id) seenSalesmen.add(r.salesman_id);
+  }
+
+  // Add plan-only rows (salesmen with a PJP entry but no activity yet)
+  for (const [sid, plan] of planBySalesman.entries()) {
+    if (seenSalesmen.has(sid)) continue;
+    displayRows.push({
+      key: sid,
+      salesman_id: sid,
+      name: plan.name,
+      beatLabel: plan.beats.length > 0 ? plan.beats.join(", ") : "—",
+      sc_count: 0,
+      tc_count: 0,
+      pc_count: 0,
+      order_value: 0,
+      weight_kg: 0,
+      planOnly: true,
+    });
+  }
+
+  displayRows.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+
+  // Totals come from actual activity only (planned-only rows are zero anyway).
   const tot = rows.reduce(
     (a, r) => {
       a.sc += r.sc_count || 0;
@@ -142,7 +249,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 </tr>
               </thead>
               <tbody className="divide-y divide-paper-line">
-                {rows.length === 0 && (
+                {displayRows.length === 0 && (
                   <tr>
                     <td colSpan={9} className="px-3 py-8 text-center text-ink-muted text-sm">
                       No activity recorded for {prettyDate(viewDate)}.
@@ -150,10 +257,9 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                     </td>
                   </tr>
                 )}
-                {rows.map((r) => {
-                  const beat = r.beat_list && r.beat_list.length > 0 ? r.beat_list.map((b) => b.name).join(", ") : "—";
+                {displayRows.map((r) => {
                   return (
-                    <tr key={r.rupyz_user_id} className="hover:bg-paper-subtle/40">
+                    <tr key={r.key} className={`hover:bg-paper-subtle/40 ${r.planOnly ? "text-ink-muted" : ""}`}>
                       <td className="px-3 py-3">
                         {r.salesman_id ? (
                           <Link href={`/sales-monitor/${r.salesman_id}`} className="font-medium hover:text-accent">
@@ -165,15 +271,18 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                         {!r.salesman_id && (
                           <span className="ml-1.5 text-2xs text-warn" title="Not mapped to a salesman (set rupyz_id)">unmapped</span>
                         )}
+                        {r.planOnly && (
+                          <span className="ml-1.5 text-2xs text-ink-subtle italic" title="Planned in PJP — no activity recorded yet">not started</span>
+                        )}
                       </td>
-                      <td className="px-3 py-3 text-ink-muted">{beat}</td>
-                      <td className="px-3 py-3 text-right tabular">{r.sc_count}</td>
-                      <td className="px-3 py-3 text-right tabular">{r.tc_count}</td>
-                      <td className="px-3 py-3 text-right tabular font-medium text-ok">{r.pc_count}</td>
-                      <td className="px-3 py-3 text-right tabular">{pct(r.tc_count, r.sc_count)}</td>
-                      <td className="px-3 py-3 text-right tabular">{pct(r.pc_count, r.tc_count)}</td>
-                      <td className="px-3 py-3 text-right tabular font-medium">{inr(Number(r.order_value) || 0)}</td>
-                      <td className="px-3 py-3 text-right tabular">{fmtKg(r.weight_kg)}</td>
+                      <td className="px-3 py-3 text-ink-muted">{r.beatLabel}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.sc_count}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.tc_count}</td>
+                      <td className="px-3 py-3 text-right tabular font-medium text-ok">{r.planOnly ? "—" : r.pc_count}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : pct(r.tc_count, r.sc_count)}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : pct(r.pc_count, r.tc_count)}</td>
+                      <td className="px-3 py-3 text-right tabular font-medium">{r.planOnly ? "—" : inr(r.order_value)}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : fmtKg(r.weight_kg)}</td>
                     </tr>
                   );
                 })}
