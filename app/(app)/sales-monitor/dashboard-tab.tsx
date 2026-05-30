@@ -68,6 +68,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     mobile: string | null;
   };
   const planBySalesman = new Map<string, PlanInfo>();
+  const beatTargetByName = new Map<string, number>();
 
   const { data: jcRows } = await admin
     .from("journey_cycles")
@@ -104,6 +105,15 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       }
       if (beatName) planBySalesman.get(sid)!.beats.push(beatName);
     }
+
+    // Pull beat-level JC targets so we can show a Target column on the table
+    const { data: targets } = await admin
+      .from("jc_beat_targets")
+      .select("beat, beat_target")
+      .eq("jc_id", jc.id);
+    for (const t of targets ?? []) {
+      if (t.beat) beatTargetByName.set(t.beat as string, Number(t.beat_target) || 0);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -115,7 +125,9 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     key: string;
     salesman_id: string | null;
     name: string | null;
+    beats: string[];
     beatLabel: string;
+    beatTargetKg: number;
     sc_count: number;
     tc_count: number;
     pc_count: number;
@@ -123,6 +135,12 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     weight_kg: number;
     planOnly: boolean;
   };
+
+  function sumTargets(beatNames: string[]): number {
+    let sum = 0;
+    for (const n of beatNames) sum += beatTargetByName.get(n) || 0;
+    return sum;
+  }
 
   const seenSalesmen = new Set<string>();
   const displayRows: DisplayRow[] = [];
@@ -137,7 +155,9 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       key: r.salesman_id ?? `unmapped-${r.rupyz_user_id}`,
       salesman_id: r.salesman_id,
       name: r.name,
+      beats: allBeats,
       beatLabel,
+      beatTargetKg: sumTargets(allBeats),
       sc_count: r.sc_count || 0,
       tc_count: r.tc_count || 0,
       pc_count: r.pc_count || 0,
@@ -155,7 +175,9 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       key: sid,
       salesman_id: sid,
       name: plan.name,
+      beats: plan.beats,
       beatLabel: plan.beats.length > 0 ? plan.beats.join(", ") : "—",
+      beatTargetKg: sumTargets(plan.beats),
       sc_count: 0,
       tc_count: 0,
       pc_count: 0,
@@ -241,6 +263,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                   <th className="px-3 py-2.5 font-medium">Salesman</th>
                   <th className="px-3 py-2.5 font-medium">Beat</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Target (JC)</th>
                   <th className="px-3 py-2.5 font-medium text-right">SC</th>
                   <th className="px-3 py-2.5 font-medium text-right">TC</th>
                   <th className="px-3 py-2.5 font-medium text-right">PC</th>
@@ -253,7 +276,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
               <tbody className="divide-y divide-paper-line">
                 {displayRows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-ink-muted text-sm">
+                    <td colSpan={10} className="px-3 py-8 text-center text-ink-muted text-sm">
                       No activity recorded for {prettyDate(viewDate)}.
                       {isToday && " The sync may not have run yet today."}
                     </td>
@@ -278,6 +301,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                         )}
                       </td>
                       <td className="px-3 py-3 text-ink-muted">{r.beatLabel}</td>
+                      <td className="px-3 py-3 text-right tabular text-ink-muted">{r.beatTargetKg > 0 ? fmtKg(r.beatTargetKg) : "—"}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.sc_count}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.tc_count}</td>
                       <td className="px-3 py-3 text-right tabular font-medium text-ok">{r.planOnly ? "—" : r.pc_count}</td>
@@ -293,6 +317,20 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 <tfoot className="border-t-2 border-paper-line bg-paper-subtle/40 font-semibold">
                   <tr>
                     <td className="px-3 py-2.5" colSpan={2}>Total</td>
+                    <td className="px-3 py-2.5 text-right tabular">{(() => {
+                      // Sum each beat's target only once (a beat might appear on multiple rows)
+                      const seen = new Set<string>();
+                      let totalTarget = 0;
+                      for (const row of displayRows) {
+                        for (const b of row.beats) {
+                          if (!seen.has(b)) {
+                            seen.add(b);
+                            totalTarget += beatTargetByName.get(b) || 0;
+                          }
+                        }
+                      }
+                      return totalTarget > 0 ? fmtKg(totalTarget) : "—";
+                    })()}</td>
                     <td className="px-3 py-2.5 text-right tabular">{tot.sc}</td>
                     <td className="px-3 py-2.5 text-right tabular">{tot.tc}</td>
                     <td className="px-3 py-2.5 text-right tabular text-ok">{tot.pc}</td>
