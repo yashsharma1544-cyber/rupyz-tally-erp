@@ -63,12 +63,14 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
   // the salesman has not started the day (no activity row yet from Rupyz).
   // ---------------------------------------------------------------------------
   type PlanInfo = {
-    beats: string[];
+    beats: Array<{ id: string; name: string }>;
     name: string | null;
     mobile: string | null;
   };
   const planBySalesman = new Map<string, PlanInfo>();
-  const beatTargetByName = new Map<string, number>();
+  const targetPerVisitByBeatId = new Map<string, number>();
+  const beatNameById = new Map<string, string>();
+  const beatIdByName = new Map<string, string>();
 
   const { data: jcRows } = await admin
     .from("journey_cycles")
@@ -85,7 +87,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
 
     const { data: pjp } = await admin
       .from("beat_journey_plan")
-      .select("salesman_id, beat:beats(name), salesman:salesmen(id, name, phone, active)")
+      .select("salesman_id, beat_id, beat:beats(id, name), salesman:salesmen(id, name, phone, active)")
       .eq("jc_id", jc.id)
       .eq("jc_day", jcDay)
       .not("salesman_id", "is", null);
@@ -94,25 +96,49 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       const sid = row.salesman_id as string | null;
       if (!sid) continue;
       const sm = Array.isArray(row.salesman) ? row.salesman[0] : row.salesman;
-      // Skip orphan/dangling salesman_ids and inactive salesmen
       if (!sm || !(sm as { active: boolean }).active) continue;
       const beat = Array.isArray(row.beat) ? row.beat[0] : row.beat;
+      const beatId = (beat as { id: string } | null)?.id ?? (row.beat_id as string | null) ?? null;
       const beatName = (beat as { name: string } | null)?.name ?? null;
       const fullName = (sm as { name: string | null }).name ?? null;
       const mobile = (sm as { phone: string | null }).phone ?? null;
       if (!planBySalesman.has(sid)) {
         planBySalesman.set(sid, { beats: [], name: fullName, mobile });
       }
-      if (beatName) planBySalesman.get(sid)!.beats.push(beatName);
+      if (beatId && beatName) {
+        planBySalesman.get(sid)!.beats.push({ id: beatId, name: beatName });
+        beatNameById.set(beatId, beatName);
+        beatIdByName.set(beatName, beatId);
+      }
     }
 
-    // Pull beat-level JC targets so we can show a Target column on the table
+    // Compute per-visit target for every beat: JC target ÷ distinct visit-days in PJP.
+    // Multiple salesmen on the same beat-day count as one visit.
+    const { data: allPjpForJc } = await admin
+      .from("beat_journey_plan")
+      .select("beat_id, jc_day")
+      .eq("jc_id", jc.id);
+    const visitsByBeatId = new Map<string, Set<number>>();
+    for (const row of allPjpForJc ?? []) {
+      const bid = row.beat_id as string;
+      const day = row.jc_day as number;
+      if (!bid || day == null) continue;
+      if (!visitsByBeatId.has(bid)) visitsByBeatId.set(bid, new Set());
+      visitsByBeatId.get(bid)!.add(day);
+    }
+
     const { data: targets } = await admin
       .from("jc_beat_targets")
-      .select("beat, beat_target")
+      .select("beat_id, beat_target")
       .eq("jc_id", jc.id);
     for (const t of targets ?? []) {
-      if (t.beat) beatTargetByName.set(t.beat as string, Number(t.beat_target) || 0);
+      const bid = t.beat_id as string | null;
+      if (!bid) continue;
+      const visitCount = visitsByBeatId.get(bid)?.size ?? 0;
+      const total = Number(t.beat_target) || 0;
+      if (visitCount > 0 && total > 0) {
+        targetPerVisitByBeatId.set(bid, total / visitCount);
+      }
     }
   }
 
@@ -125,7 +151,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     key: string;
     salesman_id: string | null;
     name: string | null;
-    beats: string[];
+    beats: Array<{ id: string; name: string }>;
     beatLabel: string;
     beatTargetKg: number;
     sc_count: number;
@@ -136,9 +162,9 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     planOnly: boolean;
   };
 
-  function sumTargets(beatNames: string[]): number {
+  function sumPerVisitTargets(beats: Array<{ id: string; name: string }>): number {
     let sum = 0;
-    for (const n of beatNames) sum += beatTargetByName.get(n) || 0;
+    for (const b of beats) sum += targetPerVisitByBeatId.get(b.id) || 0;
     return sum;
   }
 
@@ -147,17 +173,25 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
 
   for (const r of rows) {
     const plannedBeats = r.salesman_id ? planBySalesman.get(r.salesman_id)?.beats ?? [] : [];
-    const activityBeats = r.beat_list && r.beat_list.length > 0 ? r.beat_list.map(b => b.name) : [];
-    // Prefer planned beats (what we expected), but show worked-elsewhere beats too if different.
-    const allBeats = Array.from(new Set([...plannedBeats, ...activityBeats]));
-    const beatLabel = allBeats.length > 0 ? allBeats.join(", ") : "—";
+    const activityBeatNames = r.beat_list && r.beat_list.length > 0 ? r.beat_list.map(b => b.name) : [];
+    // Merge: planned beats first (have ids), then activity beats not already in the planned set
+    const merged: Array<{ id: string; name: string }> = [...plannedBeats];
+    const seenNames = new Set(plannedBeats.map(b => b.name));
+    for (const name of activityBeatNames) {
+      if (seenNames.has(name)) continue;
+      seenNames.add(name);
+      const id = beatIdByName.get(name);
+      // We still want to show the beat name even if we don't know its id; just use name as a synthetic key
+      merged.push({ id: id ?? `name:${name}`, name });
+    }
+    const beatLabel = merged.length > 0 ? merged.map(b => b.name).join(", ") : "—";
     displayRows.push({
       key: r.salesman_id ?? `unmapped-${r.rupyz_user_id}`,
       salesman_id: r.salesman_id,
       name: r.name,
-      beats: allBeats,
+      beats: merged,
       beatLabel,
-      beatTargetKg: sumTargets(allBeats),
+      beatTargetKg: sumPerVisitTargets(merged),
       sc_count: r.sc_count || 0,
       tc_count: r.tc_count || 0,
       pc_count: r.pc_count || 0,
@@ -176,8 +210,8 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       salesman_id: sid,
       name: plan.name,
       beats: plan.beats,
-      beatLabel: plan.beats.length > 0 ? plan.beats.join(", ") : "—",
-      beatTargetKg: sumTargets(plan.beats),
+      beatLabel: plan.beats.length > 0 ? plan.beats.map(b => b.name).join(", ") : "—",
+      beatTargetKg: sumPerVisitTargets(plan.beats),
       sc_count: 0,
       tc_count: 0,
       pc_count: 0,
@@ -263,7 +297,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                   <th className="px-3 py-2.5 font-medium">Salesman</th>
                   <th className="px-3 py-2.5 font-medium">Beat</th>
-                  <th className="px-3 py-2.5 font-medium text-right">Target (JC)</th>
+                  <th className="px-3 py-2.5 font-medium text-right" title="Per-visit target = JC beat target ÷ planned visit-days (same-day multi-salesman counts as one visit)">Target (today)</th>
                   <th className="px-3 py-2.5 font-medium text-right">SC</th>
                   <th className="px-3 py-2.5 font-medium text-right">TC</th>
                   <th className="px-3 py-2.5 font-medium text-right">PC</th>
@@ -318,14 +352,15 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                   <tr>
                     <td className="px-3 py-2.5" colSpan={2}>Total</td>
                     <td className="px-3 py-2.5 text-right tabular">{(() => {
-                      // Sum each beat's target only once (a beat might appear on multiple rows)
+                      // Sum each beat's per-visit target only once (same beat may appear on multiple rows
+                      // when 2 salesmen are scheduled to walk it today — still counts as one visit).
                       const seen = new Set<string>();
                       let totalTarget = 0;
                       for (const row of displayRows) {
                         for (const b of row.beats) {
-                          if (!seen.has(b)) {
-                            seen.add(b);
-                            totalTarget += beatTargetByName.get(b) || 0;
+                          if (!seen.has(b.id)) {
+                            seen.add(b.id);
+                            totalTarget += targetPerVisitByBeatId.get(b.id) || 0;
                           }
                         }
                       }
