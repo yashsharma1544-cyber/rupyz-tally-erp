@@ -69,6 +69,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
   };
   const planBySalesman = new Map<string, PlanInfo>();
   const targetPerVisitByBeatId = new Map<string, number>();
+  const beatJcTargetByBeatId = new Map<string, number>();
   const beatNameById = new Map<string, string>();
   const beatIdByName = new Map<string, string>();
 
@@ -136,6 +137,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       if (!bid) continue;
       const visitCount = visitsByBeatId.get(bid)?.size ?? 0;
       const total = Number(t.beat_target) || 0;
+      if (total > 0) beatJcTargetByBeatId.set(bid, total);
       if (visitCount > 0 && total > 0) {
         targetPerVisitByBeatId.set(bid, total / visitCount);
       }
@@ -154,6 +156,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     beats: Array<{ id: string; name: string }>;
     beatLabel: string;
     beatTargetKg: number;
+    beatJcTargetKg: number;
     sc_count: number;
     tc_count: number;
     pc_count: number;
@@ -165,6 +168,12 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
   function sumPerVisitTargets(beats: Array<{ id: string; name: string }>): number {
     let sum = 0;
     for (const b of beats) sum += targetPerVisitByBeatId.get(b.id) || 0;
+    return sum;
+  }
+
+  function sumJcTargets(beats: Array<{ id: string; name: string }>): number {
+    let sum = 0;
+    for (const b of beats) sum += beatJcTargetByBeatId.get(b.id) || 0;
     return sum;
   }
 
@@ -192,6 +201,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       beats: merged,
       beatLabel,
       beatTargetKg: sumPerVisitTargets(merged),
+      beatJcTargetKg: sumJcTargets(merged),
       sc_count: r.sc_count || 0,
       tc_count: r.tc_count || 0,
       pc_count: r.pc_count || 0,
@@ -212,6 +222,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       beats: plan.beats,
       beatLabel: plan.beats.length > 0 ? plan.beats.map(b => b.name).join(", ") : "—",
       beatTargetKg: sumPerVisitTargets(plan.beats),
+      beatJcTargetKg: sumJcTargets(plan.beats),
       sc_count: 0,
       tc_count: 0,
       pc_count: 0,
@@ -334,20 +345,21 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                   <th className="px-3 py-2.5 font-medium">Salesman</th>
                   <th className="px-3 py-2.5 font-medium">Beat</th>
+                  <th className="px-3 py-2.5 font-medium text-right" title="Full JC beat target (jc_beat_targets.beat_target)">Target (JC)</th>
                   <th className="px-3 py-2.5 font-medium text-right" title="Per-visit target = JC beat target ÷ planned visit-days (same-day multi-salesman counts as one visit)">Target (today)</th>
                   <th className="px-3 py-2.5 font-medium text-right">SC</th>
                   <th className="px-3 py-2.5 font-medium text-right">TC</th>
                   <th className="px-3 py-2.5 font-medium text-right">PC</th>
                   <th className="px-3 py-2.5 font-medium text-right">TC%</th>
                   <th className="px-3 py-2.5 font-medium text-right">PC%</th>
-                  <th className="px-3 py-2.5 font-medium text-right">Order value</th>
                   <th className="px-3 py-2.5 font-medium text-right">Kg</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Order value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-paper-line">
                 {displayRows.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-8 text-center text-ink-muted text-sm">
+                    <td colSpan={11} className="px-3 py-8 text-center text-ink-muted text-sm">
                       No activity recorded for {prettyDate(viewDate)}.
                       {isToday && " The sync may not have run yet today."}
                     </td>
@@ -372,14 +384,15 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                         )}
                       </td>
                       <td className="px-3 py-3 text-ink-muted">{r.beatLabel}</td>
+                      <td className="px-3 py-3 text-right tabular text-ink-subtle">{r.beatJcTargetKg > 0 ? fmtKg(r.beatJcTargetKg) : "—"}</td>
                       <td className="px-3 py-3 text-right tabular text-ink-muted">{r.beatTargetKg > 0 ? fmtKg(r.beatTargetKg) : "—"}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.sc_count}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.tc_count}</td>
                       <td className="px-3 py-3 text-right tabular font-medium text-ok">{r.planOnly ? "—" : r.pc_count}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : pct(r.tc_count, r.sc_count)}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : pct(r.pc_count, r.tc_count)}</td>
-                      <td className="px-3 py-3 text-right tabular font-medium">{r.planOnly ? "—" : inr(r.order_value)}</td>
-                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : fmtKg(r.weight_kg)}</td>
+                      <td className="px-3 py-3 text-right tabular font-medium">{r.planOnly ? "—" : fmtKg(r.weight_kg)}</td>
+                      <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : inr(r.order_value)}</td>
                     </tr>
                   );
                 })}
@@ -388,6 +401,20 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                 <tfoot className="border-t-2 border-paper-line bg-paper-subtle/40 font-semibold">
                   <tr>
                     <td className="px-3 py-2.5" colSpan={2}>Total</td>
+                    <td className="px-3 py-2.5 text-right tabular text-ink-muted">{(() => {
+                      // Sum each beat's full JC target only once
+                      const seen = new Set<string>();
+                      let totalJcTarget = 0;
+                      for (const row of displayRows) {
+                        for (const b of row.beats) {
+                          if (!seen.has(b.id)) {
+                            seen.add(b.id);
+                            totalJcTarget += beatJcTargetByBeatId.get(b.id) || 0;
+                          }
+                        }
+                      }
+                      return totalJcTarget > 0 ? fmtKg(totalJcTarget) : "—";
+                    })()}</td>
                     <td className="px-3 py-2.5 text-right tabular">{(() => {
                       // Sum each beat's per-visit target only once (same beat may appear on multiple rows
                       // when 2 salesmen are scheduled to walk it today — still counts as one visit).
@@ -408,8 +435,8 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                     <td className="px-3 py-2.5 text-right tabular text-ok">{tot.pc}</td>
                     <td className="px-3 py-2.5 text-right tabular">{pct(tot.tc, tot.sc)}</td>
                     <td className="px-3 py-2.5 text-right tabular">{pct(tot.pc, tot.tc)}</td>
-                    <td className="px-3 py-2.5 text-right tabular">{inr(tot.value)}</td>
                     <td className="px-3 py-2.5 text-right tabular">{fmtKg(tot.kg)}</td>
+                    <td className="px-3 py-2.5 text-right tabular">{inr(tot.value)}</td>
                   </tr>
                 </tfoot>
               )}
