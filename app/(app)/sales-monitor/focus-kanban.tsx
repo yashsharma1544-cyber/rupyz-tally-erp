@@ -56,12 +56,16 @@ export async function FocusKanban({ viewDate }: { viewDate: string }) {
 
     const { data: pjp } = await admin
       .from("beat_journey_plan")
-      .select("beat_id, salesman_id")
+      .select("beat_id, salesman_id, salesman:app_users(id, active)")
       .eq("jc_id", jc.id)
       .eq("jc_day", day)
       .not("salesman_id", "is", null);
-    if (pjp && pjp.length > 0) {
-      beatIds = Array.from(new Set(pjp.map((r) => r.beat_id as string).filter(Boolean)));
+    const validPjp = (pjp ?? []).filter((r) => {
+      const sm = Array.isArray(r.salesman) ? r.salesman[0] : r.salesman;
+      return sm && (sm as { active: boolean }).active === true;
+    });
+    if (validPjp.length > 0) {
+      beatIds = Array.from(new Set(validPjp.map((r) => r.beat_id as string).filter(Boolean)));
     }
   }
 

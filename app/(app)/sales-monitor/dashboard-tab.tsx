@@ -84,7 +84,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
 
     const { data: pjp } = await admin
       .from("beat_journey_plan")
-      .select("salesman_id, beat:beats(name), salesman:app_users(full_name, mobile)")
+      .select("salesman_id, beat:beats(name), salesman:app_users(id, full_name, mobile, active)")
       .eq("jc_id", jc.id)
       .eq("jc_day", jcDay)
       .not("salesman_id", "is", null);
@@ -92,11 +92,13 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
     for (const row of pjp ?? []) {
       const sid = row.salesman_id as string | null;
       if (!sid) continue;
-      const beat = Array.isArray(row.beat) ? row.beat[0] : row.beat;
       const sm = Array.isArray(row.salesman) ? row.salesman[0] : row.salesman;
+      // Skip orphan/dangling salesman_ids (referenced user does not exist) and inactive users
+      if (!sm || !(sm as { active: boolean }).active) continue;
+      const beat = Array.isArray(row.beat) ? row.beat[0] : row.beat;
       const beatName = (beat as { name: string } | null)?.name ?? null;
-      const fullName = (sm as { full_name: string | null } | null)?.full_name ?? null;
-      const mobile = (sm as { mobile: string | null } | null)?.mobile ?? null;
+      const fullName = (sm as { full_name: string | null }).full_name ?? null;
+      const mobile = (sm as { mobile: string | null }).mobile ?? null;
       if (!planBySalesman.has(sid)) {
         planBySalesman.set(sid, { beats: [], name: fullName, mobile });
       }
