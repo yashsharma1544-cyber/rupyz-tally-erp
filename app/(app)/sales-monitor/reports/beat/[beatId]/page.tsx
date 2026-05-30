@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
 import { DownloadPdfButton } from "../../_download-button";
+import { BackButton } from "../../_back-button";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +46,7 @@ export default async function BeatReportPage({
   if ("error" in res) return <ErrorPanel message={res.error} />;
 
   const customers = res.rows.filter((r) => r.beat_id === params.beatId);
-  if (customers.length === 0) {
-    return <ErrorPanel message="No data for this beat in the selected JC." />;
-  }
+  if (customers.length === 0) return <ErrorPanel message="No data for this beat in the selected JC." />;
 
   const beatName = customers[0].beat_name;
   const areaName = customers[0].area_name;
@@ -71,16 +70,18 @@ export default async function BeatReportPage({
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-5">
-      <div className="text-xs text-ink-muted flex items-center gap-1 flex-wrap">
-        <Link href="/sales-monitor?tab=reports" className="hover:text-accent inline-flex items-center gap-1">
-          <ArrowLeft size={12} /> Reports
-        </Link>
-        <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
-          {areaName}
-        </Link>
-        <span>/</span>
-        <span className="text-ink font-medium">Beat: {beatName}</span>
+      {/* Top nav row: Back button + breadcrumb */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <BackButton />
+        <div className="text-xs text-ink-muted flex items-center gap-1 flex-wrap">
+          <Link href="/sales-monitor?tab=reports" className="hover:text-accent">Reports</Link>
+          <span>/</span>
+          <Link href={`/sales-monitor/reports/area/${areaId}?${childQuery}`} className="hover:text-accent">
+            {areaName}
+          </Link>
+          <span>/</span>
+          <span className="text-ink font-medium">{beatName}</span>
+        </div>
       </div>
 
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -113,9 +114,7 @@ export default async function BeatReportPage({
       </div>
 
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-        <div className="px-4 py-3 border-b border-paper-line font-semibold text-sm">
-          Customers in this Beat
-        </div>
+        <div className="px-4 py-3 border-b border-paper-line font-semibold text-sm">Customers in this Beat</div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-paper-subtle/60 border-b border-paper-line">
@@ -136,12 +135,9 @@ export default async function BeatReportPage({
                     <td className="px-3 py-2.5">
                       <Link
                         href={`/sales-monitor/reports/customer/${c.customer_id}?${childQuery}`}
-                        target="_blank"
-                        rel="noopener"
-                        className="font-medium hover:text-accent inline-flex items-center gap-1"
+                        className="font-medium hover:text-accent"
                       >
                         {c.customer_name}
-
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular">{fmtKg(c.target_kg)}</td>
@@ -173,11 +169,14 @@ function Kpi({ label, value, sub, valueClass }: { label: string; value: string; 
 }
 function ErrorPanel({ message }: { message: string }) {
   return (
-    <div className="max-w-6xl mx-auto p-4">
-      <Link href="/sales-monitor?tab=reports" className="text-xs text-ink-muted hover:underline inline-flex items-center gap-1">
-        <ArrowLeft size={12} /> Reports
-      </Link>
-      <div className="mt-4 bg-paper-card border border-dashed border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">{message}</div>
+    <div className="max-w-6xl mx-auto p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <BackButton />
+        <Link href="/sales-monitor?tab=reports" className="text-xs text-ink-muted hover:underline inline-flex items-center gap-1">
+          <ArrowLeft size={12} /> Reports
+        </Link>
+      </div>
+      <div className="bg-paper-card border border-dashed border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">{message}</div>
     </div>
   );
 }

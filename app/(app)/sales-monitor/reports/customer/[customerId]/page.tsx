@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReportRows } from "../../../reports-actions";
 import { DownloadPdfButton } from "../../_download-button";
+import { BackButton } from "../../_back-button";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,6 @@ export default async function CustomerReportPage({
 
   const achPct = c.target_kg > 0 ? (c.achievement_kg / c.target_kg) * 100 : null;
 
-  // Customer phone (best-effort)
   const admin = createAdminClient();
   const { data: cust } = await admin
     .from("customers")
@@ -67,20 +67,22 @@ export default async function CustomerReportPage({
 
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-5">
-      <div className="text-xs text-ink-muted flex items-center gap-1 flex-wrap">
-        <Link href="/sales-monitor?tab=reports" className="hover:text-accent inline-flex items-center gap-1">
-          <ArrowLeft size={12} /> Reports
-        </Link>
-        <span>/</span>
-        <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
-          {c.area_name}
-        </Link>
-        <span>/</span>
-        <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} target="_blank" rel="noopener" className="hover:text-accent">
-          {c.beat_name}
-        </Link>
-        <span>/</span>
-        <span className="text-ink font-medium">{c.customer_name}</span>
+      {/* Top nav row: Back button + breadcrumb */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <BackButton />
+        <div className="text-xs text-ink-muted flex items-center gap-1 flex-wrap">
+          <Link href="/sales-monitor?tab=reports" className="hover:text-accent">Reports</Link>
+          <span>/</span>
+          <Link href={`/sales-monitor/reports/area/${c.area_id}?${parentQuery}`} className="hover:text-accent">
+            {c.area_name}
+          </Link>
+          <span>/</span>
+          <Link href={`/sales-monitor/reports/beat/${c.beat_id}?${parentQuery}`} className="hover:text-accent">
+            {c.beat_name}
+          </Link>
+          <span>/</span>
+          <span className="text-ink font-medium">{c.customer_name}</span>
+        </div>
       </div>
 
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -150,11 +152,14 @@ function Row({ k, v }: { k: string; v: string }) {
 }
 function ErrorPanel({ message }: { message: string }) {
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <Link href="/sales-monitor?tab=reports" className="text-xs text-ink-muted hover:underline inline-flex items-center gap-1">
-        <ArrowLeft size={12} /> Reports
-      </Link>
-      <div className="mt-4 bg-paper-card border border-dashed border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">{message}</div>
+    <div className="max-w-4xl mx-auto p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <BackButton />
+        <Link href="/sales-monitor?tab=reports" className="text-xs text-ink-muted hover:underline inline-flex items-center gap-1">
+          <ArrowLeft size={12} /> Reports
+        </Link>
+      </div>
+      <div className="bg-paper-card border border-dashed border-paper-line rounded-md p-8 text-center text-sm text-ink-muted">{message}</div>
     </div>
   );
 }
