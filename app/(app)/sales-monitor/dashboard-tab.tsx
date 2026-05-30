@@ -278,11 +278,48 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
       </div>
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <KpiTile label="Scheduled (SC)" value={tot.sc.toLocaleString("en-IN")} />
         <KpiTile label="Visited (TC)" value={tot.tc.toLocaleString("en-IN")} sub={`${pct(tot.tc, tot.sc)} of SC`} />
         <KpiTile label="Productive (PC)" value={tot.pc.toLocaleString("en-IN")} sub={`${pct(tot.pc, tot.tc)} of TC`} accent="ok" />
-        <KpiTile label="Order qty (kg)" value={fmtKg(tot.kg)} sub={inr(tot.value)} />
+        <KpiTile
+          label="Order qty (kg)"
+          value={fmtKg(tot.kg)}
+          sub={(() => {
+            // Achievement vs today's target (if target known)
+            const seen = new Set<string>();
+            let target = 0;
+            for (const row of displayRows) {
+              for (const b of row.beats) {
+                if (!seen.has(b.id)) {
+                  seen.add(b.id);
+                  target += targetPerVisitByBeatId.get(b.id) || 0;
+                }
+              }
+            }
+            if (target > 0) {
+              return `${pct(tot.kg, target)} of target · ${inr(tot.value)}`;
+            }
+            return inr(tot.value);
+          })()}
+        />
+        <KpiTile
+          label="Order target (kg)"
+          value={(() => {
+            const seen = new Set<string>();
+            let target = 0;
+            for (const row of displayRows) {
+              for (const b of row.beats) {
+                if (!seen.has(b.id)) {
+                  seen.add(b.id);
+                  target += targetPerVisitByBeatId.get(b.id) || 0;
+                }
+              }
+            }
+            return target > 0 ? fmtKg(target) : "—";
+          })()}
+          sub="today's planned visits"
+        />
       </div>
 
       {/* Per-salesman table */}
@@ -347,7 +384,7 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                   );
                 })}
               </tbody>
-              {rows.length > 0 && (
+              {displayRows.length > 0 && (
                 <tfoot className="border-t-2 border-paper-line bg-paper-subtle/40 font-semibold">
                   <tr>
                     <td className="px-3 py-2.5" colSpan={2}>Total</td>
