@@ -383,7 +383,23 @@ export async function DashboardTab({ viewDate, todayISO, lastSyncAt }: { viewDat
                           <span className="ml-1.5 text-2xs text-ink-subtle italic" title="Planned in PJP — no activity recorded yet">not started</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-ink-muted">{r.beatLabel}</td>
+                      <td className="px-3 py-3 text-ink-muted">
+                        {r.beats.length === 0 ? "—" : r.beats.map((b, idx) => (
+                          <span key={b.id}>
+                            {b.id.startsWith("name:") ? (
+                              <span>{b.name}</span>
+                            ) : (
+                              <Link
+                                href={`/sales-monitor/reports/beat/${b.id}?all=true`}
+                                className="hover:text-accent hover:underline"
+                              >
+                                {b.name}
+                              </Link>
+                            )}
+                            {idx < r.beats.length - 1 ? ", " : ""}
+                          </span>
+                        ))}
+                      </td>
                       <td className="px-3 py-3 text-right tabular text-ink-subtle">{r.beatJcTargetKg > 0 ? fmtKg(r.beatJcTargetKg) : "—"}</td>
                       <td className="px-3 py-3 text-right tabular text-ink-muted">{r.beatTargetKg > 0 ? fmtKg(r.beatTargetKg) : "—"}</td>
                       <td className="px-3 py-3 text-right tabular">{r.planOnly ? "—" : r.sc_count}</td>

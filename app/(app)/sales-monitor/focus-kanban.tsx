@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
 
 type Cust = {
   id: string;
@@ -209,8 +210,13 @@ export async function FocusKanban({ viewDate }: { viewDate: string }) {
               {col.custs.map((c) => {
                 const lo = lastByCust.get(c.id);
                 return (
-                  <div key={c.id} className="px-3 py-2.5 bg-paper-card">
-                    <div className="font-medium text-sm leading-tight">{c.name ?? "—"}</div>
+                  <div key={c.id} className="px-3 py-2.5 bg-paper-card hover:bg-paper-subtle/40">
+                    <Link
+                      href={`/sales-monitor/reports/customer/${c.id}?all=true`}
+                      className="font-medium text-sm leading-tight hover:text-accent hover:underline block"
+                    >
+                      {c.name ?? "—"}
+                    </Link>
                     <div className="text-2xs text-ink-muted mt-1 flex items-center justify-between gap-2">
                       <span>{daysAgo(lo?.last_date ?? null)}</span>
                       {lo && lo.last_kg > 0 && <span className="tabular">{fmtKg(lo.last_kg)} kg</span>}
