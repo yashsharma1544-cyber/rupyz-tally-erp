@@ -43,7 +43,7 @@ const navItems = [
   { href: "/vehicles",                     label: "Vehicles",       icon: Truck,           roles: "admin" },
   { href: "/sales-monitor",                label: "Sales Monitor",  icon: TrendingUp,      roles: "admin" },
   { href: "/sales-monitor/journey-cycles", label: "PJP"           , icon: CalendarRange,   roles: "admin" },
-  { href: "/sales-monitor/targets",                      label: "Beat Targets",   icon: Target,          roles: "admin" },
+  { href: "/sales-monitor?tab=targets",                      label: "Beat Targets",   icon: Target,          roles: "admin" },
   { href: "/users",                        label: "Users",          icon: Shield,          roles: "admin" },
   { href: "/settings",                     label: "Settings",       icon: Settings,        roles: "admin" },
 ] as const;
@@ -109,7 +109,7 @@ export function Sidebar({ user }: { user: AppUser }) {
           const active = isActive(item.href);
           const Icon = item.icon;
           // Visually nest Journey Cycles and Beat Targets under Sales Monitor
-          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor/targets";
+          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor?tab=targets";
           return (
             <Link
               key={item.href}
