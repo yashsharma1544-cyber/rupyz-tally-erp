@@ -123,54 +123,44 @@ export async function FocusKanban({ viewDate }: { viewDate: string }) {
   }
   const custIds = custList.map((c) => c.id);
 
-  // 3) Last order per customer (date + kg), to identify the 30-day gap.
-  // Pull recent order lines for these customers; compute latest per customer.
+  // 3) Last order per customer (date + kg) via unified sales view.
+  //    v_sales_line_kg = order_items_kg ∪ tally_sales (via tally_customer_map).
+  //    So a customer who bought via Tally within 30 days will correctly be excluded from focus.
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
   const cutoffISO = cutoff.toISOString();
 
-  // Customers who DID order in last 30 days (to exclude)
+  // Customers who DID have a sale in last 30 days (from either source) — exclude from focus
   const { data: recent } = await admin
-    .from("orders")
+    .from("v_sales_line_kg")
     .select("customer_id")
     .in("customer_id", custIds)
-    .gte("rupyz_created_at", cutoffISO);
+    .gte("order_created_at", cutoffISO);
   const orderedRecently = new Set((recent ?? []).map((r) => r.customer_id as string));
 
-  // Last order date + kg for the remaining (focus) customers
+  // Last-order date + kg for the remaining (focus) customers, single query
   const focus = custList.filter((c) => !orderedRecently.has(c.id));
   const focusIds = focus.map((c) => c.id);
 
   const lastByCust = new Map<string, LastOrder>();
   if (focusIds.length > 0) {
-    // latest order date per customer
-    const { data: lastOrders } = await admin
-      .from("orders")
-      .select("customer_id, rupyz_created_at")
-      .in("customer_id", focusIds)
-      .order("rupyz_created_at", { ascending: false });
-    for (const o of lastOrders ?? []) {
-      const cid = o.customer_id as string;
-      if (!lastByCust.has(cid)) {
-        lastByCust.set(cid, { customer_id: cid, last_date: o.rupyz_created_at as string, last_kg: 0 });
-      }
-    }
-    // kg of that last order — sum order_items_kg for each customer's latest order date
-    // (kept lightweight: sum kg grouped by customer for their most recent order)
-    const { data: kgRows } = await admin
-      .from("order_items_kg")
+    const { data: lines } = await admin
+      .from("v_sales_line_kg")
       .select("customer_id, kg, order_created_at")
       .in("customer_id", focusIds)
       .order("order_created_at", { ascending: false });
-    const seenDate = new Map<string, string>();
-    for (const k of kgRows ?? []) {
-      const cid = k.customer_id as string;
-      const d = (k.order_created_at as string)?.slice(0, 10);
-      const cur = lastByCust.get(cid);
-      if (!cur) continue;
-      const lastDate = cur.last_date?.slice(0, 10);
-      if (d === lastDate) cur.last_kg += Number(k.kg) || 0;
-      else if (!seenDate.has(cid)) seenDate.set(cid, d);
+    for (const line of lines ?? []) {
+      const cid = line.customer_id as string;
+      const d = (line.order_created_at as string)?.slice(0, 10);
+      let cur = lastByCust.get(cid);
+      if (!cur) {
+        cur = { customer_id: cid, last_date: line.order_created_at as string, last_kg: 0 };
+        lastByCust.set(cid, cur);
+      }
+      // Sum kg only for the customer's most-recent date (subsequent older lines ignored)
+      if ((cur.last_date as string).slice(0, 10) === d) {
+        cur.last_kg += Number(line.kg) || 0;
+      }
     }
   }
 
