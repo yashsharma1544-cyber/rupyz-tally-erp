@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { Download, ChevronRight, ChevronDown } from "lucide-react";
 import { getReportRows, type ReportRow } from "./reports-actions";
 
 type JC = { id: string; jc_number: number; start_date: string; end_date: string };
@@ -54,6 +54,9 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
   const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
+  const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState<string>("");
 
   const jcLabel = (j: JC) => `JC ${j.jc_number} (${j.start_date.slice(5)} → ${j.end_date.slice(5)})`;
 
@@ -70,7 +73,23 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     }
   }
 
-  // Roll up customer rows → beats → areas
+  function toggleArea(id: string) {
+    setExpandedAreas((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleBeat(id: string) {
+    setExpandedBeats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const areas: AreaAgg[] = useMemo(() => {
     if (!rows) return [];
     const areaMap = new Map<string, AreaAgg>();
@@ -102,12 +121,38 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     return out;
   }, [rows]);
 
+  const filteredAreas: AreaAgg[] = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return areas;
+    const out: AreaAgg[] = [];
+    for (const a of areas) {
+      const aMatch = a.area_name.toLowerCase().includes(q);
+      const filteredBeats: BeatAgg[] = [];
+      for (const b of a.beats) {
+        const bMatch = b.beat_name.toLowerCase().includes(q);
+        const custMatches = b.customers.filter((c) => c.customer_name.toLowerCase().includes(q));
+        if (aMatch || bMatch) filteredBeats.push(b);
+        else if (custMatches.length > 0) filteredBeats.push({ ...b, customers: custMatches });
+      }
+      if (aMatch || filteredBeats.length > 0) out.push({ ...a, beats: filteredBeats });
+    }
+    return out;
+  }, [areas, search]);
+
+  function expandAll() {
+    setExpandedAreas(new Set(filteredAreas.map((a) => a.area_id)));
+    setExpandedBeats(new Set(filteredAreas.flatMap((a) => a.beats.map((b) => b.beat_id))));
+  }
+  function collapseAll() {
+    setExpandedAreas(new Set());
+    setExpandedBeats(new Set());
+  }
+
   const grand = useMemo(
     () => areas.reduce((acc, a) => ({ t: acc.t + a.target, a: acc.a + a.ach, v: acc.v + a.avg }), { t: 0, a: 0, v: 0 }),
     [areas],
   );
 
-  // KPI extras: beat counts by achievement bucket, and the gap-to-target
   const kpi = useMemo(() => {
     if (!rows) return null;
     const allBeats = areas.flatMap((a) => a.beats);
@@ -132,7 +177,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
     });
   }
 
-  // -------- PDF generation (scope-aware, multi-table) --------
   type PdfScope =
     | { kind: "org" }
     | { kind: "area"; area: AreaAgg }
@@ -155,15 +199,13 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
 
-      // ----- Theme palette -----
-      const ACCENT: [number, number, number] = [15, 76, 67];        // brand teal
-      const HEAD_BG: [number, number, number] = [241, 245, 243];    // soft tint
+      const ACCENT: [number, number, number] = [15, 76, 67];
+      const HEAD_BG: [number, number, number] = [241, 245, 243];
       const HEAD_TX: [number, number, number] = [40, 70, 60];
       const BODY_TX: [number, number, number] = [40, 40, 40];
       const ALT_BG: [number, number, number] = [251, 251, 248];
       const MUTED: [number, number, number] = [120, 120, 120];
 
-      // ----- Scope-derived metrics + labels -----
       type Totals = { t: number; a: number; v: number };
       let scopeLabel = "Organisation";
       let scopeName = "Sushil Agencies";
@@ -192,10 +234,8 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       const periodShort = allJc ? "All Journey Cycles" : `Journey Cycle ${jcs.find((j) => j.id === jcId)?.jc_number ?? ""}`;
       const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
-      // Track cursor Y between sections
       let cursorY = 170;
 
-      // ----- Hero header (page 1) -----
       doc.setFillColor(...ACCENT);
       doc.rect(0, 0, pageW, 8, "F");
 
@@ -209,7 +249,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       doc.setTextColor(...MUTED);
       doc.text("Sales Report", pageW / 2, 70, { align: "center" });
 
-      // Scope pill (centered with rounded background)
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       const pillText = `${scopeLabel}: ${scopeName}`;
@@ -220,18 +259,15 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       doc.setTextColor(...HEAD_TX);
       doc.text(pillText, pageW / 2, 99, { align: "center" });
 
-      // Period line
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(95, 95, 95);
       doc.text(periodShort, pageW / 2, 122, { align: "center" });
 
-      // Thin divider
       doc.setDrawColor(225, 225, 225);
       doc.setLineWidth(0.5);
       doc.line(pageW * 0.30, 134, pageW * 0.70, 134);
 
-      // ----- KEY METRICS table (4-col stat card) -----
       const kmHeaders = ["Target", "Achievement", "Ach %", "Avg / JC"];
       const kmBody = [[
         `${fmtKg(scopeTotals.t)} kg`,
@@ -239,7 +275,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         `${pctStr}%`,
         `${fmtKg(scopeTotals.v)} kg`,
       ]];
-      // center the metrics table
       const metricsW = 620;
       const metricsLeft = (pageW - metricsW) / 2;
       autoTable(doc, {
@@ -250,37 +285,25 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         tableWidth: metricsW,
         margin: { left: metricsLeft, right: metricsLeft },
         styles: {
-          fontSize: 10,
-          font: "helvetica",
-          halign: "center",
-          cellPadding: { top: 10, right: 10, bottom: 10, left: 10 },
-          lineWidth: 0,
+          fontSize: 10, font: "helvetica", halign: "center",
+          cellPadding: { top: 10, right: 10, bottom: 10, left: 10 }, lineWidth: 0,
         },
         headStyles: {
-          fillColor: HEAD_BG,
-          textColor: HEAD_TX,
-          fontStyle: "bold",
-          fontSize: 9,
-          halign: "center",
+          fillColor: HEAD_BG, textColor: HEAD_TX, fontStyle: "bold", fontSize: 9, halign: "center",
         },
         bodyStyles: {
-          fillColor: [255, 255, 255],
-          textColor: BODY_TX,
-          fontStyle: "bold",
-          fontSize: 13,
+          fillColor: [255, 255, 255], textColor: BODY_TX, fontStyle: "bold", fontSize: 13,
         },
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cursorY = ((doc as any).lastAutoTable?.finalY ?? 200) + 28;
 
-      // ----- Section helper -----
       const drawSectionTitle = (title: string) => {
         if (cursorY > pageH - 100) { doc.addPage(); drawContinuationHeader(); cursorY = 80; }
         doc.setFont("helvetica", "bold");
         doc.setFontSize(12);
         doc.setTextColor(25, 25, 25);
         doc.text(title, 50, cursorY);
-        // Small accent underline
         doc.setDrawColor(...ACCENT);
         doc.setLineWidth(1.5);
         doc.line(50, cursorY + 5, 50 + doc.getTextWidth(title), cursorY + 5);
@@ -300,7 +323,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         doc.text(periodShort, pageW / 2, 42, { align: "center" });
       };
 
-      // ----- Generic data-table renderer (full-width, themed) -----
       const drawDataTable = (head: string[], body: (string | number)[][], rightAlignFromCol: number) => {
         const cols: Record<number, { halign: "left" | "right" }> = {};
         for (let i = rightAlignFromCol; i < head.length; i++) cols[i] = { halign: "right" };
@@ -310,17 +332,12 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
           body: body.map((r) => r.map((v) => (v === "" || v == null ? "—" : String(v)))),
           theme: "plain",
           styles: {
-            fontSize: 9.5,
-            font: "helvetica",
+            fontSize: 9.5, font: "helvetica",
             cellPadding: { top: 8, right: 12, bottom: 8, left: 12 },
-            textColor: BODY_TX,
-            valign: "middle",
+            textColor: BODY_TX, valign: "middle",
           },
           headStyles: {
-            fillColor: HEAD_BG,
-            textColor: HEAD_TX,
-            fontStyle: "bold",
-            fontSize: 9.5,
+            fillColor: HEAD_BG, textColor: HEAD_TX, fontStyle: "bold", fontSize: 9.5,
             cellPadding: { top: 10, right: 12, bottom: 10, left: 12 },
           },
           alternateRowStyles: { fillColor: ALT_BG },
@@ -333,19 +350,16 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         cursorY = ((doc as any).lastAutoTable?.finalY ?? cursorY) + 28;
       };
 
-      // ----- SCOPE-SPECIFIC SECTIONS -----
       const fmtN = (n: number) => fmtKg(n);
       const fmtP = (a: number, t: number) => (pctOf(a, t)?.toFixed(1) ?? "—") + (pctOf(a, t) != null ? "%" : "");
 
       if (scope.kind === "org") {
-        // 1) Areas table
         drawSectionTitle("Performance by Area");
         drawDataTable(
           ["Area", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
           areas.map((a) => [a.area_name, fmtN(a.target), fmtN(a.ach), fmtP(a.ach, a.target), fmtN(a.avg)]),
           1,
         );
-        // 2) Beats table (rolled up across all areas, sorted by target desc)
         const allBeats = areas.flatMap((a) => a.beats.map((b) => ({ area: a.area_name, ...b })));
         allBeats.sort((x, y) => y.target - x.target);
         drawSectionTitle("Performance by Beat");
@@ -355,14 +369,12 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
           2,
         );
       } else if (scope.kind === "area") {
-        // 1) Beats in this area
         drawSectionTitle("Beats in this Area");
         drawDataTable(
           ["Beat", "Target (kg)", "Achievement (kg)", "Ach %", "Avg / JC (kg)"],
           scope.area.beats.map((b) => [b.beat_name, fmtN(b.target), fmtN(b.ach), fmtP(b.ach, b.target), fmtN(b.avg)]),
           1,
         );
-        // 2) Customers in this area (top 50 by target)
         const custs = scope.area.beats.flatMap((b) => b.customers.map((c) => ({ beat: b.beat_name, ...c })));
         custs.sort((x, y) => y.target_kg - x.target_kg);
         drawSectionTitle(`Customers in this Area (${custs.length})`);
@@ -388,7 +400,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
           1,
         );
       } else {
-        // customer scope — 2-col details table
         drawSectionTitle("Customer Details");
         const c = scope.customer;
         autoTable(doc, {
@@ -414,7 +425,6 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
         });
       }
 
-      // ----- Footer on every page -----
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const totalPages = (doc as any).getNumberOfPages?.() ?? 1;
       for (let i = 1; i <= totalPages; i++) {
@@ -437,9 +447,126 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
 
   const periodLabel = allJc ? "All JCs" : jcLabel(jcs.find((j) => j.id === jcId) ?? jcs[0]);
 
+  function buildTreeRows(): JSX.Element[] {
+    const out: JSX.Element[] = [];
+    const childQuery = allJc ? "all=true" : `jc=${jcId}`;
+    for (const a of filteredAreas) {
+      const aPct = pct(a.ach, a.target);
+      const aExpanded = expandedAreas.has(a.area_id);
+      out.push(
+        <tr key={`a-${a.area_id}`} className="hover:bg-paper-subtle/40 bg-paper-subtle/25 border-t border-paper-line">
+          <td className="px-3 py-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => toggleArea(a.area_id)}
+                className="p-0.5 hover:bg-paper-line rounded shrink-0"
+                aria-label={aExpanded ? "Collapse" : "Expand"}
+              >
+                {aExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+              <Link
+                href={`/sales-monitor/reports/area/${a.area_id}?${childQuery}`}
+                className="font-semibold hover:text-accent"
+              >
+                {a.area_name}
+              </Link>
+              <span className="text-2xs text-ink-subtle">{a.beats.length} beats</span>
+              <button
+                onClick={() => generatePdf({ kind: "area", area: a })}
+                title={`Download PDF — ${a.area_name}`}
+                className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+              >
+                <Download size={14} />
+              </button>
+            </div>
+          </td>
+          <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.target)}</td>
+          <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.ach)}</td>
+          <td className={`px-3 py-3 text-right tabular ${pctClass(aPct)}`}>{aPct != null ? aPct.toFixed(0) + "%" : "—"}</td>
+          <td className="px-3 py-3 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
+          <td className="px-3 py-3"></td>
+        </tr>,
+      );
+      if (!aExpanded) continue;
+      for (const b of a.beats) {
+        const bPct = pct(b.ach, b.target);
+        const bExpanded = expandedBeats.has(b.beat_id);
+        out.push(
+          <tr key={`b-${b.beat_id}`} className="hover:bg-paper-subtle/40">
+            <td className="px-3 py-2.5 pl-9">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleBeat(b.beat_id)}
+                  className="p-0.5 hover:bg-paper-line rounded shrink-0"
+                  aria-label={bExpanded ? "Collapse" : "Expand"}
+                >
+                  {bExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+                <Link
+                  href={`/sales-monitor/reports/beat/${b.beat_id}?${childQuery}`}
+                  className="hover:text-accent"
+                >
+                  {b.beat_name}
+                </Link>
+                <span className="text-2xs text-ink-subtle">{b.customers.length} customers</span>
+                <button
+                  onClick={() => generatePdf({ kind: "beat", area: a, beat: b })}
+                  title={`Download PDF — ${b.beat_name}`}
+                  className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                >
+                  <Download size={14} />
+                </button>
+              </div>
+            </td>
+            <td className="px-3 py-2.5 text-right tabular">{fmtKg(b.target)}</td>
+            <td className="px-3 py-2.5 text-right tabular">{fmtKg(b.ach)}</td>
+            <td className={`px-3 py-2.5 text-right tabular ${pctClass(bPct)}`}>{bPct != null ? bPct.toFixed(0) + "%" : "—"}</td>
+            <td className="px-3 py-2.5 text-right tabular text-ink-muted">{fmtKg(b.avg)}</td>
+            <td className="px-3 py-2.5"></td>
+          </tr>,
+        );
+        if (!bExpanded) continue;
+        for (const c of b.customers) {
+          const cPct = pct(c.achievement_kg, c.target_kg);
+          const custId = (c as unknown as { customer_id?: string }).customer_id;
+          const custHref = custId
+            ? `/sales-monitor/reports/customer/${custId}?${childQuery}`
+            : null;
+          out.push(
+            <tr key={`c-${b.beat_id}-${custId ?? c.customer_name}`} className="hover:bg-paper-subtle/40">
+              <td className="px-3 py-2 pl-16 text-xs">
+                <div className="flex items-center gap-2">
+                  {custHref ? (
+                    <Link href={custHref} className="hover:text-accent">{c.customer_name}</Link>
+                  ) : (
+                    <span>{c.customer_name}</span>
+                  )}
+                  <button
+                    onClick={() => generatePdf({ kind: "customer", area: a, beat: b, customer: c })}
+                    title={`Download PDF — ${c.customer_name}`}
+                    className="ml-auto text-ink-subtle hover:text-accent p-0.5"
+                  >
+                    <Download size={12} />
+                  </button>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-right tabular text-xs text-ink-muted">{fmtKg(c.target_kg)}</td>
+              <td className="px-3 py-2 text-right tabular text-xs text-ink-muted">{fmtKg(c.achievement_kg)}</td>
+              <td className={`px-3 py-2 text-right tabular text-xs ${pctClass(cPct)}`}>{cPct != null ? cPct.toFixed(0) + "%" : "—"}</td>
+              <td className="px-3 py-2 text-right tabular text-xs text-ink-subtle">{fmtKg(c.avg_kg)}</td>
+              <td className="px-3 py-2 text-right tabular text-xs text-ink-subtle">
+                {c.last_order_date ? fmtDate(c.last_order_date) : "—"}
+              </td>
+            </tr>,
+          );
+        }
+      }
+    }
+    return out;
+  }
+
   return (
     <div className="space-y-5">
-      {/* Controls (hidden when printing) */}
       <div className="bg-paper-card border border-paper-line rounded-md p-4 print:hidden">
         <div className="flex flex-wrap items-end gap-3">
           <label className="block">
@@ -495,11 +622,7 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
 
       {rows && kpi && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-4">
-          <ReportKpi
-            label="Target"
-            value={`${fmtKg(grand.t)} kg`}
-            sub={`${areas.length} areas`}
-          />
+          <ReportKpi label="Target" value={`${fmtKg(grand.t)} kg`} sub={`${areas.length} areas`} />
           <ReportKpi
             label="Achievement"
             value={`${fmtKg(grand.a)} kg`}
@@ -522,15 +645,40 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
       {rows && (
         <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
           <div className="px-4 py-3 border-b border-paper-line">
-            <div className="font-semibold text-sm">Target vs Achievement — {periodLabel}</div>
-            <div className="text-2xs text-ink-muted mt-0.5">
-              Target {fmtKg(grand.t)} kg · Achievement {fmtKg(grand.a)} kg ·
-              {" "}{pct(grand.a, grand.t)?.toFixed(1) ?? "—"}% · Avg/JC {fmtKg(grand.v)} kg
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="font-semibold text-sm">Target vs Achievement — {periodLabel}</div>
+                <div className="text-2xs text-ink-muted mt-0.5">
+                  Target {fmtKg(grand.t)} kg · Achievement {fmtKg(grand.a)} kg ·
+                  {" "}{pct(grand.a, grand.t)?.toFixed(1) ?? "—"}% · Avg/JC {fmtKg(grand.v)} kg
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Search area, beat, or customer…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-8 px-2 rounded border border-paper-line bg-paper text-xs w-56"
+                />
+                <button
+                  onClick={expandAll}
+                  className="h-8 px-3 rounded border border-paper-line bg-paper-card text-xs hover:bg-paper-subtle"
+                >
+                  Expand all
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="h-8 px-3 rounded border border-paper-line bg-paper-card text-xs hover:bg-paper-subtle"
+                >
+                  Collapse all
+                </button>
+              </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[720px]">
+            <table className="w-full text-sm min-w-[820px]">
               <thead className="bg-paper-subtle/60 border-b border-paper-line">
                 <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                   <th className="px-3 py-2.5 font-medium">Area / Beat / Customer</th>
@@ -541,43 +689,20 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
                   <th className="px-3 py-2.5 font-medium text-right">Last order</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-paper-line">
-                {areas.map((a) => {
-                  const aPct = pct(a.ach, a.target);
-                  const childQuery = allJc ? "all=true" : `jc=${jcId}`;
-                  return (
-                    <tr key={a.area_id} className="hover:bg-paper-subtle/40">
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/sales-monitor/reports/area/${a.area_id}?${childQuery}`}
-                            className="font-semibold hover:text-accent inline-flex items-center gap-1.5"
-                          >
-                            {a.area_name}
-                          </Link>
-                          <span className="text-2xs text-ink-subtle">{a.beats.length} beats</span>
-                          <button
-                            onClick={() => generatePdf({ kind: "area", area: a })}
-                            title={`Download PDF — ${a.area_name}`}
-                            className="ml-auto text-ink-subtle hover:text-accent p-0.5"
-                          >
-                            <Download size={14} />
-                          </button>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.target)}</td>
-                      <td className="px-3 py-3 text-right tabular font-medium">{fmtKg(a.ach)}</td>
-                      <td className={`px-3 py-3 text-right tabular ${pctClass(aPct)}`}>{aPct != null ? aPct.toFixed(0) + "%" : "—"}</td>
-                      <td className="px-3 py-3 text-right tabular text-ink-muted">{fmtKg(a.avg)}</td>
-                      <td className="px-3 py-3"></td>
-                    </tr>
-                  );
-                })}
+              <tbody>
+                {buildTreeRows()}
+                {filteredAreas.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-ink-muted text-sm">
+                      No matches for &quot;{search}&quot;.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
           <div className="px-4 py-2.5 text-2xs text-ink-subtle border-t border-paper-line">
-            Click an area name to open its detail page (with beats) in a new tab. From there you can drill into each beat and customer.
+            Click the chevron ▸ to expand an Area into its Beats, and each Beat into its Customers. Click a name to open its full detail page.
           </div>
         </div>
       )}
@@ -593,15 +718,9 @@ export function ReportsTab({ jcs, currentJcId }: { jcs: JC[]; currentJcId: strin
 
 
 function ReportKpi({
-  label,
-  value,
-  sub,
-  valueClass,
+  label, value, sub, valueClass,
 }: {
-  label: string;
-  value: string;
-  sub?: string;
-  valueClass?: string;
+  label: string; value: string; sub?: string; valueClass?: string;
 }) {
   return (
     <div className="bg-paper-card border border-paper-line rounded-md p-3">
@@ -612,7 +731,6 @@ function ReportKpi({
   );
 }
 
-// Build flat export rows at the chosen granularity (used for Excel)
 type ExportLevel = "customer" | "beat" | "area" | "org";
 function buildExportRows(
   level: ExportLevel,
@@ -620,8 +738,7 @@ function buildExportRows(
   areas: AreaAgg[],
   grand: { t: number; a: number; v: number },
 ): Record<string, string | number>[] {
-  const achPct = (a: number, t: number) =>
-    t > 0 ? Math.round((a / t) * 1000) / 10 : "";
+  const achPct = (a: number, t: number) => (t > 0 ? Math.round((a / t) * 1000) / 10 : "");
 
   if (level === "customer") {
     return rows.map((r) => ({
@@ -636,7 +753,6 @@ function buildExportRows(
       "Last Order kg": Math.round(r.last_order_kg * 10) / 10,
     }));
   }
-
   if (level === "beat") {
     const out: Record<string, string | number>[] = [];
     for (const a of areas) {
@@ -653,7 +769,6 @@ function buildExportRows(
     }
     return out;
   }
-
   if (level === "area") {
     return areas.map((a) => ({
       Area: a.area_name,
@@ -663,8 +778,6 @@ function buildExportRows(
       "Avg Sale (kg)": Math.round(a.avg * 10) / 10,
     }));
   }
-
-  // org
   return [
     {
       Organisation: "Sushil Agencies",
