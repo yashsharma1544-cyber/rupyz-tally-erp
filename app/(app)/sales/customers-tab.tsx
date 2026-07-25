@@ -135,6 +135,7 @@ export default function CustomersTab() {
   }
 
   async function exportCsv() {
+    if (!list || !jc) return;
     const columns: XlsxColumn[] = [
       { key: 'name', header: 'Customer', width: 32 },
       { key: 'beat', header: 'Beat', width: 26 },
