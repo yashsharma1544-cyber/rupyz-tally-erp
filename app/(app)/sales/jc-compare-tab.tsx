@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { downloadCsv } from './shared';
+import { exportXlsx, stamp, type XlsxColumn } from './export-xlsx';
 import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from './use-sales-data';
 
 type Level = 'beat' | 'customer';
@@ -166,22 +166,74 @@ export default function JcCompareTab({
     );
   }, [model, search, order, metric]);
 
-  function exportCsv() {
+  async function exportCsv() {
     if (!model) return;
-    const out = filtered.map((n) => ({
-      [view === 'beat' ? 'Beat' : 'Customer']: n.name,
-      ...(view === 'customer' ? { Beat: n.beat, Company: n.company } : {}),
-      [`Kg ${cyFy}`]: Math.round(n.cyKg),
-      [`Kg ${lyFy}`]: Math.round(n.lyKg),
-      'Kg change': Math.round(n.cyKg - n.lyKg),
-      'Kg change %': pct(n.cyKg, n.lyKg)?.toFixed(1) ?? '',
-      [`Value ${cyFy}`]: Math.round(n.cyAmt),
-      [`Value ${lyFy}`]: Math.round(n.lyAmt),
-      [`Invoices ${cyFy}`]: n.cyInv,
-      [`Invoices ${lyFy}`]: n.lyInv,
+    const isBeat = view === 'beat';
+
+    const columns: XlsxColumn[] = [
+      { key: 'name', header: isBeat ? 'Beat' : 'Customer', width: 32 },
+      ...(isBeat
+        ? []
+        : ([
+            { key: 'beat', header: 'Beat', width: 26 },
+            { key: 'company', header: 'Company', width: 18 },
+          ] as XlsxColumn[])),
+      { key: 'cyKg', header: `Kg ${cyFy}`, type: 'number' },
+      { key: 'lyKg', header: `Kg ${lyFy}`, type: 'number' },
+      { key: 'dKg', header: 'Kg change', type: 'number' },
+      { key: 'dPct', header: 'Change %', type: 'percent' },
+      { key: 'cyAmt', header: `Value ${cyFy}`, type: 'money', width: 16 },
+      { key: 'lyAmt', header: `Value ${lyFy}`, type: 'money', width: 16 },
+      { key: 'cyInv', header: `Invoices ${cyFy}`, type: 'int' },
+      { key: 'lyInv', header: `Invoices ${lyFy}`, type: 'int' },
+      { key: 'rate', header: '₹/kg now', type: 'money' },
+      { key: 'flag', header: 'Status', width: 12 },
+    ];
+
+    const rows = filtered.map((n) => ({
+      name: n.name,
+      beat: n.beat,
+      company: n.company,
+      cyKg: Math.round(n.cyKg),
+      lyKg: Math.round(n.lyKg),
+      dKg: Math.round(n.cyKg - n.lyKg),
+      dPct: pct(n.cyKg, n.lyKg),
+      cyAmt: Math.round(n.cyAmt),
+      lyAmt: Math.round(n.lyAmt),
+      cyInv: n.cyInv,
+      lyInv: n.lyInv,
+      rate: n.cyKg ? Math.round(n.cyAmt / n.cyKg) : null,
+      flag: n.lyKg > 0 && n.cyKg === 0 ? 'STOPPED' : n.cyKg > 0 && n.lyKg === 0 ? 'NEW' : '',
     }));
-    const slug = drillBeat ? drillBeat.toLowerCase().replace(/[^a-z0-9]+/g, '-') : view;
-    downloadCsv(out, `jc_compare_${slug}_through_jc${currentJc}_${cyFy}.csv`);
+
+    const totals = {
+      name: 'Total',
+      beat: '',
+      company: '',
+      cyKg: Math.round(t.cyKg),
+      lyKg: Math.round(t.lyKg),
+      dKg: Math.round(t.cyKg - t.lyKg),
+      dPct: pct(t.cyKg, t.lyKg),
+      cyAmt: Math.round(t.cyAmt),
+      lyAmt: Math.round(t.lyAmt),
+      cyInv: t.cyInv,
+      lyInv: t.lyInv,
+      rate: t.cyKg ? Math.round(t.cyAmt / t.cyKg) : null,
+      flag: '',
+    };
+
+    const scope = drillBeat ? drillBeat : isBeat ? 'all beats' : 'all customers';
+    await exportXlsx({
+      filename: `JC_Compare_${(drillBeat ?? view).replace(/[^A-Za-z0-9]+/g, '_')}_JC${currentJc}_${stamp()}`,
+      sheetName: `Through JC${currentJc}`,
+      title: `JC Compare · through JC${currentJc}`,
+      subtitle: `FY ${cyFy} JC1–JC${currentJc} vs FY ${lyFy} same cycles · ${scope} · ${
+        company === 'all' ? 'both companies' : company
+      } · ${rows.length} rows`,
+      columns,
+      rows,
+      totals,
+    });
   }
 
   if (error)
@@ -277,7 +329,7 @@ export default function JcCompareTab({
             onClick={exportCsv}
             className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
           >
-            CSV
+            Excel
           </button>
         </div>
       </div>

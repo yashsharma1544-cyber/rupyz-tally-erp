@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { salesRpc, fmtKg, fmtINR, downloadCsv } from './shared';
+import { salesRpc, fmtKg, fmtINR } from './shared';
+import { exportXlsx, stamp, type XlsxColumn } from './export-xlsx';
 
 type ListRow = {
   party_name: string;
@@ -115,7 +116,7 @@ export default function CustomersTab() {
     });
   }, [rows, search, beat, company, minKg, maxKg, sortKey, asc]);
 
-  const totals = useMemo(
+  const totals0 = useMemo(
     () => ({
       customers: filtered.length,
       ytdKg: filtered.reduce((s, r) => s + (r.ytd_kg ?? 0), 0),
@@ -133,23 +134,63 @@ export default function CustomersTab() {
     }
   }
 
-  function exportCsv() {
-    const out = filtered.map((r) => {
-      const base: Record<string, unknown> = {
-        Customer: r.party_name,
-        Beat: r.beat ?? '(unassigned)',
-        Company: r.company ?? '',
+  async function exportCsv() {
+    const columns: XlsxColumn[] = [
+      { key: 'name', header: 'Customer', width: 32 },
+      { key: 'beat', header: 'Beat', width: 26 },
+      { key: 'company', header: 'Company', width: 16 },
+      ...jcCols.map(
+        (n) => ({ key: `jc${n}`, header: `JC${n}`, type: 'number' } as XlsxColumn)
+      ),
+      { key: 'ytdKg', header: 'YTD Kg', type: 'number', width: 14 },
+      { key: 'ytdAmt', header: 'YTD Value', type: 'money', width: 16 },
+      { key: 'ytdAvg', header: 'YTD Avg/JC', type: 'number', width: 14 },
+      { key: 'lyKg', header: 'LY Kg', type: 'number', width: 14 },
+      { key: 'lyAvg', header: 'LY Avg/JC', type: 'number', width: 14 },
+      { key: 'pace', header: 'Pace vs LY', type: 'number', width: 14 },
+      { key: 'rate', header: '₹/kg', type: 'money' },
+    ];
+
+    const rows = filtered.map((r) => {
+      const o: Record<string, unknown> = {
+        name: r.party_name,
+        beat: r.beat ?? '(unassigned)',
+        company: r.company ?? '',
       };
-      for (const n of jcCols) base[`JC${n}`] = Math.round(r.jc[n] ?? 0);
-      base['YTD Kg'] = Math.round(r.ytd_kg ?? 0);
-      base['YTD Amount'] = Math.round(r.ytd_amount ?? 0);
-      base['LY Kg'] = Math.round(r.prior_kg ?? 0);
-      base['LY Avg/JC'] = Math.round(r.lyAvg);
-      base['YTD Avg/JC'] = Math.round(r.ytdAvg);
-      return base;
+      for (const n of jcCols) o[`jc${n}`] = Math.round(r.jc[n] ?? 0);
+      o.ytdKg = Math.round(r.ytd_kg ?? 0);
+      o.ytdAmt = Math.round(r.ytd_amount ?? 0);
+      o.ytdAvg = Math.round(r.ytdAvg);
+      o.lyKg = Math.round(r.prior_kg ?? 0);
+      o.lyAvg = Math.round(r.lyAvg);
+      o.pace = Math.round(r.ytdAvg - r.lyAvg);
+      o.rate = r.ytd_kg ? Math.round((r.ytd_amount ?? 0) / r.ytd_kg) : null;
+      return o;
     });
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-    downloadCsv(out, `sales_customers_${stamp}.csv`);
+
+    const totals: Record<string, unknown> = {
+      name: 'Total',
+      beat: '',
+      company: '',
+      ytdKg: Math.round(totals0.ytdKg),
+      ytdAmt: Math.round(totals0.ytdAmount),
+      lyKg: Math.round(totals0.priorKg),
+    };
+    for (const n of jcCols)
+      totals[`jc${n}`] = Math.round(filtered.reduce((s2, r) => s2 + (r.jc[n] ?? 0), 0));
+
+    await exportXlsx({
+      filename: `Customers_JC1-${currentJc}_${list.current_fy}_${stamp()}`,
+      sheetName: `Customers ${list.current_fy}`,
+      title: 'Customers · cycle by cycle',
+      subtitle: `FY ${list.current_fy} through JC${currentJc} · LY = FY ${list.prior_fy} · ${
+        beat === 'all' ? 'all beats' : beat
+      } · ${company === 'all' ? 'both companies' : company} · ${rows.length} customers`,
+      columns,
+      rows,
+      totals,
+      highlightHeaders: currentJc ? [`JC${currentJc}`] : [],
+    });
   }
 
   if (error)
@@ -221,15 +262,15 @@ export default function CustomersTab() {
           onClick={exportCsv}
           className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
         >
-          CSV
+          Excel
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Customers" value={totals.customers.toLocaleString('en-IN')} />
-        <Stat label={`YTD Kg (${list.current_fy})`} value={fmtKg(totals.ytdKg)} />
-        <Stat label={`LY Kg (${list.prior_fy})`} value={fmtKg(totals.priorKg)} />
-        <Stat label="YTD Value" value={fmtINR(totals.ytdAmount)} />
+        <Stat label="Customers" value={totals0.customers.toLocaleString('en-IN')} />
+        <Stat label={`YTD Kg (${list.current_fy})`} value={fmtKg(totals0.ytdKg)} />
+        <Stat label={`LY Kg (${list.prior_fy})`} value={fmtKg(totals0.priorKg)} />
+        <Stat label="YTD Value" value={fmtINR(totals0.ytdAmount)} />
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">

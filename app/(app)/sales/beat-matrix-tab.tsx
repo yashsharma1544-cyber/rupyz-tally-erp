@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { downloadCsv } from './shared';
+import { exportXlsx, stamp, type XlsxColumn } from './export-xlsx';
 import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from './use-sales-data';
 
 type Metric = 'kg' | 'amount';
@@ -99,22 +99,58 @@ export default function BeatMatrixTab() {
     return { list, footer, custCount };
   }, [rows, company, metric, cyFy, lyFy]);
 
-  function exportCsv() {
+  async function exportCsv() {
     if (!model) return;
     const src = csvBeat === 'all' ? model.list : model.list.filter((b) => b.beat === csvBeat);
-    const out = src.map((b) => {
-      const o: Record<string, unknown> = { Beat: b.beat, Customers: b.customers.size };
+    const money = metric === 'amount';
+
+    const columns: XlsxColumn[] = [
+      { key: 'beat', header: 'Beat', width: 32 },
+      { key: 'cust', header: 'Customers', type: 'int' },
+    ];
+    for (const n of JCS) {
+      columns.push({ key: `jc${n}cy`, header: `JC${n} CY`, type: money ? 'money' : 'number' });
+      columns.push({ key: `jc${n}ly`, header: `JC${n} LY`, type: money ? 'money' : 'number' });
+    }
+    columns.push(
+      { key: 'totCy', header: `Total ${cyFy}`, type: money ? 'money' : 'number', width: 16 },
+      { key: 'totLy', header: `Total ${lyFy}`, type: money ? 'money' : 'number', width: 16 },
+      { key: 'chg', header: 'Change %', type: 'percent' }
+    );
+
+    const build = (b: (typeof src)[number]) => {
+      const o: Record<string, unknown> = { beat: b.beat, cust: b.customers.size };
       for (const n of JCS) {
-        o[`JC${n} CY`] = Math.round(b.jc[n]?.cy ?? 0);
-        o[`JC${n} LY`] = Math.round(b.jc[n]?.ly ?? 0);
+        o[`jc${n}cy`] = Math.round(b.jc[n]?.cy ?? 0);
+        o[`jc${n}ly`] = Math.round(b.jc[n]?.ly ?? 0);
       }
-      o[`Total ${cyFy}`] = Math.round(b.total.cy);
-      o[`Total ${lyFy}`] = Math.round(b.total.ly);
-      o['Change %'] = pct(b.total.cy, b.total.ly)?.toFixed(1) ?? '';
+      o.totCy = Math.round(b.total.cy);
+      o.totLy = Math.round(b.total.ly);
+      o.chg = pct(b.total.cy, b.total.ly);
       return o;
+    };
+
+    const totals: Record<string, unknown> = { beat: 'All beats', cust: model.custCount };
+    for (const n of JCS) {
+      totals[`jc${n}cy`] = Math.round(model.footer.jc[n]?.cy ?? 0);
+      totals[`jc${n}ly`] = Math.round(model.footer.jc[n]?.ly ?? 0);
+    }
+    totals.totCy = Math.round(model.footer.total.cy);
+    totals.totLy = Math.round(model.footer.total.ly);
+    totals.chg = pct(model.footer.total.cy, model.footer.total.ly);
+
+    await exportXlsx({
+      filename: `Beat_Matrix_${metric}_${(csvBeat === 'all' ? 'all' : csvBeat).replace(/[^A-Za-z0-9]+/g, '_')}_${cyFy}_${stamp()}`,
+      sheetName: `Beat x JC ${cyFy}`,
+      title: `Beat × JC Matrix · ${money ? 'Value' : 'Kg'}`,
+      subtitle: `FY ${cyFy} vs FY ${lyFy} · ${
+        company === 'all' ? 'both companies' : company
+      } · ${src.length} beats${liveJc ? ` · JC${liveJc} in progress` : ''}`,
+      columns,
+      rows: src.map(build),
+      totals: csvBeat === 'all' ? totals : undefined,
+      highlightHeaders: liveJc ? [`JC${liveJc} CY`, `JC${liveJc} LY`] : [],
     });
-    const slug = csvBeat === 'all' ? 'all' : csvBeat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(out, `beat_matrix_${metric}_${slug}_${cyFy}.csv`);
   }
 
   if (error)
@@ -203,7 +239,7 @@ export default function BeatMatrixTab() {
             onClick={exportCsv}
             className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
           >
-            CSV
+            Excel
           </button>
         </div>
       </div>
