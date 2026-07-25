@@ -73,6 +73,12 @@ export default function BeatPage() {
   const cyFy = fys[fys.length - 1] ?? '';
   const lyFy = priorLabel(cyFy);
 
+  const liveJc = useMemo(() => {
+    if (!rows || !cyFy) return 0;
+    const live = rows.filter((r) => r.fy_label === cyFy).map((r) => r.jc_number);
+    return live.length ? Math.max(...live) : 0;
+  }, [rows, cyFy]);
+
   useEffect(() => {
     if (view !== 'weekly') return;
     setWeekly(null);
@@ -262,9 +268,18 @@ export default function BeatPage() {
                   <th
                     key={n}
                     colSpan={2}
-                    className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-700"
+                    className={`border-b border-l px-2 py-1.5 text-center text-xs font-semibold ${
+                      n === liveJc
+                        ? 'border-teal-300 bg-teal-100 text-teal-900'
+                        : 'border-gray-200 bg-gray-50 text-gray-700'
+                    }`}
                   >
                     JC{n}
+                    {n === liveJc && (
+                      <span className="ml-1 text-[9px] font-medium uppercase tracking-wide text-teal-700">
+                        live
+                      </span>
+                    )}
                   </th>
                 ))}
                 <th
@@ -276,7 +291,7 @@ export default function BeatPage() {
               </tr>
               <tr>
                 {JCS.map((n) => (
-                  <SubHead key={n} />
+                  <SubHead key={n} live={n === liveJc} />
                 ))}
                 <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
                   CY
@@ -305,7 +320,7 @@ export default function BeatPage() {
                     </span>
                   </td>
                   {JCS.map((n) => (
-                    <Pair key={n} cell={c.jc[n]} fmt={fmt} />
+                    <Pair key={n} cell={c.jc[n]} fmt={fmt} live={n === liveJc} />
                   ))}
                   <TotalCells cell={c.total} fmt={fmt} />
                 </tr>
@@ -318,7 +333,7 @@ export default function BeatPage() {
                   Beat total
                 </td>
                 {JCS.map((n) => (
-                  <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold />
+                  <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold live={n === liveJc} />
                 ))}
                 <TotalCells cell={model.footer.total} fmt={fmt} />
               </tr>
@@ -427,13 +442,22 @@ export default function BeatPage() {
   );
 }
 
-function SubHead() {
+function SubHead({ live }: { live?: boolean }) {
+  const base = live ? 'bg-teal-50' : 'bg-gray-50';
   return (
     <>
-      <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+      <th
+        className={`border-b border-l px-2 py-1 text-right text-[10px] font-medium ${base} ${
+          live ? 'border-teal-300 text-teal-800' : 'border-gray-200 text-gray-500'
+        }`}
+      >
         CY
       </th>
-      <th className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-400">
+      <th
+        className={`border-b border-gray-200 px-2 py-1 text-right text-[10px] font-medium ${base} ${
+          live ? 'text-teal-700' : 'text-gray-400'
+        }`}
+      >
         LY
       </th>
     </>
@@ -444,10 +468,12 @@ function Pair({
   cell,
   fmt,
   bold,
+  live,
 }: {
   cell: Cell | undefined;
   fmt: (n: number) => string;
   bold?: boolean;
+  live?: boolean;
 }) {
   const cy = cell?.cy ?? 0;
   const ly = cell?.ly ?? 0;
@@ -455,15 +481,15 @@ function Pair({
   return (
     <>
       <td
-        className={`whitespace-nowrap border-l border-gray-100 px-2 py-1.5 text-right tabular-nums ${
-          bold ? 'font-semibold text-gray-900' : 'text-gray-800'
-        }`}
+        className={`whitespace-nowrap border-l px-2 py-1.5 text-right tabular-nums ${
+          live ? 'border-teal-300 bg-teal-50/70' : 'border-gray-100'
+        } ${bold ? 'font-semibold text-gray-900' : 'text-gray-800'}`}
       >
         {fmt(cy)}
       </td>
       <td
         className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-400 ${
-          behind ? 'bg-amber-50' : ''
+          behind ? 'bg-amber-50' : live ? 'bg-teal-50/70' : ''
         }`}
       >
         {fmt(ly)}

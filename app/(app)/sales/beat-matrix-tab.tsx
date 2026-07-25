@@ -44,8 +44,17 @@ export default function BeatMatrixTab() {
       .sort();
   }, [rows]);
 
-  const cyFy = fy ?? fys[fys.length - 1] ?? '';
+  const latestFy = fys[fys.length - 1] ?? '';
+  const cyFy = fy ?? latestFy;
   const lyFy = priorLabel(cyFy);
+
+  // The cycle currently in progress — only meaningful for the live FY.
+  const currentJc = useMemo(() => {
+    if (!rows || !latestFy) return 0;
+    const live = rows.filter((r) => r.fy_label === latestFy).map((r) => r.jc_number);
+    return live.length ? Math.max(...live) : 0;
+  }, [rows, latestFy]);
+  const liveJc = cyFy === latestFy ? currentJc : null;
 
   const model = useMemo(() => {
     if (!rows || !cyFy) return null;
@@ -213,9 +222,18 @@ export default function BeatMatrixTab() {
                 <th
                   key={n}
                   colSpan={2}
-                  className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-700"
+                  className={`border-b border-l px-2 py-1.5 text-center text-xs font-semibold ${
+                    n === liveJc
+                      ? 'border-teal-300 bg-teal-100 text-teal-900'
+                      : 'border-gray-200 bg-gray-50 text-gray-700'
+                  }`}
                 >
                   JC{n}
+                  {n === liveJc && (
+                    <span className="ml-1 text-[9px] font-medium uppercase tracking-wide text-teal-700">
+                      live
+                    </span>
+                  )}
                 </th>
               ))}
               <th
@@ -227,7 +245,7 @@ export default function BeatMatrixTab() {
             </tr>
             <tr>
               {JCS.map((n) => (
-                <SubHead key={n} />
+                <SubHead key={n} live={n === liveJc} />
               ))}
               <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
                 CY
@@ -254,7 +272,7 @@ export default function BeatMatrixTab() {
                   <span className="ml-2 text-[10px] text-gray-400">{b.customers.size} cust</span>
                 </td>
                 {JCS.map((n) => (
-                  <Pair key={n} cell={b.jc[n]} fmt={fmt} bold />
+                  <Pair key={n} cell={b.jc[n]} fmt={fmt} bold live={n === liveJc} />
                 ))}
                 <TotalCells cell={b.total} fmt={fmt} />
               </tr>
@@ -267,7 +285,7 @@ export default function BeatMatrixTab() {
                 All beats
               </td>
               {JCS.map((n) => (
-                <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold />
+                <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold live={n === liveJc} />
               ))}
               <TotalCells cell={model.footer.total} fmt={fmt} />
             </tr>
@@ -276,20 +294,29 @@ export default function BeatMatrixTab() {
       </div>
 
       <p className="px-1 text-[11px] text-gray-400">
-        Tap a beat to open its own page with customers, weekly split and CSV. Amber marks a cycle
-        running behind last year.
+        Tap a beat to open its own page with customers, weekly split and CSV. Teal marks JC
+        {liveJc ?? '—'}, the cycle in progress; amber marks a cycle running behind last year.
       </p>
     </section>
   );
 }
 
-function SubHead() {
+function SubHead({ live }: { live?: boolean }) {
+  const base = live ? 'bg-teal-50' : 'bg-gray-50';
   return (
     <>
-      <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+      <th
+        className={`border-b border-l px-2 py-1 text-right text-[10px] font-medium ${base} ${
+          live ? 'border-teal-300 text-teal-800' : 'border-gray-200 text-gray-500'
+        }`}
+      >
         CY
       </th>
-      <th className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-400">
+      <th
+        className={`border-b border-gray-200 px-2 py-1 text-right text-[10px] font-medium ${base} ${
+          live ? 'text-teal-700' : 'text-gray-400'
+        }`}
+      >
         LY
       </th>
     </>
@@ -300,10 +327,12 @@ function Pair({
   cell,
   fmt,
   bold,
+  live,
 }: {
   cell: Cell | undefined;
   fmt: (n: number) => string;
   bold?: boolean;
+  live?: boolean;
 }) {
   const cy = cell?.cy ?? 0;
   const ly = cell?.ly ?? 0;
@@ -311,15 +340,15 @@ function Pair({
   return (
     <>
       <td
-        className={`whitespace-nowrap border-l border-gray-100 px-2 py-1.5 text-right tabular-nums ${
-          bold ? 'font-medium text-gray-900' : 'text-gray-700'
-        }`}
+        className={`whitespace-nowrap border-l px-2 py-1.5 text-right tabular-nums ${
+          live ? 'border-teal-300 bg-teal-50/70' : 'border-gray-100'
+        } ${bold ? 'font-medium text-gray-900' : 'text-gray-700'}`}
       >
         {fmt(cy)}
       </td>
       <td
         className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-400 ${
-          behind ? 'bg-amber-50' : ''
+          behind ? 'bg-amber-50' : live ? 'bg-teal-50/70' : ''
         }`}
       >
         {fmt(ly)}

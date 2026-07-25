@@ -243,8 +243,19 @@ export default function CustomersTab() {
                 Beat
               </th>
               {jcCols.map((n) => (
-                <th key={n} className={`${th} text-right`} onClick={() => sortBy(n)}>
+                <th
+                  key={n}
+                  className={`${th} text-right ${
+                    n === currentJc ? 'bg-teal-100 text-teal-900' : ''
+                  }`}
+                  onClick={() => sortBy(n)}
+                >
                   JC{n}
+                  {n === currentJc && (
+                    <span className="ml-1 text-[9px] font-medium uppercase tracking-wide text-teal-700">
+                      live
+                    </span>
+                  )}
                   {arrow(n)}
                 </th>
               ))}
@@ -287,7 +298,12 @@ export default function CustomersTab() {
                     </Link>
                   </td>
                   {jcCols.map((n) => (
-                    <td key={n} className="px-3 py-2 text-right tabular-nums text-gray-700">
+                    <td
+                      key={n}
+                      className={`px-3 py-2 text-right tabular-nums text-gray-700 ${
+                        n === currentJc ? 'bg-teal-50/70 font-medium text-gray-900' : ''
+                      }`}
+                    >
                       {r.jc[n] ? fmtKg(r.jc[n]) : '—'}
                     </td>
                   ))}
