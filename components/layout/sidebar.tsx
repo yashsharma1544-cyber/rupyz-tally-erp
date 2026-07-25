@@ -110,7 +110,7 @@ export function Sidebar({ user }: { user: AppUser }) {
           const active = isActive(item.href);
           const Icon = item.icon;
           // Visually nest Journey Cycles and Beat Targets under Sales Monitor
-          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor?tab=targets";
+          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor?tab=targets" || item.href === "/sales";
           return (
             <Link
               key={item.href}
