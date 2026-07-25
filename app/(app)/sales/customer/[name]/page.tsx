@@ -101,12 +101,17 @@ export default function CustomerPage() {
 
   return (
     <div className="space-y-4 p-4">
-      <button
-        onClick={() => router.back()}
-        className="inline-flex items-center text-sm font-medium text-teal-800 hover:underline"
-      >
-        ← Back
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          ← Back
+        </button>
+        <Link href="/sales" className="text-sm font-medium text-teal-800 hover:underline">
+          Sales home
+        </Link>
+      </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <div>

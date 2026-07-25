@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { salesRpc, fmtKg, downloadCsv } from '../../shared';
 import {
@@ -48,6 +48,7 @@ function priorLabel(fy: string): string {
 
 export default function BeatPage() {
   const params = useParams<{ beat: string }>();
+  const router = useRouter();
   const beat = decodeURIComponent(params.beat);
 
   const [rows, setRows] = useState<SaleRow[] | null>(null);
@@ -175,12 +176,20 @@ export default function BeatPage() {
 
   return (
     <div className="space-y-4 p-4">
-      <Link
-        href="/sales"
-        className="inline-flex items-center text-sm font-medium text-teal-800 hover:underline"
-      >
-        ← Back to Sales
-      </Link>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          ← Back
+        </button>
+        <Link
+          href="/sales"
+          className="text-sm font-medium text-teal-800 hover:underline"
+        >
+          Sales home
+        </Link>
+      </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <div>

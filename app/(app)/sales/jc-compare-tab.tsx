@@ -203,22 +203,21 @@ export default function JcCompareTab() {
             FY {cyFy} JC1–JC{currentJc} against the same cycles of FY {lyFy}
           </p>
           {drillBeat && (
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setDrillBeat(null)}
-                className="font-medium text-teal-800 hover:underline"
+                className="inline-flex items-center gap-1.5 rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800 hover:bg-teal-100"
               >
-                ← All beats
+                ← Back to all beats
               </button>
-              <span className="text-gray-400">/</span>
-              <span className="font-semibold text-gray-900">{drillBeat}</span>
+              <span className="text-sm font-semibold text-gray-900">{drillBeat}</span>
               <Link
                 href={`/sales/beat/${encodeURIComponent(drillBeat)}`}
-                className="text-gray-500 hover:text-teal-800 hover:underline"
+                className="text-xs text-gray-500 hover:text-teal-800 hover:underline"
               >
                 open full beat page ↗
               </Link>
-            </p>
+            </div>
           )}
         </div>
 
