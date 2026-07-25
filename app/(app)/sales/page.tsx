@@ -4,11 +4,13 @@ import { useState } from 'react';
 import OverviewTab from './overview-tab';
 import CustomersTab from './customers-tab';
 import BeatMatrixTab from './beat-matrix-tab';
+import JcCompareTab from './jc-compare-tab';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'customers', label: 'Customers' },
   { id: 'beat-matrix', label: 'Beat Matrix' },
+  { id: 'jc-compare', label: 'JC Compare' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -42,6 +44,7 @@ export default function SalesPage() {
       {tab === 'overview' && <OverviewTab />}
       {tab === 'customers' && <CustomersTab />}
       {tab === 'beat-matrix' && <BeatMatrixTab />}
+      {tab === 'jc-compare' && <JcCompareTab />}
     </div>
   );
 }
