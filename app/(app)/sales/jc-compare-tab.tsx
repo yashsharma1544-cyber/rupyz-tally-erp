@@ -37,6 +37,7 @@ export default function JcCompareTab() {
   const [level, setLevel] = useState<Level>('beat');
   const [metric, setMetric] = useState<Metric>('kg');
   const [order, setOrder] = useState<'decline' | 'growth'>('decline');
+  const [drillBeat, setDrillBeat] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -66,12 +67,16 @@ export default function JcCompareTab() {
       .sort();
   }, [rows]);
 
+  // Drilling into a beat forces the customer view.
+  const view: Level = drillBeat ? 'customer' : level;
+
   const model = useMemo(() => {
     if (!rows || !cyFy || !currentJc) return null;
 
     // Like-for-like: both years cut to JC1..currentJc
     const scoped = rows.filter((r) => {
       if (company !== 'all' && companyOf(r.company_name) !== company) return false;
+      if (drillBeat && beatOf(r.beat) !== drillBeat) return false;
       if (r.jc_number > currentJc) return false;
       return r.fy_label === cyFy || r.fy_label === lyFy;
     });
@@ -81,8 +86,8 @@ export default function JcCompareTab() {
     for (const r of scoped) {
       const beat = beatOf(r.beat);
       const co = companyOf(r.company_name);
-      const key = level === 'beat' ? beat : `${co}||${r.party_name}`;
-      const name = level === 'beat' ? beat : r.party_name;
+      const key = view === 'beat' ? beat : `${co}||${r.party_name}`;
+      const name = view === 'beat' ? beat : r.party_name;
 
       let n = map.get(key);
       if (!n) {
@@ -141,7 +146,7 @@ export default function JcCompareTab() {
     );
 
     return { list, totals };
-  }, [rows, company, level, cyFy, lyFy, currentJc]);
+  }, [rows, company, view, drillBeat, cyFy, lyFy, currentJc]);
 
   const filtered = useMemo(() => {
     if (!model) return [];
@@ -157,8 +162,8 @@ export default function JcCompareTab() {
   function exportCsv() {
     if (!model) return;
     const out = filtered.map((n) => ({
-      [level === 'beat' ? 'Beat' : 'Customer']: n.name,
-      ...(level === 'customer' ? { Beat: n.beat, Company: n.company } : {}),
+      [view === 'beat' ? 'Beat' : 'Customer']: n.name,
+      ...(view === 'customer' ? { Beat: n.beat, Company: n.company } : {}),
       [`Kg ${cyFy}`]: Math.round(n.cyKg),
       [`Kg ${lyFy}`]: Math.round(n.lyKg),
       'Kg change': Math.round(n.cyKg - n.lyKg),
@@ -168,7 +173,8 @@ export default function JcCompareTab() {
       [`Invoices ${cyFy}`]: n.cyInv,
       [`Invoices ${lyFy}`]: n.lyInv,
     }));
-    downloadCsv(out, `jc_compare_${level}_through_jc${currentJc}_${cyFy}.csv`);
+    const slug = drillBeat ? drillBeat.toLowerCase().replace(/[^a-z0-9]+/g, '-') : view;
+    downloadCsv(out, `jc_compare_${slug}_through_jc${currentJc}_${cyFy}.csv`);
   }
 
   if (error)
@@ -196,6 +202,24 @@ export default function JcCompareTab() {
           <p className="text-xs text-gray-500">
             FY {cyFy} JC1–JC{currentJc} against the same cycles of FY {lyFy}
           </p>
+          {drillBeat && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <button
+                onClick={() => setDrillBeat(null)}
+                className="font-medium text-teal-800 hover:underline"
+              >
+                ← All beats
+              </button>
+              <span className="text-gray-400">/</span>
+              <span className="font-semibold text-gray-900">{drillBeat}</span>
+              <Link
+                href={`/sales/beat/${encodeURIComponent(drillBeat)}`}
+                className="text-gray-500 hover:text-teal-800 hover:underline"
+              >
+                open full beat page ↗
+              </Link>
+            </p>
+          )}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -216,9 +240,12 @@ export default function JcCompareTab() {
             {(['beat', 'customer'] as Level[]).map((l) => (
               <button
                 key={l}
-                onClick={() => setLevel(l)}
+                onClick={() => {
+                  setDrillBeat(null);
+                  setLevel(l);
+                }}
                 className={`px-3 py-1.5 text-sm ${
-                  level === l ? 'bg-teal-700 text-white' : 'bg-white text-gray-600'
+                  view === l ? 'bg-teal-700 text-white' : 'bg-white text-gray-600'
                 }`}
               >
                 {l === 'beat' ? 'Beats' : 'Customers'}
@@ -276,7 +303,7 @@ export default function JcCompareTab() {
           delta={pct(t.cyInv, t.lyInv)}
         />
         <Kpi
-          label={level === 'beat' ? 'Beats billing' : 'Customers billing'}
+          label={view === 'beat' ? 'Beats billing' : 'Customers billing'}
           value={num(t.cyCust)}
           note={`${t.lost} stopped · ${t.gained} new`}
           delta={pct(t.cyCust, t.lyCust)}
@@ -301,7 +328,7 @@ export default function JcCompareTab() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder={level === 'beat' ? 'Search beat…' : 'Search customer…'}
+          placeholder={view === 'beat' ? 'Search beat…' : 'Search customer…'}
           className="min-w-[200px] flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm"
         />
         <div className="flex overflow-hidden rounded-md border border-gray-300">
@@ -329,7 +356,7 @@ export default function JcCompareTab() {
           <thead className="bg-gray-50">
             <tr className="text-left">
               <th className="px-3 py-2 text-xs font-medium text-gray-600">
-                {level === 'beat' ? 'Beat' : 'Customer'}
+                {view === 'beat' ? 'Beat' : 'Customer'}
               </th>
               <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">{cyFy}</th>
               <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">{lyFy}</th>
@@ -349,17 +376,26 @@ export default function JcCompareTab() {
               return (
                 <tr key={n.key} className="border-t border-gray-100 hover:bg-teal-50/40">
                   <td className="whitespace-nowrap px-3 py-2">
-                    <Link
-                      href={
-                        level === 'beat'
-                          ? `/sales/beat/${encodeURIComponent(n.name)}`
-                          : `/sales/customer/${encodeURIComponent(n.name)}`
-                      }
-                      className="font-medium text-gray-900 hover:text-teal-800 hover:underline"
-                    >
-                      {n.name}
-                    </Link>
-                    {level === 'customer' && (
+                    {view === 'beat' ? (
+                      <button
+                        onClick={() => {
+                          setDrillBeat(n.name);
+                          setSearch('');
+                        }}
+                        className="text-left font-medium text-gray-900 hover:text-teal-800 hover:underline"
+                      >
+                        <span className="mr-1 text-gray-400">▸</span>
+                        {n.name}
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/sales/customer/${encodeURIComponent(n.name)}`}
+                        className="font-medium text-gray-900 hover:text-teal-800 hover:underline"
+                      >
+                        {n.name}
+                      </Link>
+                    )}
+                    {view === 'customer' && !drillBeat && (
                       <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">
                         {n.beat}
                       </span>
@@ -406,6 +442,7 @@ export default function JcCompareTab() {
       <p className="px-1 text-[11px] text-gray-400">
         Both years are cut to JC1–JC{currentJc}, so the comparison is like for like. JC
         {currentJc} is still running, which drags the current year down until it closes.
+        {view === 'beat' && ' Tap a beat to see its customers without leaving this comparison.'}
       </p>
     </section>
   );
