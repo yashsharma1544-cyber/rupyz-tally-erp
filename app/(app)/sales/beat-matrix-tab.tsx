@@ -167,11 +167,7 @@ export default function BeatMatrixTab({
     n === 0
       ? '—'
       : metric === 'kg'
-      ? n >= 10000
-        ? (n / 1000).toFixed(1) + 'k'
-        : Math.round(n).toLocaleString('en-IN')
-      : n >= 100000
-      ? '₹' + (n / 100000).toFixed(1) + 'L'
+      ? Math.round(n).toLocaleString('en-IN')
       : '₹' + Math.round(n).toLocaleString('en-IN');
 
   return (
