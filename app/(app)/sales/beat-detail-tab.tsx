@@ -2,15 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { salesRpc, fmtKg, downloadCsv } from './shared';
-import {
-  loadSales,
-  fyInfo,
-  companyOf,
-  beatOf,
-  pct,
-  fmtPct,
-  type SaleRow,
-} from './use-sales-data';
+import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from './use-sales-data';
+
+type Metric = 'kg' | 'amount';
+type View = 'all' | 'weekly';
+type Cell = { cy: number; ly: number };
 
 type WeeklyResp = {
   beat: string;
@@ -33,7 +29,14 @@ type WeeklyResp = {
   }[];
 };
 
-type View = 'all' | 'weekly';
+const JCS = Array.from({ length: 13 }, (_, i) => i + 1);
+const blank = (): Cell => ({ cy: 0, ly: 0 });
+
+function priorLabel(fy: string): string {
+  const m = fy.match(/^(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return `${String(Number(m[1]) - 1).padStart(2, '0')}-${String(Number(m[2]) - 1).padStart(2, '0')}`;
+}
 
 export default function BeatDetailTab({
   beat,
@@ -45,6 +48,7 @@ export default function BeatDetailTab({
   const [rows, setRows] = useState<SaleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>('all');
+  const [metric, setMetric] = useState<Metric>('kg');
 
   const [weekly, setWeekly] = useState<WeeklyResp | null>(null);
   const [weeklyErr, setWeeklyErr] = useState<string | null>(null);
@@ -56,14 +60,19 @@ export default function BeatDetailTab({
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  const info = useMemo(() => (rows ? fyInfo(rows) : null), [rows]);
+  const fys = useMemo(() => {
+    if (!rows) return [];
+    return Array.from(new Set(rows.map((r) => r.fy_label))).sort();
+  }, [rows]);
+
+  const cyFy = fys[fys.length - 1] ?? '';
+  const lyFy = priorLabel(cyFy);
 
   const beats = useMemo(() => {
     if (!rows) return [];
     return Array.from(new Set(rows.map((r) => beatOf(r.beat)))).sort();
   }, [rows]);
 
-  // Weekly view fetches per beat / per JC.
   useEffect(() => {
     if (view !== 'weekly' || !beat) return;
     setWeekly(null);
@@ -79,57 +88,73 @@ export default function BeatDetailTab({
       .catch((e: Error) => setWeeklyErr(e.message));
   }, [view, beat, jcPick]);
 
-  const allJcs = useMemo(() => {
-    if (!rows || !info || !beat) return null;
-    const { currentFy, priorFy, currentJc } = info;
-    const jcs = Array.from({ length: currentJc }, (_, i) => i + 1);
+  const model = useMemo(() => {
+    if (!rows || !beat || !cyFy) return null;
 
-    const mine = rows.filter((r) => beatOf(r.beat) === beat);
-    const map = new Map<
+    const mine = rows.filter(
+      (r) => beatOf(r.beat) === beat && (r.fy_label === cyFy || r.fy_label === lyFy)
+    );
+
+    const custs = new Map<
       string,
-      { company: string; jc: Record<number, number>; total: number; ly: number }
+      { name: string; company: string; jc: Record<number, Cell>; total: Cell }
     >();
 
     for (const r of mine) {
-      const key = r.party_name;
-      const e =
-        map.get(key) ?? { company: companyOf(r.company_name), jc: {}, total: 0, ly: 0 };
-      if (r.fy_label === currentFy) {
-        e.jc[r.jc_number] = (e.jc[r.jc_number] ?? 0) + r.kg;
-        e.total += r.kg;
-      } else if (r.fy_label === priorFy && r.jc_number <= currentJc) {
-        e.ly += r.kg;
+      const side: keyof Cell = r.fy_label === cyFy ? 'cy' : 'ly';
+      let c = custs.get(r.party_name);
+      if (!c) {
+        c = {
+          name: r.party_name,
+          company: companyOf(r.company_name),
+          jc: {},
+          total: blank(),
+        };
+        custs.set(r.party_name, c);
       }
-      map.set(key, e);
+      (c.jc[r.jc_number] ??= blank())[side] += r[metric];
+      c.total[side] += r[metric];
     }
 
-    const list = Array.from(map, ([party_name, v]) => ({ party_name, ...v })).sort(
-      (a, b) => b.total - a.total
-    );
+    const list = Array.from(custs.values()).sort((a, b) => b.total.cy - a.total.cy);
 
-    const footer = {
-      jc: Object.fromEntries(
-        jcs.map((n) => [n, list.reduce((s, r) => s + (r.jc[n] ?? 0), 0)])
-      ) as Record<number, number>,
-      total: list.reduce((s, r) => s + r.total, 0),
-      ly: list.reduce((s, r) => s + r.ly, 0),
-    };
+    const footer: { jc: Record<number, Cell>; total: Cell } = { jc: {}, total: blank() };
+    for (const c of list) {
+      for (const n of JCS) {
+        const cell = c.jc[n];
+        if (!cell) continue;
+        (footer.jc[n] ??= blank()).cy += cell.cy;
+        footer.jc[n].ly += cell.ly;
+      }
+      footer.total.cy += c.total.cy;
+      footer.total.ly += c.total.ly;
+    }
 
-    return { jcs, list, footer };
-  }, [rows, info, beat]);
+    return { list, footer };
+  }, [rows, beat, cyFy, lyFy, metric]);
+
+  const fmt = (n: number) =>
+    n === 0
+      ? '—'
+      : metric === 'kg'
+      ? Math.round(n).toLocaleString('en-IN')
+      : '₹' + Math.round(n).toLocaleString('en-IN');
 
   function exportAll() {
-    if (!allJcs || !info || !beat) return;
-    const out = allJcs.list.map((r) => {
-      const o: Record<string, unknown> = { Customer: r.party_name, Company: r.company };
-      for (const n of allJcs.jcs) o[`JC${n}`] = Math.round(r.jc[n] ?? 0);
-      o[`Total ${info.currentFy}`] = Math.round(r.total);
-      o[`Same cycles ${info.priorFy ?? 'LY'}`] = Math.round(r.ly);
-      o['Change %'] = pct(r.total, r.ly)?.toFixed(1) ?? '';
+    if (!model || !beat) return;
+    const out = model.list.map((c) => {
+      const o: Record<string, unknown> = { Customer: c.name, Company: c.company };
+      for (const n of JCS) {
+        o[`JC${n} CY`] = Math.round(c.jc[n]?.cy ?? 0);
+        o[`JC${n} LY`] = Math.round(c.jc[n]?.ly ?? 0);
+      }
+      o[`Total ${cyFy}`] = Math.round(c.total.cy);
+      o[`Total ${lyFy}`] = Math.round(c.total.ly);
+      o['Change %'] = pct(c.total.cy, c.total.ly)?.toFixed(1) ?? '';
       return o;
     });
     const slug = beat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(out, `beat_${slug}_all_jcs.csv`);
+    downloadCsv(out, `beat_${slug}_all_jcs_${metric}.csv`);
   }
 
   function exportWeekly() {
@@ -155,62 +180,89 @@ export default function BeatDetailTab({
       </div>
     );
 
-  if (!rows || !info) return <p className="p-4 text-sm text-gray-500">Loading…</p>;
+  if (!rows) return <p className="p-4 text-sm text-gray-500">Loading…</p>;
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white p-3">
-        <select
-          value={beat ?? ''}
-          onChange={(e) => {
-            onChangeBeat(e.target.value || null);
-            setJcPick(null);
-          }}
-          className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-        >
-          <option value="">Choose a beat…</option>
-          {beats.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
-
-        <div className="flex overflow-hidden rounded-md border border-gray-300">
-          {(['all', 'weekly'] as View[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-3 py-1.5 text-sm ${
-                view === v ? 'bg-teal-700 text-white' : 'bg-white text-gray-600'
-              }`}
-            >
-              {v === 'all' ? 'All JCs' : 'Weekly'}
-            </button>
-          ))}
+      <div className="flex flex-wrap items-center gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            {beat ?? 'Beat detail'}
+          </h2>
+          <p className="text-xs text-gray-500">
+            {model ? `${model.list.length} customers · ` : ''}FY {cyFy} vs FY {lyFy}
+          </p>
         </div>
 
-        {view === 'weekly' && weekly && (
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <select
-            value={jcPick ?? weekly.current_jc}
-            onChange={(e) => setJcPick(Number(e.target.value))}
+            value={beat ?? ''}
+            onChange={(e) => {
+              onChangeBeat(e.target.value || null);
+              setJcPick(null);
+            }}
             className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
           >
-            {Array.from({ length: weekly.latest_jc }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                JC{n}
+            <option value="">Choose a beat…</option>
+            {beats.map((b) => (
+              <option key={b} value={b}>
+                {b}
               </option>
             ))}
           </select>
-        )}
 
-        <button
-          onClick={view === 'all' ? exportAll : exportWeekly}
-          disabled={!beat}
-          className="ml-auto rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:bg-gray-300"
-        >
-          CSV
-        </button>
+          <div className="flex overflow-hidden rounded-md border border-gray-300">
+            {(['all', 'weekly'] as View[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-3 py-1.5 text-sm ${
+                  view === v ? 'bg-teal-700 text-white' : 'bg-white text-gray-600'
+                }`}
+              >
+                {v === 'all' ? 'All JCs' : 'Weekly'}
+              </button>
+            ))}
+          </div>
+
+          {view === 'all' && (
+            <div className="flex overflow-hidden rounded-md border border-gray-300">
+              {(['kg', 'amount'] as Metric[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMetric(m)}
+                  className={`px-3 py-1.5 text-sm ${
+                    metric === m ? 'bg-teal-700 text-white' : 'bg-white text-gray-600'
+                  }`}
+                >
+                  {m === 'kg' ? 'Kg' : '₹'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {view === 'weekly' && weekly && (
+            <select
+              value={jcPick ?? weekly.current_jc}
+              onChange={(e) => setJcPick(Number(e.target.value))}
+              className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              {Array.from({ length: weekly.latest_jc }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  JC{n}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={view === 'all' ? exportAll : exportWeekly}
+            disabled={!beat}
+            className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:bg-gray-300"
+          >
+            CSV
+          </button>
+        </div>
       </div>
 
       {!beat && (
@@ -221,71 +273,75 @@ export default function BeatDetailTab({
         </div>
       )}
 
-      {beat && view === 'all' && allJcs && (
+      {beat && view === 'all' && model && (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr className="text-left">
-                <th className="px-3 py-2 text-xs font-medium text-gray-600">
-                  {beat} · {allJcs.list.length} customers
+          <table className="text-sm">
+            <thead>
+              <tr>
+                <th
+                  rowSpan={2}
+                  className="sticky left-0 z-20 border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-600"
+                >
+                  Customer
                 </th>
-                {allJcs.jcs.map((n) => (
-                  <th key={n} className="px-3 py-2 text-right text-xs font-medium text-gray-600">
+                {JCS.map((n) => (
+                  <th
+                    key={n}
+                    colSpan={2}
+                    className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-700"
+                  >
                     JC{n}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
-                  {info.currentFy}
+                <th
+                  colSpan={3}
+                  className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-700"
+                >
+                  Total
                 </th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
-                  {info.priorFy ?? 'LY'}
+              </tr>
+              <tr>
+                {JCS.map((n) => (
+                  <SubHead key={n} />
+                ))}
+                <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+                  CY
                 </th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">Change</th>
+                <th className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+                  LY
+                </th>
+                <th className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+                  Δ
+                </th>
               </tr>
             </thead>
+
             <tbody>
-              {allJcs.list.map((r) => (
-                <tr key={r.party_name} className="border-t border-gray-100 hover:bg-teal-50/40">
-                  <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                    {r.party_name}
+              {model.list.map((c) => (
+                <tr key={c.name} className="border-t border-gray-100 hover:bg-teal-50/30">
+                  <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-3 py-2">
+                    <span className="font-medium text-gray-900">{c.name}</span>
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">
-                      {r.company}
+                      {c.company}
                     </span>
                   </td>
-                  {allJcs.jcs.map((n) => (
-                    <td key={n} className="px-3 py-2 text-right tabular-nums text-gray-700">
-                      {r.jc[n] ? fmtKg(r.jc[n]) : '—'}
-                    </td>
+                  {JCS.map((n) => (
+                    <Pair key={n} cell={c.jc[n]} fmt={fmt} />
                   ))}
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
-                    {fmtKg(r.total)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                    {fmtKg(r.ly)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    <Delta value={pct(r.total, r.ly)} />
-                  </td>
+                  <TotalCells cell={c.total} fmt={fmt} />
                 </tr>
               ))}
             </tbody>
-            <tfoot className="bg-gray-50">
-              <tr className="border-t border-gray-200 font-semibold">
-                <td className="px-3 py-2 text-gray-900">Beat total</td>
-                {allJcs.jcs.map((n) => (
-                  <td key={n} className="px-3 py-2 text-right tabular-nums text-gray-900">
-                    {fmtKg(allJcs.footer.jc[n])}
-                  </td>
+
+            <tfoot>
+              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+                <td className="sticky left-0 z-10 border-r border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
+                  Beat total
+                </td>
+                {JCS.map((n) => (
+                  <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold />
                 ))}
-                <td className="px-3 py-2 text-right tabular-nums text-gray-900">
-                  {fmtKg(allJcs.footer.total)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600">
-                  {fmtKg(allJcs.footer.ly)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  <Delta value={pct(allJcs.footer.total, allJcs.footer.ly)} />
-                </td>
+                <TotalCells cell={model.footer.total} fmt={fmt} />
               </tr>
             </tfoot>
           </table>
@@ -322,7 +378,7 @@ export default function BeatDetailTab({
                           className="px-3 py-2 text-right text-xs font-medium text-gray-600"
                         >
                           W{i + 1}
-                          <span className="block font-normal text-[10px] text-gray-400">
+                          <span className="block text-[10px] font-normal text-gray-400">
                             {weekly.week_starts[i]?.slice(5) ?? ''}
                           </span>
                         </th>
@@ -392,11 +448,70 @@ export default function BeatDetailTab({
   );
 }
 
-function Delta({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-gray-400">—</span>;
+function SubHead() {
   return (
-    <span className={value >= 0 ? 'font-medium text-emerald-700' : 'font-medium text-red-600'}>
-      {fmtPct(value)}
-    </span>
+    <>
+      <th className="border-b border-l border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-500">
+        CY
+      </th>
+      <th className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-right text-[10px] font-medium text-gray-400">
+        LY
+      </th>
+    </>
+  );
+}
+
+function Pair({
+  cell,
+  fmt,
+  bold,
+}: {
+  cell: Cell | undefined;
+  fmt: (n: number) => string;
+  bold?: boolean;
+}) {
+  const cy = cell?.cy ?? 0;
+  const ly = cell?.ly ?? 0;
+  const behind = ly > 0 && cy < ly;
+  return (
+    <>
+      <td
+        className={`whitespace-nowrap border-l border-gray-100 px-2 py-1.5 text-right tabular-nums ${
+          bold ? 'font-semibold text-gray-900' : 'text-gray-800'
+        }`}
+      >
+        {fmt(cy)}
+      </td>
+      <td
+        className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-400 ${
+          behind ? 'bg-amber-50' : ''
+        }`}
+      >
+        {fmt(ly)}
+      </td>
+    </>
+  );
+}
+
+function TotalCells({ cell, fmt }: { cell: Cell; fmt: (n: number) => string }) {
+  const p = pct(cell.cy, cell.ly);
+  return (
+    <>
+      <td className="whitespace-nowrap border-l border-gray-200 px-2 py-1.5 text-right font-semibold tabular-nums text-gray-900">
+        {fmt(cell.cy)}
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-500">
+        {fmt(cell.ly)}
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
+        {p == null ? (
+          <span className="text-gray-400">—</span>
+        ) : (
+          <span className={p >= 0 ? 'font-medium text-emerald-700' : 'font-medium text-red-600'}>
+            {fmtPct(p)}
+          </span>
+        )}
+      </td>
+    </>
   );
 }
