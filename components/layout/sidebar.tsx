@@ -44,6 +44,7 @@ const navItems = [
   { href: "/sales-monitor",                label: "Sales Monitor",  icon: TrendingUp,      roles: "admin" },
   { href: "/sales-monitor/journey-cycles", label: "PJP"           , icon: CalendarRange,   roles: "admin" },
   { href: "/sales-monitor?tab=targets",                      label: "Beat Targets",   icon: Target,          roles: "admin" },
+  { href: "/sales", label: "Sales", icon: TrendingUp, roles: "admin" },
   { href: "/users",                        label: "Users",          icon: Shield,          roles: "admin" },
   { href: "/settings",                     label: "Settings",       icon: Settings,        roles: "admin" },
 ] as const;
