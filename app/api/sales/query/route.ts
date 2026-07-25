@@ -77,7 +77,7 @@ export async function POST(req: Request) {
         const { data, error } = await q;
         if (error) return NextResponse.json({ error: error.message }, { status: 502 });
 
-        const page = data ?? [];
+        const page = (data ?? []) as unknown as Record<string, unknown>[];
         all.push(...page);
         if (page.length < to - from + 1) break; // last page
       }
