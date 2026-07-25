@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { downloadCsv } from '../../shared';
+import { exportXlsx, stamp, type XlsxColumn } from '../../export-xlsx';
 import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from '../../use-sales-data';
 
 type Vals = { kg: number; amount: number; invoices: number };
@@ -85,18 +85,55 @@ export default function CustomerPage() {
     };
   }, [rows, name, cyFy, lyFy]);
 
-  function exportCsv() {
+  async function exportCsv() {
     if (!model) return;
-    const out = JCS.map((n) => ({
-      JC: n,
-      [`Kg ${cyFy}`]: Math.round(model.jc[n]?.cy.kg ?? 0),
-      [`Kg ${lyFy}`]: Math.round(model.jc[n]?.ly.kg ?? 0),
-      [`Value ${cyFy}`]: Math.round(model.jc[n]?.cy.amount ?? 0),
-      [`Value ${lyFy}`]: Math.round(model.jc[n]?.ly.amount ?? 0),
-      [`Invoices ${cyFy}`]: model.jc[n]?.cy.invoices ?? 0,
-    }));
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(out, `customer_${slug}.csv`);
+
+    const columns: XlsxColumn[] = [
+      { key: 'jc', header: 'Cycle', width: 10 },
+      { key: 'cyKg', header: `Kg ${cyFy}`, type: 'number' },
+      { key: 'lyKg', header: `Kg ${lyFy}`, type: 'number' },
+      { key: 'chg', header: 'Change %', type: 'percent' },
+      { key: 'cyAmt', header: `Value ${cyFy}`, type: 'money', width: 16 },
+      { key: 'lyAmt', header: `Value ${lyFy}`, type: 'money', width: 16 },
+      { key: 'cyInv', header: 'Invoices', type: 'int' },
+      { key: 'rate', header: '₹/kg', type: 'money' },
+    ];
+
+    const rows = JCS.map((n) => {
+      const c = model.jc[n];
+      const cy = c?.cy ?? zero();
+      const ly = c?.ly ?? zero();
+      return {
+        jc: `JC${n}`,
+        cyKg: Math.round(cy.kg),
+        lyKg: Math.round(ly.kg),
+        chg: pct(cy.kg, ly.kg),
+        cyAmt: Math.round(cy.amount),
+        lyAmt: Math.round(ly.amount),
+        cyInv: cy.invoices,
+        rate: cy.kg ? Math.round(rate(cy)) : null,
+      };
+    });
+
+    await exportXlsx({
+      filename: `Customer_${name.replace(/[^A-Za-z0-9]+/g, '_')}_${stamp()}`,
+      sheetName: 'Cycle by cycle',
+      title: name,
+      subtitle: `${model.beats.join(', ')} · ${model.companies.join(', ')} · FY ${cyFy} vs FY ${lyFy} · billed in ${model.billed.length} of ${model.currentJc} cycles`,
+      columns,
+      rows,
+      totals: {
+        jc: 'Total',
+        cyKg: Math.round(model.total.cy.kg),
+        lyKg: Math.round(model.total.ly.kg),
+        chg: pct(model.total.cy.kg, model.total.ly.kg),
+        cyAmt: Math.round(model.total.cy.amount),
+        lyAmt: Math.round(model.total.ly.amount),
+        cyInv: model.total.cy.invoices,
+        rate: model.total.cy.kg ? Math.round(rate(model.total.cy)) : null,
+      },
+      highlightHeaders: [],
+    });
   }
 
   return (
@@ -127,7 +164,7 @@ export default function CustomerPage() {
             onClick={exportCsv}
             className="ml-auto rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
           >
-            CSV
+            Excel
           </button>
         )}
       </div>

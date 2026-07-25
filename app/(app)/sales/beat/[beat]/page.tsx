@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { salesRpc, fmtKg, downloadCsv } from '../../shared';
+import { salesRpc, fmtKg } from '../../shared';
+import { exportXlsx, stamp, type XlsxColumn } from '../../export-xlsx';
 import {
   loadSales,
   companyOf,
@@ -142,36 +143,110 @@ export default function BeatPage() {
       ? Math.round(n).toLocaleString('en-IN')
       : '₹' + Math.round(n).toLocaleString('en-IN');
 
-  function exportAll() {
+  async function exportAll() {
     if (!model) return;
-    const out = model.list.map((c) => {
-      const o: Record<string, unknown> = { Customer: c.name, Company: c.company };
+    const money = metric === 'amount';
+
+    const columns: XlsxColumn[] = [
+      { key: 'name', header: 'Customer', width: 34 },
+      { key: 'company', header: 'Company', width: 18 },
+    ];
+    for (const n of JCS) {
+      columns.push({ key: `jc${n}cy`, header: `JC${n} CY`, type: money ? 'money' : 'number' });
+      columns.push({ key: `jc${n}ly`, header: `JC${n} LY`, type: money ? 'money' : 'number' });
+    }
+    columns.push(
+      { key: 'totCy', header: `Total ${cyFy}`, type: money ? 'money' : 'number', width: 16 },
+      { key: 'totLy', header: `Total ${lyFy}`, type: money ? 'money' : 'number', width: 16 },
+      { key: 'chg', header: 'Change %', type: 'percent' },
+      { key: 'flag', header: 'Status', width: 12 }
+    );
+
+    const rows = model.list.map((c) => {
+      const o: Record<string, unknown> = { name: c.name, company: c.company };
       for (const n of JCS) {
-        o[`JC${n} CY`] = Math.round(c.jc[n]?.cy ?? 0);
-        o[`JC${n} LY`] = Math.round(c.jc[n]?.ly ?? 0);
+        o[`jc${n}cy`] = Math.round(c.jc[n]?.cy ?? 0);
+        o[`jc${n}ly`] = Math.round(c.jc[n]?.ly ?? 0);
       }
-      o[`Total ${cyFy}`] = Math.round(c.total.cy);
-      o[`Total ${lyFy}`] = Math.round(c.total.ly);
-      o['Change %'] = pct(c.total.cy, c.total.ly)?.toFixed(1) ?? '';
+      o.totCy = Math.round(c.total.cy);
+      o.totLy = Math.round(c.total.ly);
+      o.chg = pct(c.total.cy, c.total.ly);
+      o.flag =
+        c.total.ly > 0 && c.total.cy === 0
+          ? 'STOPPED'
+          : c.total.cy > 0 && c.total.ly === 0
+          ? 'NEW'
+          : '';
       return o;
     });
-    const slug = beat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(out, `beat_${slug}_all_jcs_${metric}.csv`);
+
+    const totals: Record<string, unknown> = { name: 'Beat total', company: '' };
+    for (const n of JCS) {
+      totals[`jc${n}cy`] = Math.round(model.footer.jc[n]?.cy ?? 0);
+      totals[`jc${n}ly`] = Math.round(model.footer.jc[n]?.ly ?? 0);
+    }
+    totals.totCy = Math.round(model.footer.total.cy);
+    totals.totLy = Math.round(model.footer.total.ly);
+    totals.chg = pct(model.footer.total.cy, model.footer.total.ly);
+    totals.flag = '';
+
+    await exportXlsx({
+      filename: `Beat_${beat.replace(/[^A-Za-z0-9]+/g, '_')}_AllJCs_${money ? 'Value' : 'Kg'}_${stamp()}`,
+      sheetName: 'All JCs',
+      title: `${beat} · all cycles`,
+      subtitle: `FY ${cyFy} vs FY ${lyFy} · ${model.list.length} customers · ${
+        money ? 'value in ₹' : 'volume in kg'
+      }${liveJc ? ` · JC${liveJc} in progress` : ''}`,
+      columns,
+      rows,
+      totals,
+      highlightHeaders: liveJc ? [`JC${liveJc} CY`, `JC${liveJc} LY`] : [],
+    });
   }
 
-  function exportWeekly() {
+  async function exportWeekly() {
     if (!weekly) return;
-    const out = weekly.customers.map((c) => ({
-      Customer: c.party_name,
-      Company: c.company ?? '',
-      W1: Math.round(c.w1_kg),
-      W2: Math.round(c.w2_kg),
-      W3: Math.round(c.w3_kg),
-      W4: Math.round(c.w4_kg),
-      Total: Math.round(c.total_kg),
+    const wk = (i: number) => weekly.week_starts[i]?.slice(5) ?? `W${i + 1}`;
+
+    const columns: XlsxColumn[] = [
+      { key: 'name', header: 'Customer', width: 34 },
+      { key: 'company', header: 'Company', width: 18 },
+      { key: 'w1', header: `W1 ${wk(0)}`, type: 'number' },
+      { key: 'w2', header: `W2 ${wk(1)}`, type: 'number' },
+      { key: 'w3', header: `W3 ${wk(2)}`, type: 'number' },
+      { key: 'w4', header: `W4 ${wk(3)}`, type: 'number' },
+      { key: 'total', header: 'Total kg', type: 'number', width: 14 },
+    ];
+
+    const rows = weekly.customers.map((c) => ({
+      name: c.party_name,
+      company: c.company ?? '',
+      w1: Math.round(c.w1_kg),
+      w2: Math.round(c.w2_kg),
+      w3: Math.round(c.w3_kg),
+      w4: Math.round(c.w4_kg),
+      total: Math.round(c.total_kg),
     }));
-    const slug = beat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(out, `beat_${slug}_jc${jcPick ?? ''}_weekly.csv`);
+
+    await exportXlsx({
+      filename: `Beat_${beat.replace(/[^A-Za-z0-9]+/g, '_')}_JC${jcPick ?? weekly.current_jc}_Weekly_${stamp()}`,
+      sheetName: `JC${jcPick ?? weekly.current_jc} weekly`,
+      title: `${beat} · JC${jcPick ?? weekly.current_jc} week by week`,
+      subtitle: `${weekly.jc_start} to ${weekly.jc_end} · ${weekly.customers.length} customers · ${Math.round(
+        weekly.totals.total_kg
+      ).toLocaleString('en-IN')} kg`,
+      columns,
+      rows,
+      totals: {
+        name: 'Beat total',
+        company: '',
+        w1: Math.round(weekly.totals.w1_kg),
+        w2: Math.round(weekly.totals.w2_kg),
+        w3: Math.round(weekly.totals.w3_kg),
+        w4: Math.round(weekly.totals.w4_kg),
+        total: Math.round(weekly.totals.total_kg),
+      },
+    });
   }
 
   return (
@@ -248,7 +323,7 @@ export default function BeatPage() {
             onClick={view === 'all' ? exportAll : exportWeekly}
             className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
           >
-            CSV
+            Excel
           </button>
         </div>
       </div>
