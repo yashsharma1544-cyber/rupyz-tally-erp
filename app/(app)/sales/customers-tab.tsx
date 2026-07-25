@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { salesRpc, fmtKg, fmtINR, downloadCsv } from './shared';
 
 type ListRow = {
@@ -40,6 +40,7 @@ export default function CustomersTab() {
   const [company, setCompany] = useState('all');
   const [minKg, setMinKg] = useState('');
   const [maxKg, setMaxKg] = useState('');
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>('ytd');
   const [asc, setAsc] = useState(false);
 
@@ -123,6 +124,15 @@ export default function CustomersTab() {
     }),
     [filtered]
   );
+
+  function toggle(key: string) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function sortBy(k: SortKey) {
     if (k === sortKey) setAsc(!asc);
@@ -261,13 +271,21 @@ export default function CustomersTab() {
           <tbody>
             {filtered.map((r) => {
               const behind = r.ytdAvg < r.lyAvg;
+              const key = `${r.company}-${r.party_name}`;
+              const isOpen = open.has(key);
               return (
-                <tr
-                  key={`${r.company}-${r.party_name}`}
-                  className="border-t border-gray-100 hover:bg-teal-50/40"
-                >
+                <Fragment key={key}>
+                <tr className="border-t border-gray-100 hover:bg-teal-50/40">
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                    {r.party_name}
+                    <button
+                      onClick={() => toggle(key)}
+                      className="text-left hover:text-teal-800"
+                    >
+                      <span className="mr-1 inline-block w-3 text-gray-400">
+                        {isOpen ? '\u25be' : '\u25b8'}
+                      </span>
+                      {r.party_name}
+                    </button>
                     {r.company && (
                       <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">
                         {r.company}
@@ -296,6 +314,14 @@ export default function CustomersTab() {
                     {fmtKg(r.lyAvg)}
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr className="bg-white">
+                    <td colSpan={jcCols.length + 5} className="px-3 py-3">
+                      <CustomerDetail row={r} jcCols={jcCols} currentJc={currentJc} priorFy={list.prior_fy} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
             {filtered.length === 0 && (
@@ -317,6 +343,76 @@ export default function CustomersTab() {
         {JC_PER_FY}. Red means running below last year&apos;s pace.
       </p>
     </section>
+  );
+}
+
+function CustomerDetail({
+  row,
+  jcCols,
+  currentJc,
+  priorFy,
+}: {
+  row: Row;
+  jcCols: number[];
+  currentJc: number;
+  priorFy: string;
+}) {
+  const ytdKg = row.ytd_kg ?? 0;
+  const ytdAmt = row.ytd_amount ?? 0;
+  const lyKg = row.prior_kg ?? 0;
+  const lyAmt = row.prior_amount ?? 0;
+
+  const billed = jcCols.filter((n) => (row.jc[n] ?? 0) > 0);
+  const best = billed
+    .map((n) => ({ n, kg: row.jc[n] }))
+    .sort((a, b) => b.kg - a.kg)[0];
+  const gap = row.ytdAvg - row.lyAvg;
+  const projected = row.ytdAvg * 13;
+
+  const cards = [
+    { label: 'YTD volume', value: fmtKg(ytdKg) + ' kg', note: `${priorFy}: ${fmtKg(lyKg)} kg` },
+    { label: 'YTD value', value: fmtINR(ytdAmt), note: `${priorFy}: ${fmtINR(lyAmt)}` },
+    {
+      label: 'Realisation',
+      value: ytdKg ? '\u20b9' + (ytdAmt / ytdKg).toFixed(1) + '/kg' : '\u2014',
+      note: lyKg ? `${priorFy}: \u20b9${(lyAmt / lyKg).toFixed(1)}/kg` : '',
+    },
+    {
+      label: 'Pace vs last year',
+      value: (gap >= 0 ? '+' : '') + fmtKg(gap) + ' kg/JC',
+      note: `${fmtKg(row.ytdAvg)} now vs ${fmtKg(row.lyAvg)}`,
+    },
+    {
+      label: 'Full-year run rate',
+      value: fmtKg(projected) + ' kg',
+      note: `at the current ${currentJc}-cycle pace`,
+    },
+  ];
+
+  return (
+    <div className="space-y-2 rounded-md border border-teal-100 bg-teal-50/30 p-3">
+      <p className="text-xs font-semibold text-gray-900">
+        {row.party_name}
+        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-gray-500">
+          {row.beat ?? '(unassigned)'} \u00b7 {row.company}
+        </span>
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {cards.map((c) => (
+          <div key={c.label} className="rounded-md border border-gray-200 bg-white px-2.5 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">{c.label}</p>
+            <p className="text-sm font-semibold tabular-nums text-gray-900">{c.value}</p>
+            {c.note && <p className="mt-0.5 text-[10px] text-gray-500">{c.note}</p>}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-gray-500">
+        Billed in {billed.length} of {currentJc} cycles so far
+        {best ? ` \u00b7 strongest JC${best.n} at ${fmtKg(best.kg)} kg` : ''}
+      </p>
+    </div>
   );
 }
 
