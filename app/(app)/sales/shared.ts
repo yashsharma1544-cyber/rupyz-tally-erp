@@ -22,7 +22,21 @@ export async function salesQuery<T = Record<string, unknown>>(
 
   const json = await res.json().catch(() => ({ error: 'Response was not JSON.' }));
   if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status}).`);
-  return (json.data ?? []) as T[];
+
+  // Views return rows; RPCs in this project return a single jsonb object.
+  // Normalise both to an array so callers have one shape to handle.
+  const d = json.data;
+  if (d == null) return [];
+  return (Array.isArray(d) ? d : [d]) as T[];
+}
+
+/** RPCs return one object — this unwraps it. */
+export async function salesRpc<T = Record<string, unknown>>(
+  rpc: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  const [obj] = await salesQuery<T>({ rpc, args });
+  return obj;
 }
 
 export const fmtKg = (n: number | null | undefined) =>
