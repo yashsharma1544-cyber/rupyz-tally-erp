@@ -56,14 +56,33 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      let q = sb.from(body.view).select(body.select ?? '*');
-      for (const f of body.filters ?? []) q = q.filter(f.col, f.op, f.val as never);
-      if (body.order) q = q.order(body.order.col, { ascending: body.order.asc ?? false });
-      q = q.limit(Math.min(body.limit ?? 5000, 20000));
 
-      const { data, error } = await q;
-      if (error) return NextResponse.json({ error: error.message }, { status: 502 });
-      return NextResponse.json({ data: data ?? [] });
+      // PostgREST caps each response at 1000 rows, so page through
+      // until we have everything (or hit the requested ceiling).
+      const ceiling = Math.min(body.limit ?? 50000, 100000);
+      const PAGE = 1000;
+      const all: Record<string, unknown>[] = [];
+
+      for (let from = 0; from < ceiling; from += PAGE) {
+        const to = Math.min(from + PAGE, ceiling) - 1;
+
+        let q = sb.from(body.view).select(body.select ?? '*');
+        for (const f of body.filters ?? []) q = q.filter(f.col, f.op, f.val as never);
+
+        // Paging without a stable sort can skip or repeat rows.
+        const ord = body.order ?? { col: 'party_name', asc: true };
+        q = q.order(ord.col, { ascending: ord.asc ?? false });
+        q = q.range(from, to);
+
+        const { data, error } = await q;
+        if (error) return NextResponse.json({ error: error.message }, { status: 502 });
+
+        const page = data ?? [];
+        all.push(...page);
+        if (page.length < to - from + 1) break; // last page
+      }
+
+      return NextResponse.json({ data: all });
     }
 
     return NextResponse.json(
