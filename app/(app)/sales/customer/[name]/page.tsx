@@ -108,7 +108,7 @@ export default function CustomerPage() {
         >
           ← Back
         </button>
-        <Link href="/sales" className="text-sm font-medium text-teal-800 hover:underline">
+        <Link href="/sales?tab=customers" className="text-sm font-medium text-teal-800 hover:underline">
           Sales home
         </Link>
       </div>

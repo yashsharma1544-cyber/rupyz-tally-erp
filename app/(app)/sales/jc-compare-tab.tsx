@@ -30,14 +30,21 @@ const num = (n: number) => Math.round(n).toLocaleString('en-IN');
 const inr = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 const signed = (n: number) => (n >= 0 ? '+' : '') + num(n);
 
-export default function JcCompareTab() {
+export default function JcCompareTab({
+  beat,
+  onBeatChange,
+}: {
+  beat: string | null;
+  onBeatChange: (beat: string | null) => void;
+}) {
   const [rows, setRows] = useState<SaleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [company, setCompany] = useState('all');
   const [level, setLevel] = useState<Level>('beat');
   const [metric, setMetric] = useState<Metric>('kg');
   const [order, setOrder] = useState<'decline' | 'growth'>('decline');
-  const [drillBeat, setDrillBeat] = useState<string | null>(null);
+  const drillBeat = beat;
+  const setDrillBeat = onBeatChange;
   const [search, setSearch] = useState('');
 
   useEffect(() => {

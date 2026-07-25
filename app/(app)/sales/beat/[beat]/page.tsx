@@ -184,7 +184,7 @@ export default function BeatPage() {
           ← Back
         </button>
         <Link
-          href="/sales"
+          href="/sales?tab=beat-matrix"
           className="text-sm font-medium text-teal-800 hover:underline"
         >
           Sales home
