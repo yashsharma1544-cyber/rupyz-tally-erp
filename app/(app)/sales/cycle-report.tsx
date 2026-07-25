@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { salesRpc } from './shared';
 import { exportXlsx, stamp, type XlsxColumn } from './export-xlsx';
-import { loadSales, companyOf, beatOf, pct, type SaleRow } from './use-sales-data';
+import { loadSales, companyOf, beatOf, type SaleRow } from './use-sales-data';
 
 type Level = 'customer' | 'beat';
 
@@ -184,10 +184,10 @@ export default function CycleReportButton({ beat }: { beat?: string | null }) {
           : []),
         { key: 'priorCy', header: `${prevLabel} ${cyFy}`, type: 'number', width: 15 },
         { key: 'priorLy', header: `${prevLabel} ${lyFy}`, type: 'number', width: 15 },
-        { key: 'priorChg', header: `${prevLabel} change %`, type: 'percent', width: 15 },
+        { key: 'priorChg', header: `${prevLabel} change`, type: 'number', width: 15 },
         { key: 'curCy', header: `JC${currentJc} ${cyFy}`, type: 'number', width: 14 },
         { key: 'curLy', header: `JC${currentJc} ${lyFy}`, type: 'number', width: 14 },
-        { key: 'curChg', header: `JC${currentJc} change %`, type: 'percent', width: 14 },
+        { key: 'curChg', header: `JC${currentJc} change`, type: 'number', width: 14 },
         { key: 'w1', header: `W1 ${wk(0)}`, type: 'number' },
         { key: 'w2', header: `W2 ${wk(1)}`, type: 'number' },
         { key: 'w3', header: `W3 ${wk(2)}`, type: 'number' },
@@ -200,10 +200,10 @@ export default function CycleReportButton({ beat }: { beat?: string | null }) {
         company: r.company,
         priorCy: Math.round(r.priorCy),
         priorLy: Math.round(r.priorLy),
-        priorChg: pct(r.priorCy, r.priorLy),
+        priorChg: Math.round(r.priorCy - r.priorLy),
         curCy: Math.round(r.curCy),
         curLy: Math.round(r.curLy),
-        curChg: pct(r.curCy, r.curLy),
+        curChg: Math.round(r.curCy - r.curLy),
         w1: Math.round(r.w1),
         w2: Math.round(r.w2),
         w3: Math.round(r.w3),
@@ -217,10 +217,10 @@ export default function CycleReportButton({ beat }: { beat?: string | null }) {
         company: '',
         priorCy: Math.round(sum('priorCy')),
         priorLy: Math.round(sum('priorLy')),
-        priorChg: pct(sum('priorCy'), sum('priorLy')),
+        priorChg: Math.round(sum('priorCy') - sum('priorLy')),
         curCy: Math.round(sum('curCy')),
         curLy: Math.round(sum('curLy')),
-        curChg: pct(sum('curCy'), sum('curLy')),
+        curChg: Math.round(sum('curCy') - sum('curLy')),
         w1: Math.round(sum('w1')),
         w2: Math.round(sum('w2')),
         w3: Math.round(sum('w3')),
