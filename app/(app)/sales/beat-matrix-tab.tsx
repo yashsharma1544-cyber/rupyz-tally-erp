@@ -1,18 +1,16 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { downloadCsv } from './shared';
 import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from './use-sales-data';
 
 type Metric = 'kg' | 'amount';
-type Vals = { kg: number; amount: number; invoices: number };
-type Cell = { cy: Vals; ly: Vals };
-type CustNode = { name: string; company: string; jc: Record<number, Cell>; total: Cell };
-type BeatNode = { beat: string; jc: Record<number, Cell>; total: Cell; customers: CustNode[] };
+type Cell = { cy: number; ly: number };
+type BeatNode = { beat: string; jc: Record<number, Cell>; total: Cell; customers: Set<string> };
 
 const JCS = Array.from({ length: 13 }, (_, i) => i + 1);
-const zero = (): Vals => ({ kg: 0, amount: 0, invoices: 0 });
-const blank = (): Cell => ({ cy: zero(), ly: zero() });
+const blank = (): Cell => ({ cy: 0, ly: 0 });
 
 function priorLabel(fy: string): string {
   const m = fy.match(/^(\d{2})-(\d{2})$/);
@@ -20,22 +18,12 @@ function priorLabel(fy: string): string {
   return `${String(Number(m[1]) - 1).padStart(2, '0')}-${String(Number(m[2]) - 1).padStart(2, '0')}`;
 }
 
-const inr = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
-const num = (n: number) => Math.round(n).toLocaleString('en-IN');
-const rate = (v: Vals) => (v.kg ? v.amount / v.kg : 0);
-
-export default function BeatMatrixTab({
-  onOpenBeat,
-}: {
-  onOpenBeat: (beat: string) => void;
-}) {
+export default function BeatMatrixTab() {
   const [rows, setRows] = useState<SaleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [company, setCompany] = useState('all');
   const [metric, setMetric] = useState<Metric>('kg');
   const [fy, setFy] = useState<string | null>(null);
-  const [openBeats, setOpenBeats] = useState<Set<string>>(new Set());
-  const [openCust, setOpenCust] = useState<Set<string>>(new Set());
   const [csvBeat, setCsvBeat] = useState('all');
 
   useEffect(() => {
@@ -68,13 +56,6 @@ export default function BeatMatrixTab({
     });
 
     const beats = new Map<string, BeatNode>();
-    const custIdx = new Map<string, CustNode>();
-
-    const add = (v: Vals, r: SaleRow) => {
-      v.kg += r.kg;
-      v.amount += r.amount;
-      v.invoices += r.invoices;
-    };
 
     for (const r of scoped) {
       const b = beatOf(r.beat);
@@ -82,82 +63,47 @@ export default function BeatMatrixTab({
 
       let node = beats.get(b);
       if (!node) {
-        node = { beat: b, jc: {}, total: blank(), customers: [] };
+        node = { beat: b, jc: {}, total: blank(), customers: new Set() };
         beats.set(b, node);
       }
-      add((node.jc[r.jc_number] ??= blank())[side], r);
-      add(node.total[side], r);
-
-      const key = `${b}||${r.party_name}`;
-      let cust = custIdx.get(key);
-      if (!cust) {
-        cust = { name: r.party_name, company: companyOf(r.company_name), jc: {}, total: blank() };
-        custIdx.set(key, cust);
-        node.customers.push(cust);
-      }
-      add((cust.jc[r.jc_number] ??= blank())[side], r);
-      add(cust.total[side], r);
+      (node.jc[r.jc_number] ??= blank())[side] += r[metric];
+      node.total[side] += r[metric];
+      node.customers.add(r.party_name);
     }
 
-    const list = Array.from(beats.values()).sort((a, b) => b.total.cy.kg - a.total.cy.kg);
-    for (const b of list) b.customers.sort((x, y) => y.total.cy.kg - x.total.cy.kg);
+    const list = Array.from(beats.values()).sort((a, b) => b.total.cy - a.total.cy);
 
     const footer: { jc: Record<number, Cell>; total: Cell } = { jc: {}, total: blank() };
-    const merge = (dst: Vals, src: Vals) => {
-      dst.kg += src.kg;
-      dst.amount += src.amount;
-      dst.invoices += src.invoices;
-    };
+    let custCount = 0;
     for (const b of list) {
+      custCount += b.customers.size;
       for (const n of JCS) {
         const c = b.jc[n];
         if (!c) continue;
-        const f = (footer.jc[n] ??= blank());
-        merge(f.cy, c.cy);
-        merge(f.ly, c.ly);
+        (footer.jc[n] ??= blank()).cy += c.cy;
+        footer.jc[n].ly += c.ly;
       }
-      merge(footer.total.cy, b.total.cy);
-      merge(footer.total.ly, b.total.ly);
+      footer.total.cy += b.total.cy;
+      footer.total.ly += b.total.ly;
     }
 
-    return { list, footer, custCount: custIdx.size };
+    return { list, footer, custCount };
   }, [rows, company, metric, cyFy, lyFy]);
-
-  const toggleBeat = (b: string) =>
-    setOpenBeats((p) => {
-      const n = new Set(p);
-      n.has(b) ? n.delete(b) : n.add(b);
-      return n;
-    });
-
-  const toggleCust = (k: string) =>
-    setOpenCust((p) => {
-      const n = new Set(p);
-      n.has(k) ? n.delete(k) : n.add(k);
-      return n;
-    });
 
   function exportCsv() {
     if (!model) return;
     const src = csvBeat === 'all' ? model.list : model.list.filter((b) => b.beat === csvBeat);
-    const out: Record<string, unknown>[] = [];
-
-    for (const b of src) {
-      const push = (label: string, customer: string, jc: Record<number, Cell>, total: Cell) => {
-        const o: Record<string, unknown> = { Beat: label, Customer: customer };
-        for (const n of JCS) {
-          o[`JC${n} CY`] = Math.round(jc[n]?.cy[metric] ?? 0);
-          o[`JC${n} LY`] = Math.round(jc[n]?.ly[metric] ?? 0);
-        }
-        o[`Total ${cyFy}`] = Math.round(total.cy[metric]);
-        o[`Total ${lyFy}`] = Math.round(total.ly[metric]);
-        o['Change %'] = pct(total.cy[metric], total.ly[metric])?.toFixed(1) ?? '';
-        out.push(o);
-      };
-      push(b.beat, '(beat total)', b.jc, b.total);
-      for (const c of b.customers) push(b.beat, c.name, c.jc, c.total);
-    }
-
+    const out = src.map((b) => {
+      const o: Record<string, unknown> = { Beat: b.beat, Customers: b.customers.size };
+      for (const n of JCS) {
+        o[`JC${n} CY`] = Math.round(b.jc[n]?.cy ?? 0);
+        o[`JC${n} LY`] = Math.round(b.jc[n]?.ly ?? 0);
+      }
+      o[`Total ${cyFy}`] = Math.round(b.total.cy);
+      o[`Total ${lyFy}`] = Math.round(b.total.ly);
+      o['Change %'] = pct(b.total.cy, b.total.ly)?.toFixed(1) ?? '';
+      return o;
+    });
     const slug = csvBeat === 'all' ? 'all' : csvBeat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     downloadCsv(out, `beat_matrix_${metric}_${slug}_${cyFy}.csv`);
   }
@@ -172,8 +118,12 @@ export default function BeatMatrixTab({
 
   if (!rows || !model) return <p className="p-4 text-sm text-gray-500">Loading beat matrix…</p>;
 
-  const fmt = (n: number) => (n === 0 ? '—' : metric === 'kg' ? num(n) : inr(n));
-  const colSpan = 1 + JCS.length * 2 + 3;
+  const fmt = (n: number) =>
+    n === 0
+      ? '—'
+      : metric === 'kg'
+      ? Math.round(n).toLocaleString('en-IN')
+      : '₹' + Math.round(n).toLocaleString('en-IN');
 
   return (
     <section className="space-y-3">
@@ -257,7 +207,7 @@ export default function BeatMatrixTab({
                 rowSpan={2}
                 className="sticky left-0 z-20 border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-600"
               >
-                Beat / Customer
+                Beat
               </th>
               {JCS.map((n) => (
                 <th
@@ -292,84 +242,23 @@ export default function BeatMatrixTab({
           </thead>
 
           <tbody>
-            {model.list.map((b) => {
-              const isOpen = openBeats.has(b.beat);
-              return (
-                <Fragment key={b.beat}>
-                  <tr className="border-t border-gray-100 hover:bg-teal-50/30">
-                    <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-3 py-2">
-                      <button
-                        onClick={() => toggleBeat(b.beat)}
-                        className="text-left font-medium text-gray-900 hover:text-teal-800"
-                      >
-                        <span className="mr-1 inline-block w-3 text-gray-400">
-                          {isOpen ? '▾' : '▸'}
-                        </span>
-                        {b.beat}
-                      </button>
-                      <span className="ml-2 text-[10px] text-gray-400">
-                        {b.customers.length} cust
-                      </span>
-                    </td>
-                    {JCS.map((n) => (
-                      <Pair key={n} cell={b.jc[n]} metric={metric} fmt={fmt} bold />
-                    ))}
-                    <TotalCells cell={b.total} metric={metric} fmt={fmt} />
-                  </tr>
-
-                  {isOpen && (
-                    <tr className="bg-teal-50/40">
-                      <td colSpan={colSpan} className="px-3 py-1.5">
-                        <button
-                          onClick={() => onOpenBeat(b.beat)}
-                          className="text-[11px] font-medium text-teal-800 hover:underline"
-                        >
-                          Open {b.beat} in Beat Detail →
-                        </button>
-                      </td>
-                    </tr>
-                  )}
-
-                  {isOpen &&
-                    b.customers.map((c) => {
-                      const key = `${b.beat}||${c.name}`;
-                      const cOpen = openCust.has(key);
-                      return (
-                        <Fragment key={key}>
-                          <tr className="border-t border-gray-50 bg-gray-50/40">
-                            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-gray-50/95 py-1.5 pl-6 pr-3">
-                              <button
-                                onClick={() => toggleCust(key)}
-                                className="text-left text-gray-800 hover:text-teal-800"
-                              >
-                                <span className="mr-1 inline-block w-3 text-gray-400">
-                                  {cOpen ? '▾' : '▸'}
-                                </span>
-                                {c.name}
-                              </button>
-                              <span className="ml-2 text-[10px] uppercase text-gray-400">
-                                {c.company}
-                              </span>
-                            </td>
-                            {JCS.map((n) => (
-                              <Pair key={n} cell={c.jc[n]} metric={metric} fmt={fmt} />
-                            ))}
-                            <TotalCells cell={c.total} metric={metric} fmt={fmt} />
-                          </tr>
-
-                          {cOpen && (
-                            <tr className="border-t border-gray-50 bg-white">
-                              <td colSpan={colSpan} className="px-3 py-3">
-                                <CustomerDetail cust={c} cyFy={cyFy} lyFy={lyFy} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                </Fragment>
-              );
-            })}
+            {model.list.map((b) => (
+              <tr key={b.beat} className="border-t border-gray-100 hover:bg-teal-50/30">
+                <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-3 py-2">
+                  <Link
+                    href={`/sales/beat/${encodeURIComponent(b.beat)}`}
+                    className="font-medium text-gray-900 hover:text-teal-800 hover:underline"
+                  >
+                    {b.beat}
+                  </Link>
+                  <span className="ml-2 text-[10px] text-gray-400">{b.customers.size} cust</span>
+                </td>
+                {JCS.map((n) => (
+                  <Pair key={n} cell={b.jc[n]} fmt={fmt} bold />
+                ))}
+                <TotalCells cell={b.total} fmt={fmt} />
+              </tr>
+            ))}
           </tbody>
 
           <tfoot>
@@ -378,101 +267,19 @@ export default function BeatMatrixTab({
                 All beats
               </td>
               {JCS.map((n) => (
-                <Pair key={n} cell={model.footer.jc[n]} metric={metric} fmt={fmt} bold />
+                <Pair key={n} cell={model.footer.jc[n]} fmt={fmt} bold />
               ))}
-              <TotalCells cell={model.footer.total} metric={metric} fmt={fmt} />
+              <TotalCells cell={model.footer.total} fmt={fmt} />
             </tr>
           </tfoot>
         </table>
       </div>
 
       <p className="px-1 text-[11px] text-gray-400">
-        Tap a beat to list its customers, then a customer for volume, value, invoices and
-        realisation. Amber marks a cycle running behind last year.
+        Tap a beat to open its own page with customers, weekly split and CSV. Amber marks a cycle
+        running behind last year.
       </p>
     </section>
-  );
-}
-
-function CustomerDetail({
-  cust,
-  cyFy,
-  lyFy,
-}: {
-  cust: CustNode;
-  cyFy: string;
-  lyFy: string;
-}) {
-  const cy = cust.total.cy;
-  const ly = cust.total.ly;
-
-  const active = JCS.filter((n) => (cust.jc[n]?.cy.kg ?? 0) > 0);
-  const best = active
-    .map((n) => ({ n, kg: cust.jc[n]!.cy.kg }))
-    .sort((a, b) => b.kg - a.kg)[0];
-
-  const items: { label: string; cy: string; ly: string; delta: number | null }[] = [
-    { label: 'Volume (kg)', cy: num(cy.kg), ly: num(ly.kg), delta: pct(cy.kg, ly.kg) },
-    { label: 'Value', cy: inr(cy.amount), ly: inr(ly.amount), delta: pct(cy.amount, ly.amount) },
-    {
-      label: 'Invoices',
-      cy: num(cy.invoices),
-      ly: num(ly.invoices),
-      delta: pct(cy.invoices, ly.invoices),
-    },
-    {
-      label: 'Realisation',
-      cy: '₹' + rate(cy).toFixed(1) + '/kg',
-      ly: '₹' + rate(ly).toFixed(1) + '/kg',
-      delta: pct(rate(cy), rate(ly)),
-    },
-    {
-      label: 'Avg per invoice',
-      cy: cy.invoices ? num(cy.kg / cy.invoices) + ' kg' : '—',
-      ly: ly.invoices ? num(ly.kg / ly.invoices) + ' kg' : '—',
-      delta: pct(cy.invoices ? cy.kg / cy.invoices : 0, ly.invoices ? ly.kg / ly.invoices : 0),
-    },
-  ];
-
-  return (
-    <div className="space-y-2 rounded-md border border-teal-100 bg-teal-50/30 p-3">
-      <p className="text-xs font-semibold text-gray-900">
-        {cust.name}
-        <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-gray-500">
-          {cust.company}
-        </span>
-      </p>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        {items.map((it) => (
-          <div key={it.label} className="rounded-md border border-gray-200 bg-white px-2.5 py-2">
-            <p className="text-[10px] uppercase tracking-wide text-gray-500">{it.label}</p>
-            <p className="text-sm font-semibold tabular-nums text-gray-900">{it.cy}</p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-gray-500">
-              {it.delta == null ? (
-                <span className="text-gray-400">—</span>
-              ) : (
-                <span
-                  className={
-                    it.delta >= 0 ? 'font-medium text-emerald-700' : 'font-medium text-red-600'
-                  }
-                >
-                  {fmtPct(it.delta)}
-                </span>
-              )}
-              <span>
-                {lyFy}: {it.ly}
-              </span>
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <p className="text-[11px] text-gray-500">
-        Billed in {active.length} of 13 cycles this year
-        {best ? ` · strongest JC${best.n} at ${num(best.kg)} kg` : ''} · FY {cyFy}
-      </p>
-    </div>
   );
 }
 
@@ -491,17 +298,15 @@ function SubHead() {
 
 function Pair({
   cell,
-  metric,
   fmt,
   bold,
 }: {
   cell: Cell | undefined;
-  metric: Metric;
   fmt: (n: number) => string;
   bold?: boolean;
 }) {
-  const cy = cell?.cy[metric] ?? 0;
-  const ly = cell?.ly[metric] ?? 0;
+  const cy = cell?.cy ?? 0;
+  const ly = cell?.ly ?? 0;
   const behind = ly > 0 && cy < ly;
   return (
     <>
@@ -523,23 +328,15 @@ function Pair({
   );
 }
 
-function TotalCells({
-  cell,
-  metric,
-  fmt,
-}: {
-  cell: Cell;
-  metric: Metric;
-  fmt: (n: number) => string;
-}) {
-  const p = pct(cell.cy[metric], cell.ly[metric]);
+function TotalCells({ cell, fmt }: { cell: Cell; fmt: (n: number) => string }) {
+  const p = pct(cell.cy, cell.ly);
   return (
     <>
       <td className="whitespace-nowrap border-l border-gray-200 px-2 py-1.5 text-right font-semibold tabular-nums text-gray-900">
-        {fmt(cell.cy[metric])}
+        {fmt(cell.cy)}
       </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-500">
-        {fmt(cell.ly[metric])}
+        {fmt(cell.ly)}
       </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
         {p == null ? (

@@ -1,8 +1,17 @@
 'use client';
 
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { salesRpc, fmtKg, downloadCsv } from './shared';
-import { loadSales, companyOf, beatOf, pct, fmtPct, type SaleRow } from './use-sales-data';
+import { salesRpc, fmtKg, downloadCsv } from '../../shared';
+import {
+  loadSales,
+  companyOf,
+  beatOf,
+  pct,
+  fmtPct,
+  type SaleRow,
+} from '../../use-sales-data';
 
 type Metric = 'kg' | 'amount';
 type View = 'all' | 'weekly';
@@ -14,7 +23,6 @@ type WeeklyResp = {
   jc_end: string;
   latest_jc: number;
   current_jc: number;
-  current_fy: string;
   week_starts: string[];
   week_ends: string[];
   totals: { w1_kg: number; w2_kg: number; w3_kg: number; w4_kg: number; total_kg: number };
@@ -38,13 +46,10 @@ function priorLabel(fy: string): string {
   return `${String(Number(m[1]) - 1).padStart(2, '0')}-${String(Number(m[2]) - 1).padStart(2, '0')}`;
 }
 
-export default function BeatDetailTab({
-  beat,
-  onChangeBeat,
-}: {
-  beat: string | null;
-  onChangeBeat: (beat: string | null) => void;
-}) {
+export default function BeatPage() {
+  const params = useParams<{ beat: string }>();
+  const beat = decodeURIComponent(params.beat);
+
   const [rows, setRows] = useState<SaleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>('all');
@@ -68,13 +73,8 @@ export default function BeatDetailTab({
   const cyFy = fys[fys.length - 1] ?? '';
   const lyFy = priorLabel(cyFy);
 
-  const beats = useMemo(() => {
-    if (!rows) return [];
-    return Array.from(new Set(rows.map((r) => beatOf(r.beat)))).sort();
-  }, [rows]);
-
   useEffect(() => {
-    if (view !== 'weekly' || !beat) return;
+    if (view !== 'weekly') return;
     setWeekly(null);
     setWeeklyErr(null);
     salesRpc<WeeklyResp>('beat_current_jc_weekly', {
@@ -89,7 +89,7 @@ export default function BeatDetailTab({
   }, [view, beat, jcPick]);
 
   const model = useMemo(() => {
-    if (!rows || !beat || !cyFy) return null;
+    if (!rows || !cyFy) return null;
 
     const mine = rows.filter(
       (r) => beatOf(r.beat) === beat && (r.fy_label === cyFy || r.fy_label === lyFy)
@@ -104,12 +104,7 @@ export default function BeatDetailTab({
       const side: keyof Cell = r.fy_label === cyFy ? 'cy' : 'ly';
       let c = custs.get(r.party_name);
       if (!c) {
-        c = {
-          name: r.party_name,
-          company: companyOf(r.company_name),
-          jc: {},
-          total: blank(),
-        };
+        c = { name: r.party_name, company: companyOf(r.company_name), jc: {}, total: blank() };
         custs.set(r.party_name, c);
       }
       (c.jc[r.jc_number] ??= blank())[side] += r[metric];
@@ -141,7 +136,7 @@ export default function BeatDetailTab({
       : '₹' + Math.round(n).toLocaleString('en-IN');
 
   function exportAll() {
-    if (!model || !beat) return;
+    if (!model) return;
     const out = model.list.map((c) => {
       const o: Record<string, unknown> = { Customer: c.name, Company: c.company };
       for (const n of JCS) {
@@ -162,55 +157,34 @@ export default function BeatDetailTab({
     const out = weekly.customers.map((c) => ({
       Customer: c.party_name,
       Company: c.company ?? '',
-      [`W1 ${weekly.week_starts[0] ?? ''}`]: Math.round(c.w1_kg),
-      [`W2 ${weekly.week_starts[1] ?? ''}`]: Math.round(c.w2_kg),
-      [`W3 ${weekly.week_starts[2] ?? ''}`]: Math.round(c.w3_kg),
-      [`W4 ${weekly.week_starts[3] ?? ''}`]: Math.round(c.w4_kg),
+      W1: Math.round(c.w1_kg),
+      W2: Math.round(c.w2_kg),
+      W3: Math.round(c.w3_kg),
+      W4: Math.round(c.w4_kg),
       Total: Math.round(c.total_kg),
     }));
-    const slug = weekly.beat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const slug = beat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     downloadCsv(out, `beat_${slug}_jc${jcPick ?? ''}_weekly.csv`);
   }
 
-  if (error)
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-        <p className="text-xs font-medium text-red-800">Could not load beats</p>
-        <p className="mt-1 break-words font-mono text-[11px] text-red-700">{error}</p>
-      </div>
-    );
-
-  if (!rows) return <p className="p-4 text-sm text-gray-500">Loading…</p>;
-
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-4 p-4">
+      <Link
+        href="/sales"
+        className="inline-flex items-center text-sm font-medium text-teal-800 hover:underline"
+      >
+        ← Back to Sales
+      </Link>
+
+      <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-semibold text-gray-900">
-            {beat ?? 'Beat detail'}
-          </h2>
+          <h1 className="text-xl font-semibold text-gray-900">{beat}</h1>
           <p className="text-xs text-gray-500">
             {model ? `${model.list.length} customers · ` : ''}FY {cyFy} vs FY {lyFy}
           </p>
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            value={beat ?? ''}
-            onChange={(e) => {
-              onChangeBeat(e.target.value || null);
-              setJcPick(null);
-            }}
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-          >
-            <option value="">Choose a beat…</option>
-            {beats.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-
           <div className="flex overflow-hidden rounded-md border border-gray-300">
             {(['all', 'weekly'] as View[]).map((v) => (
               <button
@@ -257,23 +231,23 @@ export default function BeatDetailTab({
 
           <button
             onClick={view === 'all' ? exportAll : exportWeekly}
-            disabled={!beat}
-            className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:bg-gray-300"
+            className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
           >
             CSV
           </button>
         </div>
       </div>
 
-      {!beat && (
-        <div className="rounded-lg border border-gray-200 bg-white p-8 text-center">
-          <p className="text-sm text-gray-600">
-            Pick a beat above, or tap a beat name in the Beat Matrix.
-          </p>
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+          <p className="text-xs font-medium text-red-800">Could not load sales</p>
+          <p className="mt-1 break-words font-mono text-[11px] text-red-700">{error}</p>
         </div>
       )}
 
-      {beat && view === 'all' && model && (
+      {!rows && !error && <p className="text-sm text-gray-500">Loading…</p>}
+
+      {view === 'all' && model && (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="text-sm">
             <thead>
@@ -320,7 +294,12 @@ export default function BeatDetailTab({
               {model.list.map((c) => (
                 <tr key={c.name} className="border-t border-gray-100 hover:bg-teal-50/30">
                   <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-3 py-2">
-                    <span className="font-medium text-gray-900">{c.name}</span>
+                    <Link
+                      href={`/sales/customer/${encodeURIComponent(c.name)}`}
+                      className="font-medium text-gray-900 hover:text-teal-800 hover:underline"
+                    >
+                      {c.name}
+                    </Link>
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">
                       {c.company}
                     </span>
@@ -348,7 +327,7 @@ export default function BeatDetailTab({
         </div>
       )}
 
-      {beat && view === 'weekly' && (
+      {view === 'weekly' && (
         <>
           {weeklyErr && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">
@@ -356,12 +335,10 @@ export default function BeatDetailTab({
               <p className="mt-1 break-words font-mono text-[11px] text-red-700">{weeklyErr}</p>
             </div>
           )}
-          {!weekly && !weeklyErr && (
-            <p className="p-4 text-sm text-gray-500">Loading weekly split…</p>
-          )}
+          {!weekly && !weeklyErr && <p className="text-sm text-gray-500">Loading weekly split…</p>}
           {weekly && (
             <>
-              <p className="px-1 text-xs text-gray-500">
+              <p className="text-xs text-gray-500">
                 JC{jcPick ?? weekly.current_jc} · {weekly.jc_start} to {weekly.jc_end} ·{' '}
                 {fmtKg(weekly.totals.total_kg)} kg
               </p>
@@ -370,7 +347,7 @@ export default function BeatDetailTab({
                   <thead className="bg-gray-50">
                     <tr className="text-left">
                       <th className="px-3 py-2 text-xs font-medium text-gray-600">
-                        {weekly.beat} · {weekly.customers.length} customers
+                        {weekly.customers.length} customers
                       </th>
                       {[0, 1, 2, 3].map((i) => (
                         <th
@@ -390,12 +367,14 @@ export default function BeatDetailTab({
                   </thead>
                   <tbody>
                     {weekly.customers.map((c) => (
-                      <tr
-                        key={c.party_name}
-                        className="border-t border-gray-100 hover:bg-teal-50/40"
-                      >
-                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                          {c.party_name}
+                      <tr key={c.party_name} className="border-t border-gray-100 hover:bg-teal-50/40">
+                        <td className="whitespace-nowrap px-3 py-2">
+                          <Link
+                            href={`/sales/customer/${encodeURIComponent(c.party_name)}`}
+                            className="font-medium text-gray-900 hover:text-teal-800 hover:underline"
+                          >
+                            {c.party_name}
+                          </Link>
                           {c.company && (
                             <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">
                               {c.company}
@@ -444,7 +423,7 @@ export default function BeatDetailTab({
           )}
         </>
       )}
-    </section>
+    </div>
   );
 }
 
