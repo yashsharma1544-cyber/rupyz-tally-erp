@@ -11,28 +11,22 @@
   "theme_color": "#0d5b58",
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "/icons/erp-192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/erp-512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable.png",
+      "src": "/icons/erp-maskable.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"
-    },
-    {
-      "src": "/icons/icon.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
-      "purpose": "any"
     }
   ],
   "categories": ["business", "productivity"]
