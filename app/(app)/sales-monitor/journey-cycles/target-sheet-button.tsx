@@ -44,10 +44,23 @@ const wd = (d: Date) =>
 export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Props) {
   const [from, setFrom] = useState(() => iso(new Date()));
   const [to, setTo] = useState(jc.end_date);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(salesmen.map((s) => s.id)));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const nameOf = (s: Salesman) => s.name ?? s.full_name ?? "Salesman";
+
+  function toggle(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setMsg(null);
+  }
+
+  const chosen = salesmen.filter((s) => picked.has(s.id));
 
   async function build() {
     setBusy(true);
@@ -66,6 +79,7 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
         if (s >= from && s <= to) days.push({ day: d, date });
       }
       if (days.length === 0) throw new Error("No cycle days fall in that range.");
+      if (chosen.length === 0) throw new Error("Pick at least one salesman.");
 
       // Order-visit days per beat across the WHOLE cycle (not just the window),
       // so a weekly Jalna beat divides by 4 on its own.
@@ -95,7 +109,7 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
 
       const totalsRef: { name: string; sheet: string; row: number }[] = [];
 
-      for (const s of salesmen) {
+      for (const s of chosen) {
         const label = nameOf(s).slice(0, 28);
         const ws = wb.addWorksheet(label, {
           views: [{ state: "frozen", ySplit: 5 }],
@@ -205,7 +219,10 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
       st.font = { bold: true, size: 14, color: { argb: TEAL } };
       sum.mergeCells(2, 1, 2, 4);
       sum.getCell(2, 1).value =
-        `${pretty(days[0].date)} to ${pretty(days[days.length - 1].date)} \u00b7 one tab per salesman`;
+        `${pretty(days[0].date)} to ${pretty(days[days.length - 1].date)} \u00b7 ` +
+        (chosen.length === salesmen.length
+          ? "all salesmen"
+          : chosen.map((c) => nameOf(c)).join(", "));
       sum.getCell(2, 1).font = { size: 9, italic: true, color: { argb: "FF6B7280" } };
 
       ["Salesman", "Target kg", "Actual kg", "Variance"].forEach((h, i) => {
@@ -270,10 +287,16 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `JC${jc.jc_number}_Targets_${from}_to_${to}.xlsx`;
+      const who =
+        chosen.length === salesmen.length
+          ? "All"
+          : chosen.length === 1
+          ? nameOf(chosen[0]).replace(/[^A-Za-z0-9]+/g, "_")
+          : `${chosen.length}_salesmen`;
+      a.download = `JC${jc.jc_number}_Targets_${who}_${from}_to_${to}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-      setMsg(`${days.length} days exported`);
+      setMsg(`${days.length} days \u00b7 ${chosen.length} salesman sheet(s)`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -303,10 +326,41 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
         onChange={(e) => setTo(e.target.value)}
         className="text-xs border border-paper-line rounded px-2 py-1 bg-white"
       />
+      <span className="text-ink-subtle text-xs">\u00b7</span>
+      <div className="flex flex-wrap items-center gap-1">
+        {salesmen.map((s) => {
+          const on = picked.has(s.id);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => toggle(s.id)}
+              className={`text-2xs rounded-full border px-2 py-1 transition-colors ${
+                on
+                  ? "bg-accent text-white border-accent"
+                  : "bg-white text-ink-subtle border-paper-line"
+              }`}
+            >
+              {nameOf(s)}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() =>
+            setPicked((prev) =>
+              prev.size === salesmen.length ? new Set() : new Set(salesmen.map((x) => x.id))
+            )
+          }
+          className="text-2xs underline text-ink-subtle px-1"
+        >
+          {picked.size === salesmen.length ? "none" : "all"}
+        </button>
+      </div>
       <button
         type="button"
         onClick={build}
-        disabled={busy || from > to}
+        disabled={busy || from > to || picked.size === 0}
         className="text-xs font-medium rounded px-3 py-1.5 bg-accent text-white disabled:opacity-50"
       >
         {busy ? "Building\u2026" : "Download Excel"}
