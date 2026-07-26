@@ -44,23 +44,13 @@ const wd = (d: Date) =>
 export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Props) {
   const [from, setFrom] = useState(() => iso(new Date()));
   const [to, setTo] = useState(jc.end_date);
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(salesmen.map((s) => s.id)));
+  const [pick, setPick] = useState<string>("__all");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const nameOf = (s: Salesman) => s.name ?? s.full_name ?? "Salesman";
 
-  function toggle(id: string) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    setMsg(null);
-  }
-
-  const chosen = salesmen.filter((s) => picked.has(s.id));
+  const chosen = pick === "__all" ? salesmen : salesmen.filter((s) => s.id === pick);
 
   async function build() {
     setBusy(true);
@@ -326,41 +316,25 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
         onChange={(e) => setTo(e.target.value)}
         className="text-xs border border-paper-line rounded px-2 py-1 bg-white"
       />
-      <span className="text-ink-subtle text-xs">\u00b7</span>
-      <div className="flex flex-wrap items-center gap-1">
-        {salesmen.map((s) => {
-          const on = picked.has(s.id);
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => toggle(s.id)}
-              className={`text-2xs rounded-full border px-2 py-1 transition-colors ${
-                on
-                  ? "bg-accent text-white border-accent"
-                  : "bg-white text-ink-subtle border-paper-line"
-              }`}
-            >
-              {nameOf(s)}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() =>
-            setPicked((prev) =>
-              prev.size === salesmen.length ? new Set() : new Set(salesmen.map((x) => x.id))
-            )
-          }
-          className="text-2xs underline text-ink-subtle px-1"
-        >
-          {picked.size === salesmen.length ? "none" : "all"}
-        </button>
-      </div>
+      <select
+        value={pick}
+        onChange={(e) => {
+          setPick(e.target.value);
+          setMsg(null);
+        }}
+        className="text-xs border border-paper-line rounded px-2 py-1 bg-white max-w-[180px]"
+      >
+        <option value="__all">All salesmen</option>
+        {salesmen.map((s) => (
+          <option key={s.id} value={s.id}>
+            {nameOf(s)}
+          </option>
+        ))}
+      </select>
       <button
         type="button"
         onClick={build}
-        disabled={busy || from > to || picked.size === 0}
+        disabled={busy || from > to || chosen.length === 0}
         className="text-xs font-medium rounded px-3 py-1.5 bg-accent text-white disabled:opacity-50"
       >
         {busy ? "Building\u2026" : "Download Excel"}
