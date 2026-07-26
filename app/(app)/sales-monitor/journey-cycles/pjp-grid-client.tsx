@@ -11,7 +11,15 @@ import { savePlanForSalesman, copyFromOtherJc, applyPlanToSchedule } from "./pjp
 type JourneyCycle = {
   id: string; jc_number: number; start_date: string; end_date: string; days_count: number; fy_label: string;
 };
-type PlanEntry = { id: string; jc_id: string; jc_day: number; salesman_id: string; beat_id: string };
+type PlanEntry = {
+  id: string;
+  jc_id: string;
+  jc_day: number;
+  salesman_id: string;
+  beat_id: string;
+  visit_type?: "order" | "collection" | null;
+};
+type VisitType = "order" | "collection";
 type Salesman = { id: string; full_name: string };
 type Beat = { id: string; name: string };
 
@@ -31,6 +39,10 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
   // planMap[salesmanId][jcDay] = beatId | null
   const [planMap, setPlanMap] = useState<Record<string, Record<number, string | null>>>(() =>
     buildPlanMap(salesmen, planEntries, jc.days_count),
+  );
+  // visitMap[salesmanId][jcDay] = "order" | "collection"
+  const [visitMap, setVisitMap] = useState<Record<string, Record<number, VisitType>>>(() =>
+    buildVisitMap(salesmen, planEntries, jc.days_count),
   );
   const [dirty, setDirty] = useState<Set<string>>(new Set());
 
@@ -56,6 +68,24 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
       ...prev,
       [salesmanId]: { ...prev[salesmanId], [day]: beatId },
     }));
+    if (!beatId) {
+      setVisitMap((prev) => ({
+        ...prev,
+        [salesmanId]: { ...prev[salesmanId], [day]: "order" },
+      }));
+    }
+    setDirty((prev) => new Set(prev).add(salesmanId));
+    setSaveState("idle");
+  }
+
+  function toggleVisit(salesmanId: string, day: number) {
+    setVisitMap((prev) => {
+      const cur = prev[salesmanId]?.[day] ?? "order";
+      return {
+        ...prev,
+        [salesmanId]: { ...prev[salesmanId], [day]: cur === "order" ? "collection" : "order" },
+      };
+    });
     setDirty((prev) => new Set(prev).add(salesmanId));
     setSaveState("idle");
   }
@@ -75,6 +105,7 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
         const entries = Array.from({ length: jc.days_count }, (_, i) => ({
           jc_day: i + 1,
           beat_id: planMap[sid]?.[i + 1] ?? null,
+          visit_type: visitMap[sid]?.[i + 1] ?? "order",
         }));
         const res = await savePlanForSalesman(jc.id, sid, entries);
         if (!res.ok) {
@@ -263,24 +294,43 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
               const { weekday, dom, isSunday } = dayCalendarLabel(jc.start_date, day);
               return (
                 <tr key={day} className={isSunday ? "bg-paper-subtle/30" : ""}>
-                  <td className="sticky left-0 z-10 bg-paper-card px-2 py-1.5 align-top w-28 border-r border-paper-line">
-                    <div className="font-semibold leading-none">Day {day}</div>
-                    <div className="text-2xs text-ink-subtle mt-0.5">{weekday} · {dom}</div>
+                  <td className="sticky left-0 z-10 bg-paper-card px-2 py-1.5 align-top w-24 min-w-24 whitespace-nowrap border-r border-paper-line">
+                    <div className="text-2xs text-ink-subtle leading-none">Day {day}</div>
+                    <div className="font-semibold text-sm leading-tight mt-0.5">{weekday} &middot; {dom}</div>
                   </td>
                   {salesmen.map((s) => {
                     const beatId = planMap[s.id]?.[day] ?? "";
+                    const isCollection = (visitMap[s.id]?.[day] ?? "order") === "collection";
                     return (
                       <td key={s.id} className="px-1.5 py-1 align-top">
-                        <select
-                          value={beatId || ""}
-                          onChange={(e) => setBeat(s.id, day, e.target.value || null)}
-                          className={`w-full text-xs border border-paper-line rounded px-1.5 py-1 bg-white ${beatId ? "" : "text-ink-subtle"}`}
-                        >
-                          <option value="">— off —</option>
-                          {beats.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={beatId || ""}
+                            onChange={(e) => setBeat(s.id, day, e.target.value || null)}
+                            className={`min-w-0 flex-1 text-xs border rounded px-1.5 py-1 bg-white ${
+                              isCollection ? "border-amber-400" : "border-paper-line"
+                            } ${beatId ? "" : "text-ink-subtle"}`}
+                          >
+                            <option value="">— off —</option>
+                            {beats.map((b) => (
+                              <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                          </select>
+                          {beatId && (
+                            <button
+                              type="button"
+                              onClick={() => toggleVisit(s.id, day)}
+                              title={isCollection ? "Collection day \u2014 tap for order day" : "Order day \u2014 tap for collection day"}
+                              className={`shrink-0 w-6 h-6 rounded border text-xs font-semibold transition-colors ${
+                                isCollection
+                                  ? "bg-amber-100 border-amber-400 text-amber-800"
+                                  : "bg-white border-paper-line text-ink-subtle"
+                              }`}
+                            >
+                              {isCollection ? "\u20b9" : "\u2022"}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
@@ -295,9 +345,27 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
         Pick a JC, set each salesman&apos;s beat per day for the whole cycle, Save, then <em>Apply to schedule</em> to push it into the daily plan.
         Copy from a previous JC to seed a new one. Sundays are shaded; leave a cell on &ldquo;off&rdquo; for a non-working day.
         Day-specific overrides can still be made in the regular daily Sales Monitor view.
+        Tap the dot beside a beat to mark that day as a &#8377; collection visit.
       </p>
     </div>
   );
+}
+
+function buildVisitMap(
+  salesmen: Salesman[],
+  entries: PlanEntry[],
+  daysCount: number,
+): Record<string, Record<number, VisitType>> {
+  const map: Record<string, Record<number, VisitType>> = {};
+  for (const s of salesmen) {
+    map[s.id] = {};
+    for (let d = 1; d <= daysCount; d++) map[s.id][d] = "order";
+  }
+  for (const e of entries) {
+    if (!map[e.salesman_id]) map[e.salesman_id] = {};
+    map[e.salesman_id][e.jc_day] = e.visit_type === "collection" ? "collection" : "order";
+  }
+  return map;
 }
 
 function buildPlanMap(
