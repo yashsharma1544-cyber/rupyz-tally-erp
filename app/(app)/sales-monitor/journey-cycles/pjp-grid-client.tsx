@@ -264,8 +264,8 @@ export function PjpGridClient({ jc, allCycles, planEntries, salesmen, beats, tod
               return (
                 <tr key={day} className={isSunday ? "bg-paper-subtle/30" : ""}>
                   <td className="sticky left-0 z-10 bg-paper-card px-2 py-1.5 align-top w-28 border-r border-paper-line">
-                    <div className="font-semibold leading-none">Day {day}</div>
-                    <div className="text-2xs text-ink-subtle mt-0.5">{weekday} · {dom}</div>
+                    <div className="text-2xs text-ink-subtle leading-none">Day {day}</div>
+                    <div className="font-semibold text-sm mt-0.5">{weekday} · {dom}</div>
                   </td>
                   {salesmen.map((s) => {
                     const beatId = planMap[s.id]?.[day] ?? "";
