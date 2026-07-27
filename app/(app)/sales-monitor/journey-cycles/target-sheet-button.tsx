@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getBeatTargets } from "./pjp-actions";
+import { getBeatTargets, getActualKg } from "./pjp-actions";
 
 type Salesman = { id: string; name?: string; full_name?: string };
 type Beat = { id: string; name: string };
@@ -56,9 +56,16 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
     setBusy(true);
     setMsg(null);
     try {
-      const res = await getBeatTargets(jc.id);
+      const [res, act] = await Promise.all([
+        getBeatTargets(jc.id),
+        getActualKg(from, to),
+      ]);
       if (!res.ok) throw new Error(res.error || "Could not load targets");
       const targetByBeat = new Map(res.targets.map((t) => [t.beat_id, t.target_kg]));
+      // billed kg keyed date|beat
+      const actualBy = new Map<string, number>();
+      for (const r of act.rows) actualBy.set(`${r.sale_date}|${r.beat_id}`, r.kg);
+      const lastLoaded = act.lastLoaded;
       const beatName = new Map(beats.map((b) => [b.id, b.name]));
 
       // Days in the selected window
@@ -115,14 +122,16 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
         const sub = ws.getCell(2, 1);
         sub.value =
           `${pretty(days[0].date)} to ${pretty(days[days.length - 1].date)} \u00b7 ` +
-          `cycle ${jc.start_date} to ${jc.end_date} \u00b7 targets in kg`;
+          `cycle ${jc.start_date} to ${jc.end_date} \u00b7 kg` +
+          (lastLoaded ? ` \u00b7 actuals billed up to ${lastLoaded}` : "");
         sub.font = { size: 9, italic: true, color: { argb: "FF6B7280" } };
 
         ws.mergeCells(3, 1, 3, 8);
         const legend = ws.getCell(3, 1);
         legend.value =
-          "Fill the yellow Actual kg column (example: 2450). Variance calculates itself. " +
-          "Amber rows are collection days and carry no kg target.";
+          "Actual kg is what Tally has billed for that beat on that day. Blank means nothing " +
+          "billed yet, or the Tally load has not reached that date. Amber rows are collection " +
+          "days and carry no kg target.";
         legend.font = { size: 9, bold: true, color: { argb: "FF92400E" } };
         legend.fill = { type: "pattern", pattern: "solid", fgColor: { argb: YELLOW } };
 
@@ -158,7 +167,12 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
           row.getCell(4).value = bname;
           row.getCell(5).value = bid ? (isColl ? "Collection" : "Order") : "";
           row.getCell(6).value = target;
-          row.getCell(7).value = null;
+          let actual: number | null = null;
+          if (bid) {
+            const total = actualBy.get(`${iso(date)}|${bid}`);
+            if (total !== undefined) actual = Math.round(total / sharers(bid, day));
+          }
+          row.getCell(7).value = actual;
           row.getCell(8).value = { formula: `IF(G${r}="","",G${r}-F${r})` };
 
           for (let i = 1; i <= 8; i++) {
@@ -175,7 +189,6 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
           row.getCell(6).numFmt = KG;
           row.getCell(7).numFmt = KG;
           row.getCell(8).numFmt = KG;
-          row.getCell(7).fill = { type: "pattern", pattern: "solid", fgColor: { argb: YELLOW } };
           r++;
         }
 
@@ -255,6 +268,7 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
         "A beat visited weekly therefore divides by 4; a beat visited once carries its whole target on that day.",
         "When two salesmen share a beat on the same day, that day's figure is split equally between them.",
         "Collection days keep the beat but carry no kg target.",
+        "Actual kg comes from tally_sales, with party mapped to beat through tally_customer_map.",
         "Source: beat_jc_targets and the PJP grid, Rupyz-Tally ERP.",
       ];
       let nr = sr + 2;
@@ -286,7 +300,10 @@ export function TargetSheetButton({ jc, salesmen, beats, planMap, visitMap }: Pr
       a.download = `JC${jc.jc_number}_Targets_${who}_${from}_to_${to}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-      setMsg(`${days.length} days \u00b7 ${chosen.length} salesman sheet(s)`);
+      setMsg(
+        `${days.length} days \u00b7 ${chosen.length} sheet(s)` +
+          (lastLoaded ? ` \u00b7 actuals to ${lastLoaded}` : " \u00b7 no actuals loaded"),
+      );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Export failed");
     } finally {
