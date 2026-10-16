@@ -1,8 +1,8 @@
 // =============================================================================
 // /pipeline — kanban view of orders across all live workflow stages
 //
-// Shows 8 columns: Received → Approved → Invoiced → Loading → Loaded →
-// On VAN → Dispatched → Delivered. Each column header shows the order count
+// Columns: Received → Approved → Loaded → Invoiced → Dispatched →
+// Delivered (plus legacy On VAN). Each column header shows the order count
 // and the total kg of all orders in that stage. Each card capped at 50 with
 // a "View all" link to /orders pre-filtered to that stage.
 // =============================================================================

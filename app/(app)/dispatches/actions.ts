@@ -88,7 +88,10 @@ async function recomputeOrderStatus(
         const status = Array.isArray(di.dispatch) ? di.dispatch[0]?.status : di.dispatch?.status;
         return status === "pending";
       });
-      newStatus = anyPending ? "loaded" : "approved";
+      // Dispatch created (pending) → "loaded" until billing enters the Tally invoice.
+      const { data: ord } = await admin.from("orders").select("invoice_number").eq("id", orderId).single();
+      const hasInvoice = !!ord?.invoice_number;
+      newStatus = hasInvoice ? "invoiced" : anyPending ? "loaded" : "approved";
     }
   }
 
@@ -114,7 +117,7 @@ export async function createDispatch(
 
     const { data: order } = await admin.from("orders").select("id, app_status").eq("id", orderId).single();
     if (!order) return { error: "Order not found" };
-    if (!["approved", "partially_dispatched", "loaded"].includes(order.app_status))
+    if (!["approved", "partially_dispatched", "loaded", "invoiced"].includes(order.app_status))
       return { error: `Cannot dispatch — order is "${order.app_status}"` };
 
     if (!items.length) return { error: "No items selected for dispatch" };
@@ -215,6 +218,9 @@ export async function shipDispatch(dispatchId: string) {
       .select("id, order_id, status").eq("id", dispatchId).single();
     if (!d) return { error: "Dispatch not found" };
     if (d.status !== "pending") return { error: `Cannot ship — current status: ${d.status}` };
+
+    const { data: ord } = await admin.from("orders").select("invoice_number").eq("id", d.order_id).single();
+    if (!ord?.invoice_number) return { error: "Enter the Tally invoice number before shipping" };
 
     const { error } = await admin.from("dispatches").update({
       status: "shipped",

@@ -147,7 +147,11 @@ function OrderDrawerInner({
 
   const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
   const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
-  const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
+  // Dispatch comes before invoicing. Orders invoiced under the old flow (no dispatch yet) can still be dispatched.
+  const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && (
+    ["approved", "partially_dispatched"].includes(order.app_status) ||
+    (order.app_status === "invoiced" && dispatches.length === 0)
+  );
 
   function startEdit() {
     const m = new Map<string, { qty: number; price: number; removed: boolean }>();
@@ -490,7 +494,7 @@ function InvoiceSection({
 }) {
   const o = order as OrderWithInvoice;
   const canEdit = ["admin", "accounts", "billing"].includes(me.role)
-    && (o.app_status === "approved" || o.app_status === "invoiced");
+    && (o.app_status === "loaded" || o.app_status === "invoiced");
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(o.invoice_number ?? "");
   const [busy, startTransition] = useTransition();
@@ -529,21 +533,21 @@ function InvoiceSection({
     });
   }
 
-  const isApproved = o.app_status === "approved";
+  const needsInvoice = o.app_status === "loaded";
   const isInvoiced = o.app_status === "invoiced";
-  const isLocked = !isApproved && !isInvoiced;
+  const isLocked = !!o.invoice_number && !needsInvoice && !isInvoiced;
 
   return (
-    <div className={`border rounded p-3 mb-5 ${isApproved ? "border-warn/50 bg-warn-soft/30" : "border-paper-line bg-paper-subtle/40"}`}>
+    <div className={`border rounded p-3 mb-5 ${needsInvoice ? "border-warn/50 bg-warn-soft/30" : "border-paper-line bg-paper-subtle/40"}`}>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
-          <Receipt size={14} className={isApproved ? "text-warn" : "text-accent"}/>
+          <Receipt size={14} className={needsInvoice ? "text-warn" : "text-accent"}/>
           <div>
             <div className="text-2xs uppercase tracking-wide text-ink-subtle">Tally invoice</div>
             <div className="text-sm font-medium mt-0.5">
               {o.invoice_number ? (
                 <span className="font-mono">{o.invoice_number}</span>
-              ) : isApproved ? (
+              ) : needsInvoice ? (
                 <span className="text-warn">Not yet entered</span>
               ) : (
                 <span className="text-ink-subtle">—</span>
@@ -554,7 +558,7 @@ function InvoiceSection({
                 </span>
               )}
               {isLocked && (
-                <span className="text-2xs text-ink-subtle ml-2">(locked — loading has started)</span>
+                <span className="text-2xs text-ink-subtle ml-2">(locked — shipped)</span>
               )}
             </div>
           </div>
@@ -562,7 +566,7 @@ function InvoiceSection({
 
         {!editing && canEdit && (
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant={isApproved ? "default" : "outline"} onClick={() => setEditing(true)} disabled={busy || pending}>
+            <Button size="sm" variant={needsInvoice ? "default" : "outline"} onClick={() => setEditing(true)} disabled={busy || pending}>
               <Receipt size={12}/> {o.invoice_number ? "Edit" : "Add invoice"}
             </Button>
             {isInvoiced && (
@@ -596,9 +600,14 @@ function InvoiceSection({
         </div>
       )}
 
-      {isApproved && !canEdit && (
+      {needsInvoice && !canEdit && (
         <div className="text-2xs text-ink-muted mt-2">
-          Waiting for billing to enter the invoice number from Tally. Loading is blocked until then.
+          Waiting for billing to enter the invoice number from Tally. Shipping is blocked until then.
+        </div>
+      )}
+      {o.app_status === "approved" && (
+        <div className="text-2xs text-ink-muted mt-2">
+          Create the dispatch first. The Tally invoice is entered after loading.
         </div>
       )}
     </div>

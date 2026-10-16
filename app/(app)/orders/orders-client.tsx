@@ -50,14 +50,14 @@ const TABS: TabDef[] = [
     emptyHint: "Nothing waiting for your approval. Nice work.",
     icon: AlertCircle,   accent: "warn" },
   { key: "dispatch",  label: "Approved",  statuses: ["approved", "partially_dispatched"],
-    emptyHint: "Nothing waiting for an invoice.",
+    emptyHint: "Nothing waiting for a dispatch.",
     icon: PackageCheck,  accent: "accent" },
-  { key: "invoiced",  label: "Invoiced",  statuses: ["invoiced"],
-    emptyHint: "No invoiced orders waiting to load.",
-    icon: Receipt,       accent: "accent" },
   { key: "loading",   label: "Loading",  statuses: ["loading", "loaded"],
-    emptyHint: "No trucks currently loading.",
+    emptyHint: "No dispatches waiting for an invoice.",
     icon: Truck,         accent: "warn" },
+  { key: "invoiced",  label: "Invoiced",  statuses: ["invoiced"],
+    emptyHint: "No invoiced orders waiting to ship.",
+    icon: Receipt,       accent: "accent" },
   { key: "van",       label: "On VAN",        statuses: ["on_van_trip"],
     emptyHint: "No orders on a VAN trip right now.",
     icon: Route,         accent: "accent" },
@@ -917,8 +917,8 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
 
   const canApprove = isApprover && order.app_status === "received";
   const canReject  = isApprover && order.app_status === "received";
-  const canCancel  = isApprover && (order.app_status === "approved" || order.app_status === "invoiced");
-  const canInvoice = isBilling && order.app_status === "approved";
+  const canCancel  = isApprover && ["approved", "loaded", "invoiced"].includes(order.app_status);
+  const canInvoice = isBilling && order.app_status === "loaded";
   const canEditInvoice = isBilling && order.app_status === "invoiced";
 
   const hasActions = canApprove || canReject || canCancel || canInvoice || canEditInvoice;
@@ -1049,7 +1049,7 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
                   )}
                   {canEditInvoice && (
                     <Button variant="outline" onClick={() => setConfirming("clearInvoice")} disabled={pending} className="w-full justify-start">
-                      <X size={13}/> Clear invoice (revert to approved)
+                      <X size={13}/> Clear invoice
                     </Button>
                   )}
                   {canApprove && (
@@ -1205,13 +1205,13 @@ function PrimaryActionCallout({
     );
   }
 
-  if (tab === "dispatch" && isBilling && kpis.dispatch.count > 0) {
+  if (tab === "loading" && isBilling && kpis.loading.count > 0) {
     return (
       <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex items-center gap-3">
         <Receipt size={18} className="text-accent shrink-0"/>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm">
-            {kpis.dispatch.count} approved order{kpis.dispatch.count === 1 ? "" : "s"} waiting for Tally invoice
+            {kpis.loading.count} loaded order{kpis.loading.count === 1 ? "" : "s"} waiting for Tally invoice
           </div>
           <div className="text-2xs text-ink-muted">
             Click any row's status badge → "Mark as invoiced" to enter the invoice number from Tally.

@@ -329,10 +329,10 @@ export async function cancelOrder(orderId: string, reason: string) {
 }
 
 // =============================================================================
-// SET INVOICE NUMBER — Billing/admin marks an approved order as invoiced
+// SET INVOICE NUMBER — Billing/admin invoices an order after its dispatch is created
 // =============================================================================
-// Transitions: approved -> invoiced (also overwrites if already invoiced).
-// Required before the order can be Loaded. Locked once loading starts.
+// Transitions: loaded -> invoiced (also overwrites if already invoiced).
+// Required before the dispatch can be shipped. Locked once shipped.
 // =============================================================================
 export async function setInvoiceNumber(orderId: string, rawInvoiceNumber: string) {
   try {
@@ -349,9 +349,11 @@ export async function setInvoiceNumber(orderId: string, rawInvoiceNumber: string
       .eq("id", orderId)
       .single();
     if (fetchErr || !order) return { error: "Order not found" };
-    if (order.app_status !== "approved" && order.app_status !== "invoiced") {
+    if (order.app_status !== "loaded" && order.app_status !== "invoiced") {
       return {
-        error: `Cannot set invoice — order is "${order.app_status}". Allowed only when approved or invoiced.`,
+        error: order.app_status === "approved"
+          ? "Create the dispatch first — the invoice is entered after loading."
+          : `Cannot set invoice — order is "${order.app_status}".`,
       };
     }
 
@@ -387,9 +389,9 @@ export async function setInvoiceNumber(orderId: string, rawInvoiceNumber: string
 }
 
 // =============================================================================
-// CLEAR INVOICE NUMBER — Reverts an invoiced order back to approved
+// CLEAR INVOICE NUMBER — Reverts an invoiced order back to loaded (or approved)
 // =============================================================================
-// Only allowed while still in 'invoiced' status (i.e. before loading starts).
+// Only allowed while still in 'invoiced' status (i.e. before shipping).
 // =============================================================================
 export async function clearInvoiceNumber(orderId: string) {
   try {
@@ -403,8 +405,15 @@ export async function clearInvoiceNumber(orderId: string) {
       .single();
     if (fetchErr || !order) return { error: "Order not found" };
     if (order.app_status !== "invoiced") {
-      return { error: `Cannot clear invoice — order is "${order.app_status}". Loading has already started.` };
+      return { error: `Cannot clear invoice — order is "${order.app_status}". It has already shipped.` };
     }
+
+    const { count: pendingCount } = await admin
+      .from("dispatches")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId)
+      .eq("status", "pending");
+    const revertTo = (pendingCount ?? 0) > 0 ? "loaded" : "approved";
 
     const { error: updErr } = await admin
       .from("orders")
@@ -412,7 +421,7 @@ export async function clearInvoiceNumber(orderId: string) {
         invoice_number: null,
         invoiced_at: null,
         invoiced_by: null,
-        app_status: "approved",
+        app_status: revertTo,
       })
       .eq("id", orderId);
     if (updErr) return { error: updErr.message };
