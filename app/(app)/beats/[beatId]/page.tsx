@@ -6,7 +6,6 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { NarrativeSection } from "@/components/ai/narrative-section";
 import { BeatInsightsTabs } from "./beat-insights-tabs";
 
 export const dynamic = "force-dynamic";
@@ -102,16 +101,8 @@ export default async function BeatDetailPage({
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          <aside className="lg:col-span-1 lg:order-2">
-            <div className="lg:sticky lg:top-4">
-              <NarrativeSection
-                endpoint={`/api/ai/narrative/beat/${beatId}`}
-                title="AI insights"
-              />
-            </div>
-          </aside>
 
-          <div className="lg:col-span-2 lg:order-1 space-y-4">
+          <div className="lg:col-span-3 space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
               <div className="bg-paper-card border border-paper-line rounded-md p-3">
                 <div className="text-2xs uppercase tracking-wide text-ink-muted mb-1">Last 30 days</div>

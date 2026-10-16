@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { NarrativeSection } from "@/components/ai/narrative-section";
 import { markVisited } from "./actions";
 import type { CustomerDetailData } from "./page";
 
@@ -126,16 +125,8 @@ export function CustomerDetailClient({ data }: { data: CustomerDetailData }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          <aside className="lg:col-span-1 lg:order-2">
-            <div className="lg:sticky lg:top-4">
-              <NarrativeSection
-                endpoint={`/api/ai/narrative/customer/${data.id}`}
-                title="AI insights"
-              />
-            </div>
-          </aside>
 
-          <div className="lg:col-span-2 lg:order-1 space-y-4">
+          <div className="lg:col-span-3 space-y-4">
 
             <div className="grid grid-cols-2 gap-2 lg:gap-3">
               <KpiCard

@@ -10,7 +10,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { BeatsTableClient } from "@/components/ai/beats-table-client";
+import { BeatsTableClient } from "./beats-table-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

@@ -8,13 +8,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  CheckSquare, Truck, Route, AlertTriangle, ChevronRight, ShoppingBag,
-  CheckCircle2, IndianRupee, Receipt, Clock, AlertCircle, MapPin, Users,
+  CheckSquare, Truck, AlertTriangle, ChevronRight, ShoppingBag,
+  CheckCircle2, IndianRupee, Clock, AlertCircle, MapPin, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
-import { BriefingCard } from "@/components/ai/briefing-card";
 import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
@@ -51,9 +50,6 @@ export default async function DashboardPage() {
   const [
     pendingApprovalAgg,
     readyToSendAgg,
-    onVanTripAgg,
-    activeTripsAgg,
-    returnedTripsAgg,
     todayOrdersAgg,
     todayDeliveredAgg,
     todayCollectionsAgg,
@@ -65,9 +61,6 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "received"),
     supabase.from("orders").select("total_amount", { count: "exact" }).in("app_status", ["approved", "partially_dispatched"]),
-    supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "on_van_trip"),
-    supabase.from("van_trips").select("id", { count: "exact" }).eq("status", "in_progress"),
-    supabase.from("van_trips").select("id", { count: "exact" }).eq("status", "returned"),
 
     supabase.from("orders").select("total_amount", { count: "exact" }).gte("rupyz_created_at", startOfTodayISO),
     supabase.from("orders").select("total_amount", { count: "exact" }).eq("app_status", "delivered").gte("delivered_at", startOfTodayISO),
@@ -89,9 +82,6 @@ export default async function DashboardPage() {
 
   const pendingApproval = { count: pendingApprovalAgg.count ?? 0, amount: sumAmt(pendingApprovalAgg.data) };
   const readyToSend     = { count: readyToSendAgg.count ?? 0,    amount: sumAmt(readyToSendAgg.data) };
-  const onVanTrip       = { count: onVanTripAgg.count ?? 0,      amount: sumAmt(onVanTripAgg.data) };
-  const activeTrips     = activeTripsAgg.count ?? 0;
-  const returnedTrips   = returnedTripsAgg.count ?? 0;
 
   const todayOrders     = { count: todayOrdersAgg.count ?? 0,    amount: sumAmt(todayOrdersAgg.data) };
   const todayDelivered  = { count: todayDeliveredAgg.count ?? 0, amount: sumAmt(todayDeliveredAgg.data) };
@@ -132,34 +122,9 @@ export default async function DashboardPage() {
       key: "send",
       icon: Truck,
       title: `${readyToSend.count} order${readyToSend.count === 1 ? "" : "s"} approved and ready to send`,
-      detail: `Worth ${formatINR(readyToSend.amount)} · dispatch or add to a VAN trip`,
+      detail: `Worth ${formatINR(readyToSend.amount)} · ready to dispatch`,
       href: me.role === "dispatch" ? "/dispatch" : "/orders?tab=dispatch",
       accent: "accent",
-    });
-  }
-
-  if (activeTrips > 0) {
-    tasks.push({
-      key: "trips",
-      icon: Route,
-      title: `${activeTrips} VAN trip${activeTrips === 1 ? "" : "s"} on the road`,
-      detail: onVanTrip.count > 0
-        ? `Carrying ${onVanTrip.count} pre-order${onVanTrip.count === 1 ? "" : "s"} · track progress`
-        : `Track real-time progress`,
-      href: "/trips",
-      accent: "accent",
-    });
-  }
-
-  if (returnedTrips > 0) {
-    tasks.push({
-      key: "reconcile",
-      icon: Receipt,
-      title: `${returnedTrips} trip${returnedTrips === 1 ? "" : "s"} returned, awaiting reconciliation`,
-      detail: "Lead is back · close the trip and lock numbers",
-      href: "/trips",
-      accent: "warn",
-      badge: "Action needed",
     });
   }
 
@@ -197,17 +162,10 @@ export default async function DashboardPage() {
 
       <div className="p-3 sm:p-6 max-w-7xl">
 
-        <div className={isAdmin ? "grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6" : ""}>
+        <div>
 
-          {isAdmin && (
-            <aside className="lg:col-span-1 lg:order-2">
-              <div className="lg:sticky lg:top-4">
-                <BriefingCard />
-              </div>
-            </aside>
-          )}
 
-          <div className={isAdmin ? "lg:col-span-2 lg:order-1 space-y-5 sm:space-y-6" : "space-y-5 sm:space-y-6"}>
+          <div className="space-y-5 sm:space-y-6">
 
             {systemIssues.length > 0 && (
               <div className="bg-danger-soft border border-danger/30 rounded-md p-3 sm:p-4 space-y-1.5">
@@ -231,7 +189,7 @@ export default async function DashboardPage() {
                   <CheckCircle2 size={32} className="mx-auto text-ok mb-2"/>
                   <h3 className="font-semibold text-base mb-0.5">All caught up</h3>
                   <p className="text-sm text-ink-muted">
-                    No orders need approval, no trips need attention. Take a moment.
+                    No orders need approval, nothing needs attention. Take a moment.
                   </p>
                 </div>
               ) : (

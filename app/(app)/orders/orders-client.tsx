@@ -22,7 +22,6 @@ import {
   setInvoiceNumber,
   clearInvoiceNumber,
 } from "./actions";
-import { bulkAttachOrdersToTrip, listAllActiveTrips } from "../trips/actions";
 
 const PAGE_SIZE = 50;
 
@@ -307,11 +306,6 @@ export function OrdersClient({
 
   // ============== BULK ACTIONS ==============
   const [bulkPending, startBulkTransition] = useTransition();
-  const [showAttachPicker, setShowAttachPicker] = useState(false);
-  type ActiveTrip = { id: string; trip_number: string; trip_date: string; beat_id: string; status: string; beat: { id: string; name: string } | null; lead: { id: string; full_name: string } | null };
-  const [activeTrips, setActiveTrips] = useState<ActiveTrip[]>([]);
-  const [pickedTripId, setPickedTripId] = useState("");
-
   const allOnPageSelected = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
   const someOnPageSelected = rows.some(r => selectedIds.has(r.id)) && !allOnPageSelected;
 
@@ -370,7 +364,6 @@ export function OrdersClient({
   function exitSelectionMode() {
     setSelectionMode(false);
     setSelectedIds(new Set());
-    setShowAttachPicker(false);
   }
 
   function handleBulkApprove() {
@@ -392,51 +385,6 @@ export function OrdersClient({
     });
   }
 
-  async function startBulkAttach() {
-    if (selectedIds.size === 0) { toast.error("No orders selected"); return; }
-    setShowAttachPicker(true);
-    setPickedTripId("");
-    setActiveTrips([]);
-    const res = await listAllActiveTrips();
-    if ("error" in res && res.error) {
-      toast.error(res.error);
-      setShowAttachPicker(false);
-      return;
-    }
-    const trips = (res.trips ?? []) as unknown as ActiveTrip[];
-    setActiveTrips(trips);
-    if (trips.length === 0) {
-      toast.error("No active trips right now. Start a trip first.");
-      setShowAttachPicker(false);
-      return;
-    }
-    if (trips.length === 1) setPickedTripId(trips[0].id);
-  }
-
-  function handleBulkAttach() {
-    const ids = Array.from(selectedIds);
-    if (!pickedTripId) { toast.error("Pick a trip"); return; }
-    const trip = activeTrips.find(t => t.id === pickedTripId);
-    if (!trip) { toast.error("Trip not found"); return; }
-    const statusLbl = trip.status === "in_progress" ? "on-route" : trip.status;
-    if (!confirm(`Add ${ids.length} order${ids.length === 1 ? "" : "s"} to ${trip.trip_number} (${trip.beat?.name}, ${statusLbl})? Orders may be from any beat — admin override is enabled.`)) return;
-    startBulkTransition(async () => {
-      const res = await bulkAttachOrdersToTrip(ids, pickedTripId);
-      if (res.error) { toast.error(res.error); return; }
-      const failed = (res.total ?? 0) - (res.succeeded ?? 0);
-      const sw = res.stockWarningCount ?? 0;
-      if (failed === 0 && sw === 0) {
-        toast.success(`Added ${res.succeeded} order${res.succeeded === 1 ? "" : "s"} to ${res.tripNumber}`);
-      } else if (failed === 0 && sw > 0) {
-        toast.warning(`Added ${res.succeeded}, but ${sw} stock warning${sw === 1 ? "" : "s"} — lead will see at billing time`, { duration: 8000 });
-      } else {
-        const sample = (res.results ?? []).filter(r => !r.ok).slice(0, 2).map(r => r.error).join("; ");
-        toast.warning(`Added ${res.succeeded} of ${res.total}. ${failed} skipped (${sample}${failed > 2 ? ", …" : ""})`, { duration: 10000 });
-      }
-      exitSelectionMode();
-      setReloadKey(k => k + 1);
-    });
-  }
   // ============== END BULK ACTIONS ==============
 
   useEffect(() => {
@@ -601,13 +549,6 @@ export function OrdersClient({
           await selectAllMatchingFilter();
           await new Promise(r => setTimeout(r, 40));
           handleBulkApprove();
-        }}
-        onAttachAll={async () => {
-          setSelectionMode(true);
-          await new Promise(r => setTimeout(r, 40));
-          await selectAllMatchingFilter();
-          await new Promise(r => setTimeout(r, 40));
-          startBulkAttach();
         }}
       />
 
@@ -877,70 +818,6 @@ export function OrdersClient({
               <CheckCircle2 size={11}/> {bulkPending ? "Approving…" : "Approve"}
             </Button>
           )}
-          {(["admin", "van_lead"].includes(me.role)) && (
-            <Button size="sm" variant="outline" onClick={startBulkAttach} disabled={bulkPending}>
-              <Truck size={11}/> Add to active trip
-            </Button>
-          )}
-        </div>
-      )}
-
-      {showAttachPicker && (
-        <div className="fixed inset-0 bg-ink/40 backdrop-blur-[2px] z-40 flex items-center justify-center px-4">
-          <div className="bg-paper-card border border-paper-line rounded-md shadow-xl max-w-md w-full p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Add {selectedIds.size} order{selectedIds.size === 1 ? "" : "s"} to which trip?</h3>
-              <button onClick={() => setShowAttachPicker(false)} className="text-ink-muted hover:text-ink" disabled={bulkPending}><X size={14}/></button>
-            </div>
-
-            {activeTrips.length === 0 ? (
-              <p className="text-sm text-ink-muted py-4">Loading trips…</p>
-            ) : (
-              <>
-                <div className="space-y-1.5 mb-4 max-h-72 overflow-y-auto">
-                  {activeTrips.map(t => (
-                    <label
-                      key={t.id}
-                      className={`flex items-center gap-2 p-2.5 border rounded cursor-pointer ${pickedTripId === t.id ? "border-accent bg-accent-soft/30" : "border-paper-line hover:border-paper-line"}`}
-                    >
-                      <input
-                        type="radio"
-                        name="bulk-trip-pick"
-                        value={t.id}
-                        checked={pickedTripId === t.id}
-                        onChange={() => setPickedTripId(t.id)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-2xs text-ink-muted">{t.trip_number}</span>
-                          <Badge variant={t.status === "in_progress" ? "accent" : "neutral"}>
-                            {t.status === "in_progress" ? "on route" : t.status}
-                          </Badge>
-                        </div>
-                        <div className="text-sm font-medium">{t.beat?.name ?? "—"}</div>
-                        <div className="text-2xs text-ink-muted">
-                          {new Date(t.trip_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-                          {t.lead && <> · {t.lead.full_name}</>}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-2xs text-ink-subtle mb-3">
-                  Orders can be attached to planning, loading, or on-route trips. From any beat. Stock warnings only fire for on-route trips.
-                </p>
-              </>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowAttachPicker(false)} disabled={bulkPending}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleBulkAttach} disabled={bulkPending || !pickedTripId}>
-                <Truck size={11}/> {bulkPending ? "Adding…" : "Add to trip"}
-              </Button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1297,16 +1174,14 @@ function StatusBadgeAction({ order, meRole, onChanged }: StatusBadgeActionProps)
 // =============================================================================
 
 function PrimaryActionCallout({
-  tab, kpis, meRole, onApproveAll, onAttachAll,
+  tab, kpis, meRole, onApproveAll,
 }: {
   tab: TabKey;
   kpis: Record<TabKey, { count: number; kg: number; amount: number }>;
   meRole: string;
   onApproveAll: () => void;
-  onAttachAll: () => void;
 }) {
   const isApprover = ["admin", "approver"].includes(meRole);
-  const isVanLead = ["admin", "van_lead"].includes(meRole);
   const isBilling = ["admin", "accounts", "billing"].includes(meRole);
 
   if (tab === "approval" && isApprover && kpis.approval.count > 0) {
@@ -1342,27 +1217,6 @@ function PrimaryActionCallout({
             Click any row's status badge → "Mark as invoiced" to enter the invoice number from Tally.
           </div>
         </div>
-      </div>
-    );
-  }
-
-  if (tab === "invoiced" && isVanLead && kpis.invoiced.count > 0) {
-    return (
-      <div className="bg-accent-soft border border-accent/30 rounded-md p-3 sm:p-4 mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <PackageCheck size={18} className="text-accent shrink-0"/>
-          <div>
-            <div className="font-semibold text-sm">
-              {kpis.invoiced.count} invoiced order{kpis.invoiced.count === 1 ? "" : "s"} ready to load
-            </div>
-            <div className="text-2xs text-ink-muted">
-              Add to a VAN trip, or hand off to the loading workflow.
-            </div>
-          </div>
-        </div>
-        <Button onClick={onAttachAll} size="sm" variant="outline" className="shrink-0">
-          <Truck size={13}/> Add all to VAN trip
-        </Button>
       </div>
     );
   }

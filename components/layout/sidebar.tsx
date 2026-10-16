@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   ShoppingBag,
   Truck,
-  Route,
   Users2,
   Package,
   UserCircle2,
@@ -34,7 +33,6 @@ const navItems = [
   { href: "/pipeline",                     label: "Pipeline",       icon: Kanban,          roles: "all"   },
   { href: "/orders",                       label: "Orders",         icon: ShoppingBag,     roles: "all"   },
   { href: "/dispatches",                   label: "Dispatches",     icon: Truck,           roles: "all"   },
-  { href: "/trips",                        label: "VAN Trips",      icon: Route,           roles: "all"   },
   { href: "/beats",                        label: "Beats",          icon: MapPin,          roles: "all"   },
   { href: "/customers",                    label: "Customers",      icon: Users2,          roles: "all"   },
   { href: "/products",                     label: "Products",       icon: Package,         roles: "all"   },
@@ -44,7 +42,6 @@ const navItems = [
   { href: "/sales-monitor",                label: "Sales Monitor",  icon: TrendingUp,      roles: "admin" },
   { href: "/sales-monitor/journey-cycles", label: "PJP"           , icon: CalendarRange,   roles: "admin" },
   { href: "/sales-monitor?tab=targets",                      label: "Beat Targets",   icon: Target,          roles: "admin" },
-  { href: "/sales", label: "Sales", icon: TrendingUp, roles: "admin" },
   { href: "/users",                        label: "Users",          icon: Shield,          roles: "admin" },
   { href: "/settings",                     label: "Settings",       icon: Settings,        roles: "admin" },
 ] as const;
@@ -110,7 +107,7 @@ export function Sidebar({ user }: { user: AppUser }) {
           const active = isActive(item.href);
           const Icon = item.icon;
           // Visually nest Journey Cycles and Beat Targets under Sales Monitor
-          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor?tab=targets" || item.href === "/sales";
+          const isNested = item.href === "/sales-monitor/journey-cycles" || item.href === "/sales-monitor?tab=targets";
           return (
             <Link
               key={item.href}

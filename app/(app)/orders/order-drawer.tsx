@@ -26,7 +26,6 @@ import {
   approveOrder, rejectOrder, editOrder, setInvoiceNumber, clearInvoiceNumber, type EditPayload,
 } from "./actions";
 import { createDispatch, shipDispatch, cancelDispatch } from "../dispatches/actions";
-import { attachOrderToTrip, listActiveTripsForOrder } from "../trips/actions";
 import { updateCustomerBeat } from "../customers/actions";
 
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
@@ -124,22 +123,10 @@ function OrderDrawerInner({
   const [rejectReason, setRejectReason] = useState("");
   const [dispatchMode, setDispatchMode] = useState(false);
 
-  type ActiveTrip = {
-    id: string; trip_number: string; trip_date: string; status: string;
-    beat_id?: string;
-    beat?: { id: string; name: string } | { id: string; name: string }[] | null;
-    same_beat?: boolean;
-    lead: { id: string; full_name: string } | { id: string; full_name: string }[] | null;
-  };
-  const [attachTripMode, setAttachTripMode] = useState(false);
-  const [activeTrips, setActiveTrips] = useState<ActiveTrip[]>([]);
-  const [attachTripId, setAttachTripId] = useState<string>("");
-  const [attachLoading, setAttachLoading] = useState(false);
-
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
-    setLoading(true); setEditMode(false); setRejectMode(false); setDispatchMode(false); setAttachTripMode(false); setTab("current");
+    setLoading(true); setEditMode(false); setRejectMode(false); setDispatchMode(false); setTab("current");
     (async () => {
       const [{ data: it }, { data: au }, { data: rv }, { data: ds }, { data: pr }] = await Promise.all([
         supabase.from("order_items").select("*").eq("order_id", order.id).order("created_at"),
@@ -161,7 +148,6 @@ function OrderDrawerInner({
   const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
   const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
   const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
-  const canAttachTrip = ["admin", "van_lead"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
 
   function startEdit() {
     const m = new Map<string, { qty: number; price: number; removed: boolean }>();
@@ -216,49 +202,6 @@ function OrderDrawerInner({
       const res = await rejectOrder(order.id, rejectReason);
       if (res.error) toast.error(res.error);
       else { toast.success("Order rejected"); setRejectMode(false); router.refresh(); reload(); }
-    });
-  }
-
-  async function startAttachTrip() {
-    setAttachTripMode(true);
-    setAttachLoading(true);
-    setActiveTrips([]);
-    setAttachTripId("");
-    const res = await listActiveTripsForOrder(order.id);
-    setAttachLoading(false);
-    if (res.error) {
-      toast.error(res.error);
-      setAttachTripMode(false);
-      return;
-    }
-    if (!res.orderEligible) {
-      toast.error(res.reason ?? "Order not eligible for attaching to a trip");
-      setAttachTripMode(false);
-      return;
-    }
-    const trips = (res.trips ?? []) as ActiveTrip[];
-    setActiveTrips(trips);
-    if (trips.length === 1) setAttachTripId(trips[0].id);
-  }
-
-  function handleAttachTrip() {
-    if (!attachTripId) { toast.error("Pick a trip"); return; }
-    startTransition(async () => {
-      const res = await attachOrderToTrip({ orderId: order.id, tripId: attachTripId });
-      if (res.error) { toast.error(res.error); return; }
-      const trip = activeTrips.find(t => t.id === attachTripId);
-      const tripLabel = trip?.trip_number ?? "trip";
-      const warns = res.stockWarnings ?? [];
-      if (warns.length === 0) {
-        toast.success(`Added to ${tripLabel} as ${res.billNumber}`);
-      } else {
-        const sample = warns.slice(0, 2).map(w => `${w.productName} short by ${(w.qtyNeeded - w.qtyRemaining).toFixed(0)}`).join("; ");
-        const more = warns.length > 2 ? ` (+${warns.length - 2} more)` : "";
-        toast.warning(`Attached, but stock low: ${sample}${more}. Lead will see this when billing.`, { duration: 8000 });
-      }
-      setAttachTripMode(false);
-      router.refresh();
-      reload();
     });
   }
 
@@ -356,16 +299,6 @@ function OrderDrawerInner({
                 {pending ? "Rejecting…" : "Confirm Reject"}
               </Button>
             </>
-          ) : attachTripMode ? (
-            <>
-              <Button variant="outline" onClick={() => setAttachTripMode(false)} disabled={pending}>Cancel</Button>
-              <Button
-                onClick={handleAttachTrip}
-                disabled={pending || attachLoading || !attachTripId || activeTrips.length === 0}
-              >
-                <Truck size={13}/> {pending ? "Adding…" : "Add to trip"}
-              </Button>
-            </>
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>Close</Button>
@@ -380,11 +313,6 @@ function OrderDrawerInner({
                   </Button>
                 </>
               )}
-              {canAttachTrip && !dispatchMode && (
-                <Button variant="outline" onClick={startAttachTrip} disabled={pending}>
-                  <Truck size={13}/> Add to active trip
-                </Button>
-              )}
               {canDispatch && !dispatchMode && (
                 <Button onClick={() => setDispatchMode(true)} disabled={pending}>
                   <Truck size={13}/> Create Dispatch
@@ -393,65 +321,6 @@ function OrderDrawerInner({
             </>
           )}
         </SheetFooter>
-
-        {attachTripMode && (
-          <div className="px-5 py-3 border-t border-paper-line bg-paper-subtle/40 space-y-2">
-            <Label className="text-xs">Active trips</Label>
-            {attachLoading ? (
-              <div className="text-sm text-ink-muted">Looking for active trips…</div>
-            ) : activeTrips.length === 0 ? (
-              <div className="text-sm text-ink-muted italic">
-                No active trip is running right now. Start a trip first, or use Create Dispatch instead.
-              </div>
-            ) : activeTrips.length === 1 ? (
-              <div className="text-sm">
-                {(() => {
-                  const t = activeTrips[0];
-                  const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
-                  const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
-                  return (
-                    <>
-                      Will attach to <strong className="font-mono">{t.trip_number}</strong>
-                      {" — "}
-                      <span className="text-ink-muted">{beat?.name ?? "—"} · Lead: {lead?.full_name ?? "—"}</span>
-                      {t.same_beat === false && (
-                        <div className="text-2xs text-warn mt-1">
-                          ⚠ Cross-beat: this trip is on {beat?.name}, but the customer is on a different beat. Make sure the lead can reach them.
-                        </div>
-                      )}
-                      <div className="text-2xs text-ink-subtle mt-1">
-                        The lead will see this as a new pre-order on the mobile app.
-                        If stock on the truck is short, you&apos;ll get a warning and the lead will see it at billing time.
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            ) : (
-              <>
-                <Select value={attachTripId} onValueChange={setAttachTripId}>
-                  <SelectTrigger><SelectValue placeholder="Pick which trip…" /></SelectTrigger>
-                  <SelectContent>
-                    {activeTrips.map(t => {
-                      const lead = Array.isArray(t.lead) ? t.lead[0] : t.lead;
-                      const beat = Array.isArray(t.beat) ? t.beat[0] : t.beat;
-                      const statusLbl = t.status === "in_progress" ? "on route" : t.status;
-                      return (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.trip_number} · {beat?.name ?? "—"} · {statusLbl} · {lead?.full_name ?? "—"}
-                          {t.same_beat === false ? "  (other beat)" : ""}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                <div className="text-2xs text-ink-subtle">
-                  Same-beat on-route trips appear first. Planning/loading trips also accept attachments.
-                </div>
-              </>
-            )}
-          </div>
-        )}
 
         {rejectMode && (
           <div className="px-5 py-3 border-t border-paper-line bg-danger-soft">

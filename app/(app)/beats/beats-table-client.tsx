@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ArrowDownRight, Minus, MapPin, Sparkles, RefreshCw, AlertCircle, Plus, Pencil } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus, MapPin, Plus, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,51 +62,14 @@ interface Props {
   canManage: boolean;  // whether to show Edit/Add buttons
 }
 
-export function BeatsTableClient({ beats: initialBeats, isAdmin, canManage }: Props) {
-  const [lines, setLines] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function BeatsTableClient({ beats: initialBeats, canManage }: Props) {
   const [editing, setEditing] = useState<BeatSummary | null>(null);
   const [adding, setAdding] = useState(false);
-
-  // AI lines fetch
-  useEffect(() => {
-    if (!isAdmin) return;
-    let cancelled = false;
-    setLoading(true);
-    fetch("/api/ai/insights-beat-lines", { method: "POST" })
-      .then(r => r.json())
-      .then(d => {
-        if (cancelled) return;
-        if (!d.ok) {
-          setError(d.error || "Failed to load");
-          return;
-        }
-        setLines(d.lines ?? {});
-      })
-      .catch(e => { if (!cancelled) setError(e?.message ?? "Network error"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [isAdmin]);
 
   return (
     <>
       <div className="mb-2 flex items-center justify-between gap-2">
-        {isAdmin ? (
-          error ? (
-            <span className="inline-flex items-center gap-1 text-2xs text-danger">
-              <AlertCircle size={10}/> AI insights failed
-            </span>
-          ) : loading ? (
-            <span className="inline-flex items-center gap-1 text-2xs text-ink-subtle">
-              <RefreshCw size={10} className="animate-spin"/> AI loading...
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-2xs text-accent">
-              <Sparkles size={10}/> AI insights
-            </span>
-          )
-        ) : <span />}
+        <span />
         {canManage && (
           <Button size="sm" onClick={() => setAdding(true)}>
             <Plus size={14}/> Add beat
@@ -115,7 +78,7 @@ export function BeatsTableClient({ beats: initialBeats, isAdmin, canManage }: Pr
       </div>
       <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className={`w-full text-sm ${isAdmin ? "min-w-[980px]" : "min-w-[760px]"}`}>
+          <table className={`w-full text-sm min-w-[760px]`}>
             <thead className="bg-paper-subtle/50 border-b border-paper-line">
               <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
                 <th className="px-3 py-2 font-medium">Beat</th>
@@ -125,7 +88,6 @@ export function BeatsTableClient({ beats: initialBeats, isAdmin, canManage }: Pr
                 <th className="px-3 py-2 font-medium text-right">Customers</th>
                 <th className="px-3 py-2 font-medium text-right">Active</th>
                 <th className="px-3 py-2 font-medium text-right">Sleeping</th>
-                {isAdmin && <th className="px-3 py-2 font-medium min-w-[280px]">AI insight</th>}
                 {canManage && <th className="px-3 py-2 font-medium text-right">Edit</th>}
               </tr>
             </thead>
@@ -154,11 +116,6 @@ export function BeatsTableClient({ beats: initialBeats, isAdmin, canManage }: Pr
                       <span className="text-ink-subtle">0</span>
                     )}
                   </td>
-                  {isAdmin && (
-                    <td className="px-3 py-2.5 text-xs text-ink leading-relaxed">
-                      {lines[b.beat_id] ?? <span className="text-ink-subtle">—</span>}
-                    </td>
-                  )}
                   {canManage && (
                     <td className="px-3 py-2.5 text-right">
                       <Button variant="ghost" size="sm" onClick={() => setEditing(b)}>
@@ -182,7 +139,7 @@ export function BeatsTableClient({ beats: initialBeats, isAdmin, canManage }: Pr
             onSaved={() => {
               setEditing(null);
               setAdding(false);
-              // Reload the page to pick up new data + regenerated AI lines
+              // Reload the page to pick up new data
               window.location.reload();
             }}
             onCancel={() => { setEditing(null); setAdding(false); }}

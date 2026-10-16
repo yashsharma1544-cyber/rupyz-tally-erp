@@ -5,7 +5,6 @@ import {
   ArrowLeft, Package, MapPin, Phone, Users, TrendingUp, TrendingDown, Minus,
   AlertCircle, ChevronRight,
 } from "lucide-react";
-import { NarrativeSection } from "@/components/ai/narrative-section";
 import type { ProductDetailData, BuyerRow } from "./page";
 
 function fmtKg(n: number): string {
@@ -59,18 +58,9 @@ export function ProductDetailClient({ data }: { data: ProductDetailData }) {
       {/* 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* AI sidebar — right on desktop, top on mobile */}
-        <aside className="lg:col-span-1 lg:order-2">
-          <div className="lg:sticky lg:top-4">
-            <NarrativeSection
-              endpoint={`/api/ai/narrative/product/${data.id}`}
-              title="AI insights"
-            />
-          </div>
-        </aside>
 
         {/* Main content */}
-        <div className="lg:col-span-2 lg:order-1 space-y-4">
+        <div className="lg:col-span-3 space-y-4">
 
           {/* KPI tiles */}
           <div className="grid grid-cols-2 gap-2 lg:gap-3">
