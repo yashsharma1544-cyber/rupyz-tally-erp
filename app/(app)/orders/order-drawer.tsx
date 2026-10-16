@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ExternalLink, FileEdit, Check, X, Trash2, Plus, History, FileText, MapPin, Receipt,
+  ExternalLink, FileEdit, Check, X, Truck, Trash2, Plus, History, FileText, MapPin, Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import {
   approveOrder, rejectOrder, editOrder, setInvoiceNumber, clearInvoiceNumber, type EditPayload,
 } from "./actions";
+import { createDispatch, shipDispatch, cancelDispatch, markDelivered, listDispatchOptions } from "../dispatches/actions";
 import { updateCustomerBeat } from "../customers/actions";
 
 function statusBadgeVariant(s: OrderAppStatus): "neutral" | "ok" | "warn" | "danger" | "accent" {
@@ -120,11 +121,12 @@ function OrderDrawerInner({
   const [editState, setEditState] = useState<EditState | null>(null);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [dispatchMode, setDispatchMode] = useState(false);
 
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
-    setLoading(true); setEditMode(false); setRejectMode(false); setTab("current");
+    setLoading(true); setEditMode(false); setRejectMode(false); setDispatchMode(false); setTab("current");
     (async () => {
       const [{ data: it }, { data: au }, { data: rv }, { data: ds }, { data: pr }] = await Promise.all([
         supabase.from("order_items").select("*").eq("order_id", order.id).order("created_at"),
@@ -145,6 +147,7 @@ function OrderDrawerInner({
 
   const canApprove   = ["admin", "approver"].includes(me.role) && order.app_status === "received";
   const canEdit      = ["admin", "approver"].includes(me.role) && ["received", "approved"].includes(order.app_status);
+  const canDispatch  = ["admin", "dispatch", "approver"].includes(me.role) && ["invoiced", "partially_dispatched"].includes(order.app_status);
 
   function startEdit() {
     const m = new Map<string, { qty: number; price: number; removed: boolean }>();
@@ -262,6 +265,7 @@ function OrderDrawerInner({
               order={order} items={items} dispatches={dispatches}
               loading={loading}
               editMode={editMode} editState={editState} setEditState={setEditState}
+              dispatchMode={dispatchMode} setDispatchMode={setDispatchMode}
               products={products} remainingQty={remainingQty}
               me={me} beats={beats} reload={reload} pending={pending}
             />
@@ -298,16 +302,21 @@ function OrderDrawerInner({
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>Close</Button>
-              {canEdit && (
+              {canEdit && !dispatchMode && (
                 <Button variant="outline" onClick={startEdit} disabled={pending}><FileEdit size={13}/> Edit</Button>
               )}
-              {canApprove && (
+              {canApprove && !dispatchMode && (
                 <>
                   <Button variant="danger" onClick={() => setRejectMode(true)} disabled={pending}><X size={13}/> Reject</Button>
                   <Button onClick={handleApprove} disabled={pending}>
                     <Check size={13}/> {pending ? "Approving…" : "Approve"}
                   </Button>
                 </>
+              )}
+              {canDispatch && !dispatchMode && (
+                <Button onClick={() => setDispatchMode(true)} disabled={pending}>
+                  <Truck size={13}/> Create Dispatch
+                </Button>
               )}
             </>
           )}
@@ -362,6 +371,7 @@ function TabBtn({ active, onClick, icon, children }: { active: boolean; onClick:
 function CurrentTab({
   order, items, dispatches, loading,
   editMode, editState, setEditState,
+  dispatchMode, setDispatchMode,
   products, remainingQty, me, beats, reload, pending,
 }: {
   order: Order;
@@ -371,6 +381,8 @@ function CurrentTab({
   editMode: boolean;
   editState: EditState | null;
   setEditState: (e: EditState | null) => void;
+  dispatchMode: boolean;
+  setDispatchMode: (b: boolean) => void;
   products: Pick<Product, "id" | "name" | "unit" | "base_price" | "gst_percent">[];
   remainingQty: (line: OrderItem) => number;
   me: AppUser;
@@ -446,12 +458,19 @@ function CurrentTab({
         products={products}
       />
 
-      {dispatches.length > 0 && (
+      {(dispatches.length > 0 || dispatchMode) && (
         <div className="mt-6">
           <h3 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2">Dispatches ({dispatches.length})</h3>
           {dispatches.map((d) => (
-            <DispatchCard key={d.id} dispatch={d} />
+            <DispatchCard key={d.id} dispatch={d} reload={reload} me={me} pending={pending} />
           ))}
+          {dispatchMode && (
+            <DispatchBuilder
+              order={order} items={items} remainingQty={remainingQty}
+              onCancel={() => setDispatchMode(false)}
+              onCreated={async () => { setDispatchMode(false); await reload(); }}
+            />
+          )}
         </div>
       )}
     </>
@@ -756,7 +775,37 @@ function ItemsTable({
   );
 }
 
-function DispatchCard({ dispatch }: { dispatch: Dispatch }) {
+function DispatchCard({ dispatch, reload, me, pending: parentPending }: { dispatch: Dispatch; reload: () => Promise<void>; me: AppUser; pending: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState<"ship" | "cancel" | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
+  function handleShip() {
+    startTransition(async () => {
+      const res = await shipDispatch(dispatch.id);
+      if (res.error) toast.error(res.error);
+      else { toast.success("Dispatch marked shipped"); setConfirming(null); await reload(); }
+    });
+  }
+  function handleDeliver() {
+    if (!confirm(`Mark ${dispatch.dispatch_number} as delivered?`)) return;
+    startTransition(async () => {
+      const res = await markDelivered(dispatch.id);
+      if (res.error) toast.error(res.error);
+      else { toast.success("Dispatch marked delivered"); await reload(); }
+    });
+  }
+  function handleCancel() {
+    if (cancelReason.trim().length < 3) { toast.error("Reason required"); return; }
+    startTransition(async () => {
+      const res = await cancelDispatch(dispatch.id, cancelReason);
+      if (res.error) toast.error(res.error);
+      else { toast.success("Dispatch cancelled"); setConfirming(null); setCancelReason(""); await reload(); }
+    });
+  }
+
+  const canActOnDispatch = ["admin", "dispatch"].includes(me.role);
+
   const statusBadge = {
     pending:   { variant: "warn"   as const, label: "Pending" },
     shipped:   { variant: "accent" as const, label: "Shipped" },
@@ -802,6 +851,172 @@ function DispatchCard({ dispatch }: { dispatch: Dispatch }) {
         </div>
       )}
 
+      {confirming === "cancel" && (
+        <div className="bg-danger-soft p-2 rounded mb-2">
+          <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Cancel reason" className="bg-paper-card" />
+          <div className="flex gap-1 mt-1.5">
+            <Button size="sm" variant="outline" onClick={() => setConfirming(null)}>Cancel</Button>
+            <Button size="sm" variant="danger" onClick={handleCancel} disabled={pending}>Confirm cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {canActOnDispatch && !confirming && (
+        <div className="flex gap-1 justify-end">
+          {dispatch.status === "pending" && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setConfirming("cancel")}>Cancel</Button>
+              <Button size="sm" onClick={handleShip} disabled={pending}>
+                <Truck size={11}/> {pending ? "..." : "Mark shipped"}
+              </Button>
+            </>
+          )}
+          {dispatch.status === "shipped" && (
+            <Button size="sm" onClick={handleDeliver} disabled={pending}>
+              <Check size={11}/> {pending ? "..." : "Mark delivered"}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DispatchBuilder({
+  order, items, remainingQty, onCancel, onCreated,
+}: {
+  order: Order;
+  items: OrderItem[];
+  remainingQty: (line: OrderItem) => number;
+  onCancel: () => void;
+  onCreated: () => void;
+}) {
+  const [qtys, setQtys] = useState<Map<string, number>>(new Map());
+  const [vehicle, setVehicle] = useState("");
+  const [driver, setDriver] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [phone, setPhone] = useState("");
+  const [vehicleOpts, setVehicleOpts] = useState<Array<{ id: string; number: string }>>([]);
+  const [driverOpts, setDriverOpts] = useState<Array<{ id: string; full_name: string; phone: string | null }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listDispatchOptions().then(res => {
+      if (cancelled || !("ok" in res) || !res.ok) return;
+      setVehicleOpts(res.vehicles ?? []);
+      setDriverOpts(res.drivers ?? []);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  function pickDriver(id: string) {
+    setDriverId(id);
+    const d = driverOpts.find(x => x.id === id);
+    setDriver(d?.full_name ?? "");
+    setPhone(d?.phone ?? "");
+  }
+  const [notes, setNotes] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const eligible = items.filter(it => remainingQty(it) > 0);
+
+  function set(id: string, v: number) {
+    const m = new Map(qtys);
+    m.set(id, v);
+    setQtys(m);
+  }
+
+  function handleCreate() {
+    const lines = Array.from(qtys.entries())
+      .filter(([, q]) => q > 0)
+      .map(([orderItemId, qty]) => ({ orderItemId, qty }));
+    if (!lines.length) { toast.error("Pick at least one line item"); return; }
+
+    startTransition(async () => {
+      const res = await createDispatch(order.id, lines, {
+        vehicleNumber: vehicle.trim() || undefined,
+        driverName: driver.trim() || undefined,
+        driverPhone: phone.trim() || undefined,
+        driverUserId: driverId || undefined,
+        notes: notes.trim() || undefined,
+      });
+      if (res.error) toast.error(res.error);
+      else { toast.success(`Dispatch ${res.dispatchNumber} created`); onCreated(); }
+    });
+  }
+
+  return (
+    <div className="border border-accent rounded p-3 mb-2 bg-accent-soft/40 mt-3">
+      <h4 className="font-semibold text-sm mb-3">Create new dispatch</h4>
+
+      {eligible.length === 0 ? (
+        <p className="text-sm text-ink-muted">All items already fully dispatched.</p>
+      ) : (
+        <table className="w-full text-xs mb-3">
+          <thead>
+            <tr className="text-left text-2xs uppercase text-ink-muted">
+              <th className="py-1">Product</th>
+              <th className="py-1 text-right">Available</th>
+              <th className="py-1 text-right">Dispatch qty</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-paper-line">
+            {eligible.map(it => {
+              const avail = remainingQty(it);
+              return (
+                <tr key={it.id}>
+                  <td className="py-1.5">{it.product_name}</td>
+                  <td className="py-1.5 text-right tabular">{avail} {it.unit}</td>
+                  <td className="py-1.5 text-right">
+                    <Input
+                      type="number" step="0.001" min="0" max={avail}
+                      value={qtys.get(it.id) ?? 0}
+                      onChange={(e) => set(it.id, Math.min(avail, parseFloat(e.target.value) || 0))}
+                      className="w-24 text-right tabular ml-auto bg-paper-card"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div>
+          <Label className="block mb-1 text-2xs">Vehicle</Label>
+          {vehicleOpts.length > 0 ? (
+            <select value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="w-full h-9 rounded border border-paper-line bg-paper-card px-2 text-sm">
+              <option value="">Select vehicle</option>
+              {vehicleOpts.map(v => <option key={v.id} value={v.number}>{v.number}</option>)}
+            </select>
+          ) : (
+            <Input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="MH 21 AB 1234" className="bg-paper-card" />
+          )}
+        </div>
+        <div>
+          <Label className="block mb-1 text-2xs">Driver</Label>
+          {driverOpts.length > 0 ? (
+            <select value={driverId} onChange={(e) => pickDriver(e.target.value)} className="w-full h-9 rounded border border-paper-line bg-paper-card px-2 text-sm">
+              <option value="">Select driver</option>
+              {driverOpts.map(d => <option key={d.id} value={d.id}>{d.full_name}</option>)}
+            </select>
+          ) : (
+            <Input value={driver} onChange={(e) => setDriver(e.target.value)} className="bg-paper-card" />
+          )}
+        </div>
+        <div>
+          <Label className="block mb-1 text-2xs">Driver phone</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="bg-paper-card tabular" />
+        </div>
+      </div>
+
+      <div className="flex gap-2 justify-end">
+        <Button variant="outline" onClick={onCancel} disabled={pending}>Cancel</Button>
+        <Button onClick={handleCreate} disabled={pending || eligible.length === 0}>
+          {pending ? "Creating…" : "Create dispatch"}
+        </Button>
+      </div>
     </div>
   );
 }
