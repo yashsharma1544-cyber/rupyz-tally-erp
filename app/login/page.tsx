@@ -35,25 +35,13 @@ function LoginForm() {
     const digits = trimmed.replace(/\D/g, "");
     const looksLikePhone = digits.length >= 10 && !trimmed.includes("@");
     const email = looksLikePhone ? `${digits}@drivers.sushil.local` : trimmed.toLowerCase();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setBusy(false);
       toast.error(error.message);
       return;
     }
-    // Look up role to decide where to send. Driver users go to /driver, everyone
-    // else goes to ?from path or /dashboard.
-    let target = fromPath;
-    if (data.user?.id) {
-      const { data: appUser } = await supabase
-        .from("app_users")
-        .select("role")
-        .eq("id", data.user.id)
-        .maybeSingle();
-      if (appUser?.role === "driver" && fromPath === "/dashboard") {
-        target = "/driver";
-      }
-    }
+    const target = fromPath;
     setBusy(false);
     router.replace(target);
     router.refresh();

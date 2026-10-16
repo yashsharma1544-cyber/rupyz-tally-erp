@@ -9,7 +9,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   CheckSquare, Truck, AlertTriangle, ChevronRight, ShoppingBag,
-  CheckCircle2, IndianRupee, Clock, AlertCircle, MapPin, Users,
+  CheckCircle2, IndianRupee, Clock, AlertCircle, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
@@ -123,7 +123,7 @@ export default async function DashboardPage() {
       icon: Truck,
       title: `${readyToSend.count} order${readyToSend.count === 1 ? "" : "s"} approved and ready to send`,
       detail: `Worth ${formatINR(readyToSend.amount)} · ready to dispatch`,
-      href: me.role === "dispatch" ? "/dispatch" : "/orders?tab=dispatch",
+      href: "/orders?tab=dispatch",
       accent: "accent",
     });
   }
@@ -205,8 +205,6 @@ export default async function DashboardPage() {
               <section>
                 <h2 className="text-2xs uppercase tracking-[0.2em] text-ink-subtle mb-2.5">Manage</h2>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-                  <NavTile icon={Truck}    title="Drivers"   subtitle="Truck driver accounts" href="/drivers" />
-                  <NavTile icon={MapPin}   title="Trucks"    subtitle="Trip routes &amp; maps"     href="/trucks" />
                   <NavTile icon={Users}    title="Users"     subtitle="ERP staff accounts"    href="/users" />
                 </div>
               </section>
