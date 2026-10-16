@@ -1,5 +1,3 @@
-import { I18nProvider } from "@/lib/i18n/context";
-import { LanguageToggle } from "@/components/language-toggle";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";

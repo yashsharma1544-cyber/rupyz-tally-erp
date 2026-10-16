@@ -5,9 +5,8 @@ import { SyncPanel } from "./sync-panel";
 import { BackfillPanel, type BackfillState } from "./backfill-panel";
 import { OutstandingPanel } from "./outstanding-panel";
 import { TokenPanel } from "./token-panel";
-import { TallyPanel } from "./tally-panel";
 import { TeamActivitySyncPanel } from "./team-activity-panel";
-import type { RupyzSyncLog, TallySyncLog } from "@/lib/types";
+import type { RupyzSyncLog } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -19,7 +18,6 @@ export default async function SettingsPage() {
     { data: session },
     { data: logs },
     { data: outAgg },
-    { data: tallyLogs },
     { data: backfillState },
   ] = await Promise.all([
     supabase.from("rupyz_session").select("org_id, username, expires_at, last_refreshed_at, last_team_activity_sync_at").maybeSingle(),
@@ -28,10 +26,6 @@ export default async function SettingsPage() {
       .order("started_at", { ascending: false })
       .limit(15),
     supabase.from("customer_outstanding").select("amount"),
-    supabase.from("tally_sync_log")
-      .select("*")
-      .order("started_at", { ascending: false })
-      .limit(15),
     supabase.from("rupyz_backfill_state").select("*").eq("id", 1).maybeSingle(),
   ]);
   const totalRows = outAgg?.length ?? 0;
@@ -54,7 +48,6 @@ export default async function SettingsPage() {
           <BackfillPanel state={backfillState as BackfillState} />
         )}
         <OutstandingPanel totalRows={totalRows} totalAmount={totalAmount} />
-        <TallyPanel logs={(tallyLogs ?? []) as TallySyncLog[]} />
         <Card title="WATi WhatsApp" detail="Coming in Phase 6 — API key, template IDs, sender number." />
       </div>
     </>
