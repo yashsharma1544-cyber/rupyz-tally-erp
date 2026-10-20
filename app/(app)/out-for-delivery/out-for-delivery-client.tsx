@@ -198,14 +198,20 @@ export function OutForDeliveryClient({
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      {/* Status chips */}
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusChip label="Pending" count={statusCounts.pending} active={filters.status === "pending"} onClick={() => setParam("status", "pending")} tone="amber" />
-        <StatusChip label="In transit" count={statusCounts.dispatched} active={filters.status === "dispatched"} onClick={() => setParam("status", "dispatched")} tone="blue" />
-        <StatusChip label="Delivered" count={statusCounts.delivered} active={filters.status === "delivered"} onClick={() => setParam("status", "delivered")} tone="emerald" />
-        <StatusChip label="All" count={statusCounts.all} active={filters.status === "all"} onClick={() => setParam("status", "all")} tone="neutral" />
+      {/* Status chips + parties link.
+          On mobile the chips get their own horizontally-scrollable row so
+          each one stays legible / tappable, and the Parties & Beats button
+          drops to its own line below. On md+ it collapses to a single row
+          with the button pushed right (ml-auto). */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:flex-wrap">
+        <div className="flex items-center gap-2 overflow-x-auto -mx-4 px-4 pb-1 md:mx-0 md:px-0 md:pb-0 md:flex-wrap">
+          <StatusChip label="Pending" count={statusCounts.pending} active={filters.status === "pending"} onClick={() => setParam("status", "pending")} tone="amber" />
+          <StatusChip label="In transit" count={statusCounts.dispatched} active={filters.status === "dispatched"} onClick={() => setParam("status", "dispatched")} tone="blue" />
+          <StatusChip label="Delivered" count={statusCounts.delivered} active={filters.status === "delivered"} onClick={() => setParam("status", "delivered")} tone="emerald" />
+          <StatusChip label="All" count={statusCounts.all} active={filters.status === "all"} onClick={() => setParam("status", "all")} tone="neutral" />
+        </div>
         <Link href="/out-for-delivery/parties"
-          className="ml-auto h-8 px-3 rounded-full border border-paper-line hover:bg-paper-subtle text-xs font-medium inline-flex items-center gap-1.5">
+          className="h-8 px-3 rounded-full border border-paper-line hover:bg-paper-subtle text-xs font-medium inline-flex items-center justify-center gap-1.5 md:ml-auto">
           <MapPin size={12} /> Parties &amp; Beats
         </Link>
       </div>
@@ -366,7 +372,7 @@ function StatusChip({ label, count, active, onClick, tone }: { label: string; co
     neutral: active ? "bg-ink text-paper border-ink" : "border-paper-line hover:bg-paper-subtle",
   }[tone];
   return (
-    <button onClick={onClick} className={`h-8 px-3 rounded-full border text-xs font-medium inline-flex items-center gap-1.5 ${toneCls}`}>
+    <button onClick={onClick} className={`h-8 px-3 rounded-full border text-xs font-medium inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap ${toneCls}`}>
       {label}
       <span className={`tabular ${active ? "" : "text-ink-muted"}`}>{count.toLocaleString("en-IN")}</span>
     </button>
