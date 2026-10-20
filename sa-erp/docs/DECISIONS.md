@@ -30,3 +30,11 @@ Newest decisions are added at the bottom. Each entry gives the date, the decisio
 | Q-4 | `tsv2` has no Anjali purchase vouchers. How does Anjali buy stock? Phase 3 payables depends on this. |
 | Q-5 | Which Jalna-territory beats are outstation, and which weekday does each one run? Right now they're treated as city routes (same or next day). |
 | Q-6 | Is the ₹500 bounce charge in Sushil billed with GST as a debit note, or without GST? |
+
+## Later decisions
+
+| ID | Date | Decision | By |
+|---|---|---|---|
+| D-16 | 2026-10-20 | `docs/ARCHITECTURE.md` approved. Building starts with Phase 0, slice 0.1. Until the `sa-erp` repo exists, the code lives in the `sa-erp/` folder of `rupyz-tally-erp`, which excludes that folder from its own type-check. | Owner |
+| D-17 | 2026-10-20 | Soft-deleted rows are visible only to people who may edit that table, so they can restore them. Everyone else never sees them. Hard delete is blocked by a database trigger, even for admin connections. | Claude (convention) |
+| D-18 | 2026-10-20 | The audit log never stores PIN hashes. The changed field name is still recorded. | Claude (convention) |
