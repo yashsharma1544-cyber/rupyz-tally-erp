@@ -8,10 +8,10 @@
 
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DispatchActions } from "./dispatch-actions-client";
+import { DispatchActions, PrintButton } from "./dispatch-actions-client";
 import { VehicleLoadsClient, type LoadRow } from "./loads-client";
 
 export const dynamic = "force-dynamic";
@@ -137,10 +137,7 @@ export default async function DispatchLoadListPage({
         </Link>
         <div className="flex items-center gap-2">
           <DispatchActions dispatchId={params.id} invoiceIds={invoiceIds} />
-          <button onClick={() => window.print()}
-            className="h-9 px-3 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 inline-flex items-center gap-1.5">
-            <Printer size={14} /> Print
-          </button>
+          <PrintButton />
         </div>
       </div>
 
