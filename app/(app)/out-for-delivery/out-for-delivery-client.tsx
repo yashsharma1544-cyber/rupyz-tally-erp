@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, ChevronDown, Search, X } from "lucide-react";
-import { fetchInvoiceLines } from "./actions";
+import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, Printer } from "lucide-react";
+import { fetchInvoiceLines, createDispatch, markDelivered } from "./actions";
+
+export type InvoiceStatus = "pending" | "dispatched" | "delivered";
 
 export type InvoiceRow = {
   id: string;
@@ -12,9 +14,18 @@ export type InvoiceRow = {
   voucher_type: string;
   party_name: string;
   party_group: string | null;
+  beat: string;
   total_amount: number;
   tax: number;
+  kg: number;
+  dispatched_at: string | null;
+  delivered_at: string | null;
+  dispatch_id: string | null;
+  status: InvoiceStatus;
 };
+
+export type VehicleOpt = { id: string; number: string; make: string | null; capacity_kg: number | null };
+export type DriverOpt = { id: string; name: string; role: string };
 
 export type LineRow = {
   line_no: number | null;
@@ -29,34 +40,44 @@ export type LineRow = {
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", {
-    day: "numeric", month: "short", year: "2-digit", timeZone: "UTC",
-  });
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" });
 }
-
 function fmtMoney(n: number): string {
   return "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
-
 function fmtKg(n: number | null): string {
   if (n == null) return "—";
-  return (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  return (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 });
 }
+
+const STATUS_META: Record<InvoiceStatus, { label: string; cls: string; Icon: typeof Clock }> = {
+  pending: { label: "Pending", cls: "bg-amber-50 text-amber-800 border-amber-200", Icon: Clock },
+  dispatched: { label: "In transit", cls: "bg-blue-50 text-blue-800 border-blue-200", Icon: Truck },
+  delivered: { label: "Delivered", cls: "bg-emerald-50 text-emerald-800 border-emerald-200", Icon: CheckCircle2 },
+};
 
 export function OutForDeliveryClient({
   rows,
   parties,
+  beats,
+  vehicles,
+  drivers,
   filters,
+  statusCounts,
   periodCount,
   periodValue,
-  totalCount,
+  periodKg,
 }: {
   rows: InvoiceRow[];
   parties: string[];
-  filters: { from: string | null; to: string | null; party: string | null; q: string | null };
+  beats: string[];
+  vehicles: VehicleOpt[];
+  drivers: DriverOpt[];
+  filters: { from: string | null; to: string | null; party: string | null; q: string | null; beat: string | null; status: InvoiceStatus | "all" };
+  statusCounts: { pending: number; dispatched: number; delivered: number; all: number };
   periodCount: number;
   periodValue: number;
-  totalCount: number;
+  periodKg: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -64,6 +85,10 @@ export function OutForDeliveryClient({
   const [linesCache, setLinesCache] = useState<Record<string, LineRow[]>>({});
   const [loadingLines, setLoadingLines] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(filters.q ?? "");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [groupByBeat, setGroupByBeat] = useState(false);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   function setParam(name: string, value: string | null) {
     const sp = new URLSearchParams(searchParams.toString());
@@ -75,18 +100,15 @@ export function OutForDeliveryClient({
   function clearFilters() {
     router.push("/out-for-delivery");
     setSearchInput("");
+    setSelected(new Set());
   }
-
   function onSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
     setParam("q", searchInput);
   }
 
   async function toggleExpand(id: string) {
-    if (expandedId === id) {
-      setExpandedId(null);
-      return;
-    }
+    if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
     if (!linesCache[id]) {
       setLoadingLines(id);
@@ -96,16 +118,82 @@ export function OutForDeliveryClient({
     }
   }
 
-  const anyFilter = filters.from || filters.to || filters.party || filters.q;
+  function toggleRow(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+  function toggleAll(ids: string[]) {
+    const allSelected = ids.every((id) => selected.has(id));
+    const next = new Set(selected);
+    if (allSelected) ids.forEach((id) => next.delete(id));
+    else ids.forEach((id) => next.add(id));
+    setSelected(next);
+  }
+
+  const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected]);
+  const selectableRows = useMemo(() => rows.filter((r) => r.status === "pending"), [rows]);
+
+  async function onMarkDelivered(id: string) {
+    setActionBusy(id);
+    const res = await markDelivered([id]);
+    setActionBusy(null);
+    if (!res.ok) alert(res.error ?? "Failed to mark delivered");
+    else router.refresh();
+  }
+
+  async function onMarkSelectedDelivered() {
+    if (selectedRows.length === 0) return;
+    const dispatched = selectedRows.filter((r) => r.status === "dispatched").map((r) => r.id);
+    if (dispatched.length === 0) {
+      alert("Select at least one 'In transit' invoice to mark delivered.");
+      return;
+    }
+    if (!confirm(`Mark ${dispatched.length} invoice(s) as delivered?`)) return;
+    setActionBusy("bulk-delivered");
+    const res = await markDelivered(dispatched);
+    setActionBusy(null);
+    if (!res.ok) alert(res.error ?? "Failed");
+    else { setSelected(new Set()); router.refresh(); }
+  }
+
+  const anyFilter = filters.from || filters.to || filters.party || filters.q || filters.beat || filters.status !== "pending";
+
+  // Beat grouping
+  const beatGroups = useMemo(() => {
+    if (!groupByBeat) return null;
+    const map = new Map<string, InvoiceRow[]>();
+    for (const r of rows) {
+      if (!map.has(r.beat)) map.set(r.beat, []);
+      map.get(r.beat)!.push(r);
+    }
+    return Array.from(map.entries())
+      .map(([beat, invs]) => ({
+        beat, invs,
+        count: invs.length,
+        value: invs.reduce((a, b) => a + b.total_amount, 0),
+        kg: invs.reduce((a, b) => a + b.kg, 0),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [rows, groupByBeat]);
 
   return (
     <div className="p-4 md:p-6 space-y-4">
+      {/* Status chips */}
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusChip label="Pending" count={statusCounts.pending} active={filters.status === "pending"} onClick={() => setParam("status", "pending")} tone="amber" />
+        <StatusChip label="In transit" count={statusCounts.dispatched} active={filters.status === "dispatched"} onClick={() => setParam("status", "dispatched")} tone="blue" />
+        <StatusChip label="Delivered" count={statusCounts.delivered} active={filters.status === "delivered"} onClick={() => setParam("status", "delivered")} tone="emerald" />
+        <StatusChip label="All" count={statusCounts.all} active={filters.status === "all"} onClick={() => setParam("status", "all")} tone="neutral" />
+      </div>
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Outstation invoices" value={totalCount.toLocaleString("en-IN")} sub="Anjali Agency, FY26-27 · OCS" />
-        <Kpi label="Shown here" value={periodCount.toLocaleString("en-IN")} sub={anyFilter ? "matches filter" : "most recent"} />
-        <Kpi label="Value (shown)" value={fmtMoney(periodValue)} sub="before tax" />
-        <Kpi label="Parties" value={parties.length.toLocaleString("en-IN")} sub="distinct customers" />
+        <Kpi label="Shown" value={periodCount.toLocaleString("en-IN")} sub={anyFilter ? "matches filter" : "most recent"} />
+        <Kpi label="Value" value={fmtMoney(periodValue)} sub="before tax" />
+        <Kpi label="Weight" value={`${fmtKg(periodKg)} kg`} sub="in shown invoices" />
+        <Kpi label="Parties" value={new Set(rows.map((r) => r.party_name)).size.toLocaleString("en-IN")} sub="distinct customers" />
       </div>
 
       {/* Filter bar */}
@@ -116,145 +204,261 @@ export function OutForDeliveryClient({
               <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Search party / invoice</span>
               <div className="mt-1 relative">
                 <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-subtle" />
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="e.g. Pooja Treaders or 0138"
-                  className="h-9 pl-7 pr-2 w-64 rounded border border-paper-line bg-paper text-sm"
-                />
+                <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="e.g. Pooja or OCS/0138"
+                  className="h-9 pl-7 pr-2 w-56 rounded border border-paper-line bg-paper text-sm" />
               </div>
             </label>
-            <button
-              type="submit"
-              className="h-9 px-3 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90"
-            >
-              Apply
-            </button>
+            <button type="submit" className="h-9 px-3 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90">Apply</button>
           </form>
 
           <label className="block">
+            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Beat</span>
+            <select value={filters.beat ?? ""} onChange={(e) => setParam("beat", e.target.value || null)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-44">
+              <option value="">All beats</option>
+              {beats.map((b) => (<option key={b} value={b}>{b}</option>))}
+            </select>
+          </label>
+
+          <label className="block">
             <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Party</span>
-            <select
-              value={filters.party ?? ""}
-              onChange={(e) => setParam("party", e.target.value || null)}
-              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-48"
-            >
+            <select value={filters.party ?? ""} onChange={(e) => setParam("party", e.target.value || null)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-48">
               <option value="">All parties</option>
-              {parties.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
+              {parties.map((p) => (<option key={p} value={p}>{p}</option>))}
             </select>
           </label>
 
           <label className="block">
             <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">From</span>
-            <input
-              type="date"
-              value={filters.from ?? ""}
-              onChange={(e) => setParam("from", e.target.value || null)}
-              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm"
-            />
+            <input type="date" value={filters.from ?? ""} onChange={(e) => setParam("from", e.target.value || null)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
           </label>
           <label className="block">
             <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">To</span>
-            <input
-              type="date"
-              value={filters.to ?? ""}
-              onChange={(e) => setParam("to", e.target.value || null)}
-              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm"
-            />
+            <input type="date" value={filters.to ?? ""} onChange={(e) => setParam("to", e.target.value || null)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
+          </label>
+
+          <label className="inline-flex items-center gap-1.5 h-9 text-sm">
+            <input type="checkbox" checked={groupByBeat} onChange={(e) => setGroupByBeat(e.target.checked)} />
+            Group by beat
           </label>
 
           {anyFilter && (
-            <button
-              onClick={clearFilters}
-              className="h-9 px-3 rounded border border-paper-line bg-paper-card text-sm text-ink-muted hover:bg-paper-subtle inline-flex items-center gap-1"
-            >
+            <button onClick={clearFilters}
+              className="h-9 px-3 rounded border border-paper-line bg-paper-card text-sm text-ink-muted hover:bg-paper-subtle inline-flex items-center gap-1">
               <X size={14} /> Clear
             </button>
           )}
         </div>
       </div>
 
-      {/* Invoice list */}
-      <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
-            <thead className="bg-paper-subtle/60 border-b border-paper-line">
-              <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
-                <th className="px-3 py-2.5 font-medium w-8"></th>
-                <th className="px-3 py-2.5 font-medium">Date</th>
-                <th className="px-3 py-2.5 font-medium">Invoice #</th>
-                <th className="px-3 py-2.5 font-medium">Party</th>
-                <th className="px-3 py-2.5 font-medium">Type</th>
-                <th className="px-3 py-2.5 font-medium text-right">Tax</th>
-                <th className="px-3 py-2.5 font-medium text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-paper-line">
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-ink-muted">
-                    No invoices match the current filters.
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => {
-                const isOpen = expandedId === r.id;
-                return (
-                  <>
-                    <tr
-                      key={r.id}
-                      onClick={() => toggleExpand(r.id)}
-                      className={`cursor-pointer hover:bg-paper-subtle/40 ${isOpen ? "bg-paper-subtle/30" : ""}`}
-                    >
-                      <td className="px-3 py-2.5 text-ink-subtle">
-                        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      </td>
-                      <td className="px-3 py-2.5 tabular whitespace-nowrap">{fmtDate(r.voucher_date)}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs">{r.voucher_no || "—"}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium">{r.party_name}</div>
-                        {r.party_group && (
-                          <div className="text-2xs text-ink-subtle">{r.party_group}</div>
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="bg-accent/10 border border-accent/30 rounded-md p-3 flex flex-wrap items-center gap-3">
+          <div className="text-sm font-medium">{selected.size} selected</div>
+          <div className="text-2xs text-ink-muted">
+            Value {fmtMoney(selectedRows.reduce((a, r) => a + r.total_amount, 0))} ·
+            {" "}Kg {fmtKg(selectedRows.reduce((a, r) => a + r.kg, 0))}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setSelected(new Set())} className="h-8 px-3 rounded border border-paper-line bg-paper text-xs text-ink-muted hover:bg-paper-subtle">
+              Deselect
+            </button>
+            {selectedRows.every((r) => r.status === "pending") && (
+              <button onClick={() => setShowDispatchModal(true)}
+                className="h-8 px-3 rounded bg-accent text-white text-xs font-medium hover:bg-accent/90 inline-flex items-center gap-1">
+                <Truck size={14} /> Create Dispatch
+              </button>
+            )}
+            {selectedRows.some((r) => r.status === "dispatched") && (
+              <button onClick={onMarkSelectedDelivered} disabled={actionBusy === "bulk-delivered"}
+                className="h-8 px-3 rounded bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 inline-flex items-center gap-1 disabled:opacity-50">
+                <CheckCircle2 size={14} /> Mark Delivered
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* List */}
+      {groupByBeat && beatGroups ? (
+        <div className="space-y-4">
+          {beatGroups.map((g) => (
+            <BeatSection key={g.beat} beat={g.beat} count={g.count} value={g.value} kg={g.kg}
+              invoices={g.invs} selected={selected} onToggleRow={toggleRow} onToggleAll={toggleAll}
+              expandedId={expandedId} onExpand={toggleExpand} linesCache={linesCache} loadingLines={loadingLines}
+              onMarkDelivered={onMarkDelivered} actionBusy={actionBusy} />
+          ))}
+          {beatGroups.length === 0 && <EmptyState />}
+        </div>
+      ) : (
+        <InvoiceTable invoices={rows} selected={selected} onToggleRow={toggleRow} onToggleAll={toggleAll}
+          expandedId={expandedId} onExpand={toggleExpand} linesCache={linesCache} loadingLines={loadingLines}
+          onMarkDelivered={onMarkDelivered} actionBusy={actionBusy} />
+      )}
+
+      {rows.length === 500 && (
+        <div className="text-2xs text-ink-subtle px-1">Showing first 500 — narrow filters to see more.</div>
+      )}
+
+      {/* Create dispatch modal */}
+      {showDispatchModal && (
+        <CreateDispatchModal selectedRows={selectedRows} vehicles={vehicles} drivers={drivers}
+          onClose={() => setShowDispatchModal(false)}
+          onCreated={(dispatchId) => {
+            setShowDispatchModal(false);
+            setSelected(new Set());
+            router.refresh();
+            // Open load list in new tab
+            window.open(`/out-for-delivery/dispatch/${dispatchId}`, "_blank");
+          }} />
+      )}
+    </div>
+  );
+}
+
+function StatusChip({ label, count, active, onClick, tone }: { label: string; count: number; active: boolean; onClick: () => void; tone: "amber" | "blue" | "emerald" | "neutral" }) {
+  const toneCls = {
+    amber: active ? "bg-amber-100 border-amber-300 text-amber-900" : "border-paper-line hover:bg-paper-subtle",
+    blue: active ? "bg-blue-100 border-blue-300 text-blue-900" : "border-paper-line hover:bg-paper-subtle",
+    emerald: active ? "bg-emerald-100 border-emerald-300 text-emerald-900" : "border-paper-line hover:bg-paper-subtle",
+    neutral: active ? "bg-ink text-paper border-ink" : "border-paper-line hover:bg-paper-subtle",
+  }[tone];
+  return (
+    <button onClick={onClick} className={`h-8 px-3 rounded-full border text-xs font-medium inline-flex items-center gap-1.5 ${toneCls}`}>
+      {label}
+      <span className={`tabular ${active ? "" : "text-ink-muted"}`}>{count.toLocaleString("en-IN")}</span>
+    </button>
+  );
+}
+
+function InvoiceTable({
+  invoices, selected, onToggleRow, onToggleAll, expandedId, onExpand, linesCache, loadingLines, onMarkDelivered, actionBusy,
+}: {
+  invoices: InvoiceRow[];
+  selected: Set<string>;
+  onToggleRow: (id: string) => void;
+  onToggleAll: (ids: string[]) => void;
+  expandedId: string | null;
+  onExpand: (id: string) => void;
+  linesCache: Record<string, LineRow[]>;
+  loadingLines: string | null;
+  onMarkDelivered: (id: string) => void;
+  actionBusy: string | null;
+}) {
+  const allIds = invoices.map((r) => r.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  if (invoices.length === 0) return <EmptyState />;
+  return (
+    <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
+          <thead className="bg-paper-subtle/60 border-b border-paper-line">
+            <tr className="text-left text-2xs uppercase tracking-wide text-ink-muted">
+              <th className="px-2 py-2.5 w-8"><input type="checkbox" checked={allSelected} onChange={() => onToggleAll(allIds)} /></th>
+              <th className="px-3 py-2.5 w-6"></th>
+              <th className="px-3 py-2.5 font-medium">Date</th>
+              <th className="px-3 py-2.5 font-medium">Invoice #</th>
+              <th className="px-3 py-2.5 font-medium">Party</th>
+              <th className="px-3 py-2.5 font-medium">Beat</th>
+              <th className="px-3 py-2.5 font-medium">Status</th>
+              <th className="px-3 py-2.5 font-medium text-right">Kg</th>
+              <th className="px-3 py-2.5 font-medium text-right">Total</th>
+              <th className="px-3 py-2.5 w-24"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-paper-line">
+            {invoices.map((r) => {
+              const isOpen = expandedId === r.id;
+              const meta = STATUS_META[r.status];
+              return (
+                <Fragment key={r.id}>
+                  <tr className={`hover:bg-paper-subtle/40 ${isOpen ? "bg-paper-subtle/30" : ""}`}>
+                    <td className="px-2 py-2.5"><input type="checkbox" checked={selected.has(r.id)} onChange={() => onToggleRow(r.id)} /></td>
+                    <td className="px-3 py-2.5 text-ink-subtle cursor-pointer" onClick={() => onExpand(r.id)}>
+                      {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </td>
+                    <td className="px-3 py-2.5 tabular whitespace-nowrap cursor-pointer" onClick={() => onExpand(r.id)}>{fmtDate(r.voucher_date)}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs cursor-pointer" onClick={() => onExpand(r.id)}>{r.voucher_no || "—"}</td>
+                    <td className="px-3 py-2.5 cursor-pointer" onClick={() => onExpand(r.id)}>
+                      <div className="font-medium">{r.party_name}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-ink-muted text-xs">{r.beat}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-2xs font-medium ${meta.cls}`}>
+                        <meta.Icon size={10} /> {meta.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular">{fmtKg(r.kg)}</td>
+                    <td className="px-3 py-2.5 text-right tabular font-semibold">{fmtMoney(r.total_amount)}</td>
+                    <td className="px-3 py-2.5">
+                      {r.status === "dispatched" && (
+                        <button onClick={() => onMarkDelivered(r.id)} disabled={actionBusy === r.id}
+                          className="h-7 px-2 rounded border border-emerald-200 bg-emerald-50 text-emerald-800 text-2xs font-medium hover:bg-emerald-100 disabled:opacity-50">
+                          Mark delivered
+                        </button>
+                      )}
+                      {r.status === "delivered" && r.delivered_at && (
+                        <span className="text-2xs text-emerald-700">{fmtDate(r.delivered_at.slice(0, 10))}</span>
+                      )}
+                      {r.dispatch_id && (
+                        <a href={`/out-for-delivery/dispatch/${r.dispatch_id}`} target="_blank" rel="noopener"
+                           className="ml-1 text-2xs text-accent hover:underline">load list</a>
+                      )}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={10} className="px-3 py-3 bg-paper-subtle/20">
+                        {loadingLines === r.id ? (
+                          <div className="text-sm text-ink-muted">Loading line items…</div>
+                        ) : (
+                          <LinesTable lines={linesCache[r.id] ?? []} />
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-2xs text-ink-muted whitespace-nowrap">{r.voucher_type}</td>
-                      <td className="px-3 py-2.5 text-right tabular text-ink-muted">{r.tax > 0 ? fmtMoney(r.tax) : "—"}</td>
-                      <td className="px-3 py-2.5 text-right tabular font-semibold">{fmtMoney(r.total_amount)}</td>
                     </tr>
-                    {isOpen && (
-                      <tr key={`${r.id}-lines`}>
-                        <td colSpan={7} className="px-3 py-3 bg-paper-subtle/20">
-                          {loadingLines === r.id ? (
-                            <div className="text-sm text-ink-muted">Loading line items…</div>
-                          ) : (
-                            <LinesTable lines={linesCache[r.id] ?? []} />
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {rows.length === 500 && (
-          <div className="px-3 py-2 text-2xs text-ink-subtle border-t border-paper-line bg-paper-subtle/30">
-            Showing first 500 — narrow the filters to see more.
-          </div>
-        )}
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
+function BeatSection(props: {
+  beat: string;
+  count: number;
+  value: number;
+  kg: number;
+  invoices: InvoiceRow[];
+  selected: Set<string>;
+  onToggleRow: (id: string) => void;
+  onToggleAll: (ids: string[]) => void;
+  expandedId: string | null;
+  onExpand: (id: string) => void;
+  linesCache: Record<string, LineRow[]>;
+  loadingLines: string | null;
+  onMarkDelivered: (id: string) => void;
+  actionBusy: string | null;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-3 px-1 py-2">
+        <h3 className="text-sm font-semibold">{props.beat}</h3>
+        <span className="text-2xs text-ink-muted">{props.count} invoices · {fmtKg(props.kg)} kg · {fmtMoney(props.value)}</span>
+      </div>
+      <InvoiceTable {...props} invoices={props.invoices} />
+    </div>
+  );
+}
+
 function LinesTable({ lines }: { lines: LineRow[] }) {
-  if (lines.length === 0) {
-    return <div className="text-sm text-ink-muted">No line items.</div>;
-  }
+  if (lines.length === 0) return <div className="text-sm text-ink-muted">No line items.</div>;
   const totalKg = lines.reduce((a, l) => a + (Number(l.qty_kg) || 0), 0);
   const totalAmt = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
   return (
@@ -301,6 +505,110 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
       <div className="text-2xs uppercase tracking-wide text-ink-muted font-medium">{label}</div>
       <div className="text-xl font-bold tabular mt-0.5 text-ink">{value}</div>
       {sub && <div className="text-2xs text-ink-subtle mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="bg-paper-card border border-dashed border-paper-line rounded-md p-10 text-center text-sm text-ink-muted">
+      No invoices match the current filters.
+    </div>
+  );
+}
+
+function CreateDispatchModal({
+  selectedRows, vehicles, drivers, onClose, onCreated,
+}: {
+  selectedRows: InvoiceRow[];
+  vehicles: VehicleOpt[];
+  drivers: DriverOpt[];
+  onClose: () => void;
+  onCreated: (dispatchId: string) => void;
+}) {
+  const [vehicleId, setVehicleId] = useState<string>(vehicles[0]?.id ?? "");
+  const [driverId, setDriverId] = useState<string>(drivers[0]?.id ?? "");
+  const [dispatchDate, setDispatchDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const totalKg = selectedRows.reduce((a, r) => a + r.kg, 0);
+  const totalValue = selectedRows.reduce((a, r) => a + r.total_amount, 0);
+  const beats = Array.from(new Set(selectedRows.map((r) => r.beat))).sort();
+  const vehicle = vehicles.find((v) => v.id === vehicleId);
+  const overload = vehicle?.capacity_kg != null && totalKg > vehicle.capacity_kg;
+
+  async function submit() {
+    setBusy(true); setErr(null);
+    const res = await createDispatch({
+      invoiceIds: selectedRows.map((r) => r.id),
+      vehicleId: vehicleId || null,
+      driverUserId: driverId || null,
+      dispatchDate,
+      notes: notes.trim() || null,
+    });
+    setBusy(false);
+    if (!res.ok) { setErr(res.error ?? "Failed"); return; }
+    onCreated(res.dispatchId);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-paper rounded-md max-w-lg w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-paper-line flex items-center justify-between">
+          <h2 className="text-base font-semibold inline-flex items-center gap-2"><Truck size={16} /> Create dispatch</h2>
+          <button onClick={onClose} className="text-ink-muted hover:text-ink"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-paper-subtle/40 rounded p-3 text-sm">
+            <div><strong>{selectedRows.length}</strong> invoices · <strong>{fmtKg(totalKg)} kg</strong> · <strong>{fmtMoney(totalValue)}</strong></div>
+            <div className="text-2xs text-ink-muted mt-1">Beats: {beats.join(", ")}</div>
+          </div>
+          <label className="block">
+            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Dispatch date</span>
+            <input type="date" value={dispatchDate} onChange={(e) => setDispatchDate(e.target.value)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full" />
+          </label>
+          <label className="block">
+            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Vehicle</span>
+            <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+              <option value="">— None —</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.number}{v.make ? ` · ${v.make}` : ""}{v.capacity_kg ? ` · ${v.capacity_kg} kg cap` : ""}
+                </option>
+              ))}
+            </select>
+            {overload && (
+              <div className="text-2xs text-amber-700 mt-1">⚠ Load ({fmtKg(totalKg)} kg) exceeds vehicle capacity ({vehicle?.capacity_kg} kg)</div>
+            )}
+          </label>
+          <label className="block">
+            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Driver</span>
+            <select value={driverId} onChange={(e) => setDriverId(e.target.value)}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+              <option value="">— None —</option>
+              {drivers.map((d) => (<option key={d.id} value={d.id}>{d.name} · {d.role}</option>))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Notes (optional)</span>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+              placeholder="e.g. deliver Mehkar stops first"
+              className="mt-1 px-2 py-1.5 rounded border border-paper-line bg-paper text-sm w-full" />
+          </label>
+          {err && <div className="text-sm text-danger">{err}</div>}
+        </div>
+        <div className="px-5 py-3 border-t border-paper-line flex justify-end gap-2">
+          <button onClick={onClose} className="h-9 px-4 rounded border border-paper-line bg-paper-card text-sm text-ink-muted hover:bg-paper-subtle">Cancel</button>
+          <button onClick={submit} disabled={busy || selectedRows.length === 0}
+            className="h-9 px-4 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 inline-flex items-center gap-1.5">
+            <PackageCheck size={14} /> {busy ? "Creating…" : "Create & open load list"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
