@@ -33,11 +33,15 @@ create index if not exists dispatch_helpers_active_idx
 -- Backfill from app_users (field roles only). Ignore names that are already
 -- present. Use the app_user's id as the helper id so earlier dispatches that
 -- stored an app_users.id in helper1_user_id / helper2_user_id still resolve.
+--
+-- u.role is an enum (user_role) in this project, so compare on the text
+-- representation — a plain IN with string literals would error on any value
+-- not present in the enum (e.g. "collector" not being defined).
 insert into public.dispatch_helpers (id, name, role, active)
-select u.id, u.full_name, u.role, true
+select u.id, u.full_name, u.role::text, true
 from public.app_users u
 where u.active is true
-  and u.role in ('admin', 'salesman', 'collector', 'helper', 'driver', 'van_lead', 'dispatch')
+  and u.role::text in ('admin', 'salesman', 'collector', 'helper', 'driver', 'van_lead', 'dispatch')
   and u.full_name is not null
   and not exists (
     select 1 from public.dispatch_helpers h where lower(h.name) = lower(u.full_name)
