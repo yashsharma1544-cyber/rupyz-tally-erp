@@ -12,6 +12,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DispatchActions } from "./dispatch-actions-client";
+import { VehicleLoadsClient, type LoadRow } from "./loads-client";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,27 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
     byBeat.get(beat)!.push(r);
   }
 
+  // Vehicle loads (optional — may be empty if migration hasn't been run)
+  const { data: loadRows } = await admin
+    .from("v_dispatch_item_summary")
+    .select("*")
+    .eq("dispatch_id", params.id)
+    .order("item_name");
+  const loads: LoadRow[] = (loadRows ?? []).map((r) => ({
+    load_id: r.load_id as string,
+    item_name: (r.item_name as string) ?? "",
+    hsn: (r.hsn as string) ?? null,
+    loaded_qty: Number(r.loaded_qty) || 0,
+    loaded_kg: Number(r.loaded_kg) || 0,
+    delivered_qty: Number(r.delivered_qty) || 0,
+    delivered_kg: Number(r.delivered_kg) || 0,
+    returned_qty: Number(r.returned_qty) || 0,
+    returned_kg: Number(r.returned_kg) || 0,
+    variance_qty: Number(r.variance_qty) || 0,
+    variance_kg: Number(r.variance_kg) || 0,
+    returned_at: (r.returned_at as string) ?? null,
+  }));
+
   const totalDelivered = invoices.filter((r) => r.delivered_at != null).length;
 
   return (
@@ -136,6 +158,16 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
           <div className="mb-4 p-2.5 bg-paper-subtle/40 border border-paper-line rounded text-sm">
             <div className="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">Notes</div>
             {dispatch.notes as string}
+          </div>
+        )}
+
+        {/* Vehicle load (loaded / delivered / returned / variance per item) */}
+        {loads.length > 0 && (
+          <div className="mb-5 break-inside-avoid">
+            <h3 className="text-sm font-bold border-b border-ink/40 pb-1 mb-2">
+              Vehicle Load <span className="font-normal text-xs text-ink-muted">· {loads.length} items</span>
+            </h3>
+            <VehicleLoadsClient loads={loads} />
           </div>
         )}
 
