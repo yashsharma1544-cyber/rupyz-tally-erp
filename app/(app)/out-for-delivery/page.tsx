@@ -117,7 +117,10 @@ export default async function OutForDeliveryPage({
   if (party) query = query.eq("party_name", party);
   if (q) query = query.or(`party_name.ilike.%${q}%,voucher_no.ilike.%${q}%`);
   if (beat) query = query.eq("inferred_beat", beat);
-  if (status === "pending") query = query.is("dispatched_at", null);
+  // Pending = neither dispatched nor delivered. (A row can be marked delivered
+  // directly from Pending without going through a dispatch, so checking only
+  // dispatched_at would leak those into Pending.)
+  if (status === "pending") query = query.is("dispatched_at", null).is("delivered_at", null);
   else if (status === "dispatched") query = query.not("dispatched_at", "is", null).is("delivered_at", null);
   else if (status === "delivered") query = query.not("delivered_at", "is", null);
 
@@ -161,7 +164,8 @@ export default async function OutForDeliveryPage({
   // Status counts (outstation only, unfiltered beyond that)
   const [pendingResult, dispatchedResult, deliveredResult, totalResult] = await Promise.all([
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
-      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[]).is("dispatched_at", null),
+      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
+      .is("dispatched_at", null).is("delivered_at", null),
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
       .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
       .not("dispatched_at", "is", null).is("delivered_at", null),
