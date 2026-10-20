@@ -20,7 +20,8 @@ import { PartiesClient, type PartyRow } from "./parties-client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const OUTSTATION_VOUCHER_TYPE = "GST INTERCITY SALES";
+// Keep in sync with /out-for-delivery/page.tsx
+const OUTSTATION_VOUCHER_TYPES = ["GST INTERCITY SALES", "NEW MONDHA"] as const;
 
 type SearchParams = { beat?: string; q?: string };
 
@@ -42,7 +43,7 @@ export default async function PartiesBeatsPage({ searchParams }: { searchParams:
     .from("tally_invoices")
     .select("party_name, inferred_beat, total_amount")
     .eq("company", "Anjali Agency")
-    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE);
+    .in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[]);
 
   const { data: overrides } = await admin
     .from("tally_party_beat_overrides")
