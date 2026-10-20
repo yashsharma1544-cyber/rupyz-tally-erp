@@ -40,10 +40,70 @@ export async function fetchInvoiceLines(invoiceId: string): Promise<LineRow[]> {
   }));
 }
 
+export async function createVehicle(input: {
+  number: string;
+  make: string | null;
+  capacity_kg: number | null;
+}): Promise<{ ok: true; vehicle: { id: string; number: string; make: string | null; capacity_kg: number | null } } | { ok: false; error: string }> {
+  const actor = await requireAdmin();
+  if (!actor) return { ok: false, error: "Not authorized" };
+  const number = input.number.trim().toUpperCase();
+  if (!number) return { ok: false, error: "Vehicle number is required" };
+
+  const admin = createAdminClient();
+
+  // Reuse an existing vehicle with the same number if one is already there
+  const { data: existing } = await admin
+    .from("vehicles")
+    .select("id, number, make, capacity_kg, active")
+    .ilike("number", number)
+    .maybeSingle();
+  if (existing) {
+    // Reactivate if it was soft-deleted
+    if (!existing.active) {
+      await admin.from("vehicles").update({ active: true }).eq("id", existing.id);
+    }
+    return {
+      ok: true,
+      vehicle: {
+        id: existing.id as string,
+        number: (existing.number as string) ?? number,
+        make: (existing.make as string) ?? null,
+        capacity_kg: (existing.capacity_kg as number) ?? null,
+      },
+    };
+  }
+
+  const { data: inserted, error } = await admin
+    .from("vehicles")
+    .insert({
+      number,
+      make: input.make?.trim() || null,
+      capacity_kg: input.capacity_kg,
+      active: true,
+    })
+    .select("id, number, make, capacity_kg")
+    .single();
+  if (error || !inserted) return { ok: false, error: error?.message ?? "Failed to create vehicle" };
+
+  revalidatePath("/out-for-delivery");
+  revalidatePath("/vehicles");
+  return {
+    ok: true,
+    vehicle: {
+      id: inserted.id as string,
+      number: (inserted.number as string) ?? number,
+      make: (inserted.make as string) ?? null,
+      capacity_kg: (inserted.capacity_kg as number) ?? null,
+    },
+  };
+}
+
 export async function createDispatch(input: {
   invoiceIds: string[];
   vehicleId: string | null;
-  driverUserId: string | null;
+  helper1UserId: string | null;
+  helper2UserId: string | null;
   dispatchDate: string; // YYYY-MM-DD
   notes: string | null;
 }): Promise<{ ok: true; dispatchId: string } | { ok: false; error: string }> {
@@ -66,16 +126,20 @@ export async function createDispatch(input: {
     return { ok: false, error: `Already dispatched: ${alreadyDispatched.map((r) => r.voucher_no).slice(0, 3).join(", ")}` };
   }
 
-  // Vehicle / driver lookup for denormalized labels
+  // Vehicle / helper lookups for denormalized labels on the dispatch row
   let vehicleNumber: string | null = null;
-  let driverName: string | null = null;
+  let helper1Name: string | null = null;
+  let helper2Name: string | null = null;
   if (input.vehicleId) {
     const { data: v } = await admin.from("vehicles").select("number").eq("id", input.vehicleId).maybeSingle();
     vehicleNumber = (v?.number as string) ?? null;
   }
-  if (input.driverUserId) {
-    const { data: d } = await admin.from("app_users").select("full_name").eq("id", input.driverUserId).maybeSingle();
-    driverName = (d?.full_name as string) ?? null;
+  const helperIds = [input.helper1UserId, input.helper2UserId].filter((x): x is string => !!x);
+  if (helperIds.length > 0) {
+    const { data: hs } = await admin.from("app_users").select("id, full_name").in("id", helperIds);
+    const byId = new Map((hs ?? []).map((h) => [h.id as string, (h.full_name as string) ?? null]));
+    helper1Name = input.helper1UserId ? byId.get(input.helper1UserId) ?? null : null;
+    helper2Name = input.helper2UserId ? byId.get(input.helper2UserId) ?? null : null;
   }
 
   // Totals from line items
@@ -102,8 +166,14 @@ export async function createDispatch(input: {
       dispatch_date: input.dispatchDate,
       vehicle_id: input.vehicleId,
       vehicle_number: vehicleNumber,
-      driver_user_id: input.driverUserId,
-      driver_name: driverName,
+      helper1_user_id: input.helper1UserId,
+      helper1_name: helper1Name,
+      helper2_user_id: input.helper2UserId,
+      helper2_name: helper2Name,
+      // Keep legacy driver_* columns populated with helper1 for one release
+      // so anything still reading them keeps working.
+      driver_user_id: input.helper1UserId,
+      driver_name: helper1Name,
       notes: input.notes,
       created_by: actor.userId,
       created_by_name: actor.fullName,

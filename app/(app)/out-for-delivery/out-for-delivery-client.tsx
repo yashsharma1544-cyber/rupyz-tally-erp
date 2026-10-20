@@ -3,8 +3,8 @@
 import { useState, useMemo, Fragment } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, MapPin } from "lucide-react";
-import { fetchInvoiceLines, createDispatch, markDelivered } from "./actions";
+import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, MapPin, Plus } from "lucide-react";
+import { fetchInvoiceLines, createDispatch, markDelivered, createVehicle } from "./actions";
 
 export type InvoiceStatus = "pending" | "dispatched" | "delivered";
 
@@ -26,7 +26,7 @@ export type InvoiceRow = {
 };
 
 export type VehicleOpt = { id: string; number: string; make: string | null; capacity_kg: number | null };
-export type DriverOpt = { id: string; name: string; role: string };
+export type HelperOpt = { id: string; name: string; role: string };
 
 export type LineRow = {
   line_no: number | null;
@@ -62,7 +62,7 @@ export function OutForDeliveryClient({
   parties,
   beats,
   vehicles,
-  drivers,
+  helpers,
   filters,
   statusCounts,
   periodCount,
@@ -73,7 +73,7 @@ export function OutForDeliveryClient({
   parties: string[];
   beats: string[];
   vehicles: VehicleOpt[];
-  drivers: DriverOpt[];
+  helpers: HelperOpt[];
   filters: { from: string | null; to: string | null; party: string | null; q: string | null; beat: string | null; status: InvoiceStatus | "all" };
   statusCounts: { pending: number; dispatched: number; delivered: number; all: number };
   periodCount: number;
@@ -343,7 +343,7 @@ export function OutForDeliveryClient({
 
       {/* Create dispatch modal */}
       {showDispatchModal && (
-        <CreateDispatchModal selectedRows={selectedRows} vehicles={vehicles} drivers={drivers}
+        <CreateDispatchModal selectedRows={selectedRows} vehicles={vehicles} helpers={helpers}
           onClose={() => setShowDispatchModal(false)}
           onCreated={(dispatchId) => {
             setShowDispatchModal(false);
@@ -607,33 +607,71 @@ function EmptyState() {
 }
 
 function CreateDispatchModal({
-  selectedRows, vehicles, drivers, onClose, onCreated,
+  selectedRows, vehicles: vehiclesProp, helpers, onClose, onCreated,
 }: {
   selectedRows: InvoiceRow[];
   vehicles: VehicleOpt[];
-  drivers: DriverOpt[];
+  helpers: HelperOpt[];
   onClose: () => void;
   onCreated: (dispatchId: string) => void;
 }) {
-  const [vehicleId, setVehicleId] = useState<string>(vehicles[0]?.id ?? "");
-  const [driverId, setDriverId] = useState<string>(drivers[0]?.id ?? "");
+  // Local vehicles list so a vehicle created inline shows up immediately
+  // in the dropdown without a round-trip refresh.
+  const [vehicles, setVehicles] = useState<VehicleOpt[]>(vehiclesProp);
+  const [vehicleId, setVehicleId] = useState<string>(vehiclesProp[0]?.id ?? "");
+  const [helper1Id, setHelper1Id] = useState<string>("");
+  const [helper2Id, setHelper2Id] = useState<string>("");
   const [dispatchDate, setDispatchDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Inline new-vehicle form
+  const [showNewVehicle, setShowNewVehicle] = useState(false);
+  const [newVehNumber, setNewVehNumber] = useState("");
+  const [newVehMake, setNewVehMake] = useState("");
+  const [newVehCapacity, setNewVehCapacity] = useState("");
+  const [savingVehicle, setSavingVehicle] = useState(false);
+  const [newVehErr, setNewVehErr] = useState<string | null>(null);
 
   const totalKg = selectedRows.reduce((a, r) => a + r.kg, 0);
   const totalValue = selectedRows.reduce((a, r) => a + r.total_amount, 0);
   const beats = Array.from(new Set(selectedRows.map((r) => r.beat))).sort();
   const vehicle = vehicles.find((v) => v.id === vehicleId);
   const overload = vehicle?.capacity_kg != null && totalKg > vehicle.capacity_kg;
+  // Guard so the same person isn't picked as helper 1 and helper 2
+  const sameHelper = helper1Id !== "" && helper1Id === helper2Id;
+
+  async function saveNewVehicle() {
+    setNewVehErr(null);
+    const number = newVehNumber.trim();
+    if (!number) { setNewVehErr("Vehicle number is required"); return; }
+    setSavingVehicle(true);
+    const res = await createVehicle({
+      number,
+      make: newVehMake.trim() || null,
+      capacity_kg: newVehCapacity.trim() ? Number(newVehCapacity) : null,
+    });
+    setSavingVehicle(false);
+    if (!res.ok) { setNewVehErr(res.error ?? "Failed"); return; }
+    // Insert at the top of the local list, select it, and collapse the form.
+    setVehicles((prev) => {
+      const without = prev.filter((v) => v.id !== res.vehicle.id);
+      return [res.vehicle, ...without];
+    });
+    setVehicleId(res.vehicle.id);
+    setShowNewVehicle(false);
+    setNewVehNumber(""); setNewVehMake(""); setNewVehCapacity("");
+  }
 
   async function submit() {
+    if (sameHelper) { setErr("Helper 1 and Helper 2 cannot be the same person."); return; }
     setBusy(true); setErr(null);
     const res = await createDispatch({
       invoiceIds: selectedRows.map((r) => r.id),
       vehicleId: vehicleId || null,
-      driverUserId: driverId || null,
+      helper1UserId: helper1Id || null,
+      helper2UserId: helper2Id || null,
       dispatchDate,
       notes: notes.trim() || null,
     });
@@ -644,8 +682,8 @@ function CreateDispatchModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-paper rounded-md max-w-lg w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-paper-line flex items-center justify-between">
+      <div className="bg-paper rounded-md max-w-lg w-full shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-paper-line flex items-center justify-between sticky top-0 bg-paper z-10">
           <h2 className="text-base font-semibold inline-flex items-center gap-2"><Truck size={16} /> Create dispatch</h2>
           <button onClick={onClose} className="text-ink-muted hover:text-ink"><X size={16} /></button>
         </div>
@@ -659,10 +697,21 @@ function CreateDispatchModal({
             <input type="date" value={dispatchDate} onChange={(e) => setDispatchDate(e.target.value)}
               className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full" />
           </label>
-          <label className="block">
-            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Vehicle</span>
+
+          {/* Vehicle picker with inline "+ New vehicle" affordance */}
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Vehicle</span>
+              {!showNewVehicle && (
+                <button type="button" onClick={() => setShowNewVehicle(true)}
+                  className="text-2xs text-accent hover:underline inline-flex items-center gap-1">
+                  <Plus size={11} /> New vehicle
+                </button>
+              )}
+            </div>
             <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}
-              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+              disabled={showNewVehicle}
+              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full disabled:opacity-50">
               <option value="">— None —</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -670,18 +719,62 @@ function CreateDispatchModal({
                 </option>
               ))}
             </select>
-            {overload && (
+            {overload && !showNewVehicle && (
               <div className="text-2xs text-amber-700 mt-1">⚠ Load ({fmtKg(totalKg)} kg) exceeds vehicle capacity ({vehicle?.capacity_kg} kg)</div>
             )}
-          </label>
-          <label className="block">
-            <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Driver</span>
-            <select value={driverId} onChange={(e) => setDriverId(e.target.value)}
-              className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
-              <option value="">— None —</option>
-              {drivers.map((d) => (<option key={d.id} value={d.id}>{d.name} · {d.role}</option>))}
-            </select>
-          </label>
+
+            {showNewVehicle && (
+              <div className="mt-2 p-3 border border-accent/40 bg-accent/5 rounded space-y-2">
+                <div className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Add new vehicle</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" value={newVehNumber} onChange={(e) => setNewVehNumber(e.target.value)}
+                    placeholder="Number (e.g. MH 21 X 6268)"
+                    className="h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
+                  <input type="text" value={newVehMake} onChange={(e) => setNewVehMake(e.target.value)}
+                    placeholder="Make (optional)"
+                    className="h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
+                  <input type="number" value={newVehCapacity} onChange={(e) => setNewVehCapacity(e.target.value)}
+                    placeholder="Capacity kg (optional)"
+                    className="h-9 px-2 rounded border border-paper-line bg-paper text-sm col-span-2" />
+                </div>
+                {newVehErr && <div className="text-2xs text-danger">{newVehErr}</div>}
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => { setShowNewVehicle(false); setNewVehErr(null); }}
+                    className="h-8 px-3 rounded border border-paper-line bg-paper-card text-xs text-ink-muted hover:bg-paper-subtle">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={saveNewVehicle} disabled={savingVehicle || !newVehNumber.trim()}
+                    className="h-8 px-3 rounded bg-accent text-white text-xs font-medium hover:bg-accent/90 disabled:opacity-50 inline-flex items-center gap-1">
+                    <PackageCheck size={12} /> {savingVehicle ? "Saving…" : "Save vehicle"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Two helper slots, both optional. */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 1</span>
+              <select value={helper1Id} onChange={(e) => setHelper1Id(e.target.value)}
+                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+                <option value="">— None —</option>
+                {helpers.map((h) => (<option key={h.id} value={h.id}>{h.name}{h.role ? ` · ${h.role}` : ""}</option>))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 2</span>
+              <select value={helper2Id} onChange={(e) => setHelper2Id(e.target.value)}
+                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+                <option value="">— None —</option>
+                {helpers.map((h) => (<option key={h.id} value={h.id}>{h.name}{h.role ? ` · ${h.role}` : ""}</option>))}
+              </select>
+            </label>
+          </div>
+          {sameHelper && (
+            <div className="text-2xs text-amber-700 -mt-2">Helper 1 and Helper 2 cannot be the same person.</div>
+          )}
+
           <label className="block">
             <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Notes (optional)</span>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
@@ -690,9 +783,9 @@ function CreateDispatchModal({
           </label>
           {err && <div className="text-sm text-danger">{err}</div>}
         </div>
-        <div className="px-5 py-3 border-t border-paper-line flex justify-end gap-2">
+        <div className="px-5 py-3 border-t border-paper-line flex justify-end gap-2 sticky bottom-0 bg-paper">
           <button onClick={onClose} className="h-9 px-4 rounded border border-paper-line bg-paper-card text-sm text-ink-muted hover:bg-paper-subtle">Cancel</button>
-          <button onClick={submit} disabled={busy || selectedRows.length === 0}
+          <button onClick={submit} disabled={busy || selectedRows.length === 0 || sameHelper || showNewVehicle}
             className="h-9 px-4 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 inline-flex items-center gap-1.5">
             <PackageCheck size={14} /> {busy ? "Creating…" : "Create & open load list"}
           </button>

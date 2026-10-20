@@ -21,7 +21,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/layout/page-header";
-import { OutForDeliveryClient, type InvoiceRow, type VehicleOpt, type DriverOpt } from "./out-for-delivery-client";
+import { OutForDeliveryClient, type InvoiceRow, type VehicleOpt, type HelperOpt } from "./out-for-delivery-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -202,10 +202,14 @@ export default async function OutForDeliveryPage({
   const { data: partyList } = await partyQuery;
   const uniqueParties = Array.from(new Set((partyList ?? []).map((p) => p.party_name as string))).filter(Boolean).sort();
 
-  // Vehicle + driver options for the Create Dispatch modal
-  const [vehicleRes, driverRes] = await Promise.all([
+  // Vehicle + helper options for the Create Dispatch modal.
+  // Helpers can be anyone on the field team (salesmen and collectors ride along
+  // on delivery trips too), so include a broader role set.
+  const [vehicleRes, helperRes] = await Promise.all([
     admin.from("vehicles").select("id, number, make, capacity_kg").eq("active", true).order("number"),
-    admin.from("app_users").select("id, full_name, role").eq("active", true).in("role", ["driver", "van_lead", "dispatch"]).order("full_name"),
+    admin.from("app_users").select("id, full_name, role").eq("active", true)
+      .in("role", ["driver", "van_lead", "dispatch", "helper", "salesman", "collector", "admin"])
+      .order("full_name"),
   ]);
   const vehicles: VehicleOpt[] = (vehicleRes.data ?? []).map((v) => ({
     id: v.id as string,
@@ -213,10 +217,10 @@ export default async function OutForDeliveryPage({
     make: (v.make as string) ?? null,
     capacity_kg: v.capacity_kg as number | null,
   }));
-  const drivers: DriverOpt[] = (driverRes.data ?? []).map((d) => ({
-    id: d.id as string,
-    name: (d.full_name as string) ?? "",
-    role: (d.role as string) ?? "",
+  const helpers: HelperOpt[] = (helperRes.data ?? []).map((h) => ({
+    id: h.id as string,
+    name: (h.full_name as string) ?? "",
+    role: (h.role as string) ?? "",
   }));
 
   const periodValue = rows.reduce((a, r) => a + r.total_amount, 0);
@@ -233,7 +237,7 @@ export default async function OutForDeliveryPage({
         parties={uniqueParties}
         beats={uniqueBeats}
         vehicles={vehicles}
-        drivers={drivers}
+        helpers={helpers}
         filters={{ from, to, party, q, beat, status }}
         statusCounts={statusCounts}
         periodCount={rows.length}
