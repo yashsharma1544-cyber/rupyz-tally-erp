@@ -348,9 +348,10 @@ export function OutForDeliveryClient({
           onCreated={(dispatchId) => {
             setShowDispatchModal(false);
             setSelected(new Set());
-            router.refresh();
-            // Open load list in new tab
-            window.open(`/out-for-delivery/dispatch/${dispatchId}`, "_blank");
+            // Same-tab navigation — window.open popups get killed by popup
+            // blockers on both desktop and mobile. ?confirm=load lands with
+            // the vehicle-load section at the top.
+            router.push(`/out-for-delivery/dispatch/${dispatchId}?confirm=load`);
           }} />
       )}
     </div>

@@ -3,12 +3,12 @@
 -- delivery trips (helpers, loaders, driver-for-the-day).
 --
 -- Separate from app_users so helpers can be added in-app without creating a
--- Supabase auth user — many riders don't need to log in.
+-- Supabase auth user — many riders don't need to log in. Yash explicitly
+-- wanted this directory to start empty and be built up by hand from the
+-- Create Dispatch modal's "+ New" button rather than auto-populated from
+-- the existing field team.
 --
--- Backfills the existing field team (admin / salesman / collector / helper /
--- driver / van_lead / dispatch roles) from app_users so you don't start empty.
---
--- Idempotent: safe to re-run.
+-- Idempotent: safe to re-run (table + indexes only; no data seeded).
 -- Run in Supabase SQL editor for project aiekaymlbfypxnczrvgb.
 -- =============================================================================
 
@@ -30,22 +30,8 @@ create unique index if not exists dispatch_helpers_name_lower_uniq
 create index if not exists dispatch_helpers_active_idx
   on public.dispatch_helpers (active) where active;
 
--- Backfill from app_users (field roles only). Ignore names that are already
--- present. Use the app_user's id as the helper id so earlier dispatches that
--- stored an app_users.id in helper1_user_id / helper2_user_id still resolve.
-insert into public.dispatch_helpers (id, name, role, active)
-select u.id, u.full_name, u.role, true
-from public.app_users u
-where u.active is true
-  and u.role in ('admin', 'salesman', 'collector', 'helper', 'driver', 'van_lead', 'dispatch')
-  and u.full_name is not null
-  and not exists (
-    select 1 from public.dispatch_helpers h where lower(h.name) = lower(u.full_name)
-  );
-
 -- Verify
 select
   count(*) as total_helpers,
-  count(*) filter (where active) as active_helpers,
-  array_agg(distinct role) filter (where active and role is not null) as roles
+  count(*) filter (where active) as active_helpers
 from public.dispatch_helpers;
