@@ -87,10 +87,16 @@ export default async function OutForDeliveryPage({
   const party = searchParams.party || null;
   const q = searchParams.q || null;
 
+  // "Out for Delivery" is scoped to OUTSTATION invoices only — the Jalna City
+  // route (voucher_type IN 'GST SALES', 'PRIYA SALES') is handled locally and
+  // excluded from this screen. Only intercity invoices (OCS/-prefixed) show.
+  const OUTSTATION_VOUCHER_TYPE = "GST INTERCITY SALES";
+
   let query = admin
     .from("tally_invoices")
     .select("id, voucher_no, voucher_date, voucher_type, party_name, party_group, total_amount, cgst, sgst, igst")
     .eq("company", "Anjali Agency")
+    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
     .order("voucher_date", { ascending: false })
     .order("voucher_no", { ascending: false })
     .limit(500);
@@ -112,16 +118,18 @@ export default async function OutForDeliveryPage({
     tax: (Number(r.cgst) || 0) + (Number(r.sgst) || 0) + (Number(r.igst) || 0),
   }));
 
-  // Also compute period totals for KPI strip (unfiltered-by-date headline)
+  // Also compute period totals for KPI strip (outstation-only headline)
   const { count: totalCount } = await admin
     .from("tally_invoices")
     .select("id", { count: "exact", head: true })
-    .eq("company", "Anjali Agency");
+    .eq("company", "Anjali Agency")
+    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE);
 
   const { data: partyList } = await admin
     .from("tally_invoices")
     .select("party_name")
     .eq("company", "Anjali Agency")
+    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
     .not("party_name", "is", null)
     .order("party_name");
   const uniqueParties = Array.from(new Set((partyList ?? []).map((p) => p.party_name as string))).filter(Boolean);
@@ -133,7 +141,7 @@ export default async function OutForDeliveryPage({
     <>
       <PageHeader
         title="Out for Delivery"
-        subtitle={`Anjali Agency — Tally sales invoices · ${totalCount?.toLocaleString("en-IN") ?? 0} total`}
+        subtitle={`Anjali Agency — outstation invoices (OCS) · ${totalCount?.toLocaleString("en-IN") ?? 0} total · Jalna City route excluded`}
       />
       <OutForDeliveryClient
         rows={rows}
