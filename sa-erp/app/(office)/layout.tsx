@@ -1,12 +1,17 @@
-import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { can, requireUser } from "@/lib/auth";
 import { OfficeNav, type NavItem } from "@/components/office-nav";
 
 export default async function OfficeLayout({ children }: { children: React.ReactNode }) {
   const me = await requireUser();
+  if (me.loginKind === "pin") redirect("/f");
   const isOwner = me.roles.includes("owner");
 
   const items: NavItem[] = [
     { href: "/", label: "Home" },
+    { href: "/approvals", label: "Approvals" },
+    ...(can(me, "users.manage") ? [{ href: "/users", label: "Users" }] : []),
+    ...(isOwner ? [{ href: "/approval-limits", label: "Approval limits" }] : []),
     { href: "/calendar", label: "JC calendar" },
     { href: "/settings", label: "Firms & settings" },
     ...(isOwner ? [{ href: "/audit", label: "Audit log" }] : []),

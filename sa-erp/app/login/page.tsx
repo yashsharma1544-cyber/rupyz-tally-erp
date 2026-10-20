@@ -82,6 +82,9 @@ function LoginForm() {
       >
         Email me a sign-in link
       </button>
+      <a href="/pin-login" className="block text-center text-sm text-slate-500 underline">
+        Field staff: sign in with PIN / फील्ड स्टाफ: पिन लॉगिन
+      </a>
     </form>
   );
 }
