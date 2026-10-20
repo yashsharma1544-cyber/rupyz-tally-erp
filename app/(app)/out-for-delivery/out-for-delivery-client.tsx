@@ -102,7 +102,7 @@ export function OutForDeliveryClient({
     <div className="p-4 md:p-6 space-y-4">
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="All invoices" value={totalCount.toLocaleString("en-IN")} sub="Anjali Agency, FY26-27" />
+        <Kpi label="Outstation invoices" value={totalCount.toLocaleString("en-IN")} sub="Anjali Agency, FY26-27 · OCS" />
         <Kpi label="Shown here" value={periodCount.toLocaleString("en-IN")} sub={anyFilter ? "matches filter" : "most recent"} />
         <Kpi label="Value (shown)" value={fmtMoney(periodValue)} sub="before tax" />
         <Kpi label="Parties" value={parties.length.toLocaleString("en-IN")} sub="distinct customers" />
