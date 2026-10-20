@@ -4,7 +4,7 @@ import { useState, useMemo, Fragment } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, MapPin, Plus } from "lucide-react";
-import { fetchInvoiceLines, createDispatch, markDelivered, createVehicle } from "./actions";
+import { fetchInvoiceLines, createDispatch, markDelivered, createVehicle, createHelper } from "./actions";
 
 export type InvoiceStatus = "pending" | "dispatched" | "delivered";
 
@@ -607,7 +607,7 @@ function EmptyState() {
 }
 
 function CreateDispatchModal({
-  selectedRows, vehicles: vehiclesProp, helpers, onClose, onCreated,
+  selectedRows, vehicles: vehiclesProp, helpers: helpersProp, onClose, onCreated,
 }: {
   selectedRows: InvoiceRow[];
   vehicles: VehicleOpt[];
@@ -615,9 +615,10 @@ function CreateDispatchModal({
   onClose: () => void;
   onCreated: (dispatchId: string) => void;
 }) {
-  // Local vehicles list so a vehicle created inline shows up immediately
-  // in the dropdown without a round-trip refresh.
+  // Local lists so items created inline show up immediately in the dropdowns
+  // without a round-trip refresh.
   const [vehicles, setVehicles] = useState<VehicleOpt[]>(vehiclesProp);
+  const [helpers, setHelpers] = useState<HelperOpt[]>(helpersProp);
   const [vehicleId, setVehicleId] = useState<string>(vehiclesProp[0]?.id ?? "");
   const [helper1Id, setHelper1Id] = useState<string>("");
   const [helper2Id, setHelper2Id] = useState<string>("");
@@ -634,6 +635,14 @@ function CreateDispatchModal({
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [newVehErr, setNewVehErr] = useState<string | null>(null);
 
+  // Inline new-helper form. `target` says which slot the freshly-created
+  // helper should be auto-assigned to.
+  const [newHelperTarget, setNewHelperTarget] = useState<null | 1 | 2>(null);
+  const [newHelperName, setNewHelperName] = useState("");
+  const [newHelperRole, setNewHelperRole] = useState("");
+  const [savingHelper, setSavingHelper] = useState(false);
+  const [newHelperErr, setNewHelperErr] = useState<string | null>(null);
+
   const totalKg = selectedRows.reduce((a, r) => a + r.kg, 0);
   const totalValue = selectedRows.reduce((a, r) => a + r.total_amount, 0);
   const beats = Array.from(new Set(selectedRows.map((r) => r.beat))).sort();
@@ -641,6 +650,25 @@ function CreateDispatchModal({
   const overload = vehicle?.capacity_kg != null && totalKg > vehicle.capacity_kg;
   // Guard so the same person isn't picked as helper 1 and helper 2
   const sameHelper = helper1Id !== "" && helper1Id === helper2Id;
+
+  async function saveNewHelper() {
+    setNewHelperErr(null);
+    const name = newHelperName.trim();
+    if (!name) { setNewHelperErr("Name is required"); return; }
+    setSavingHelper(true);
+    const res = await createHelper({ name, role: newHelperRole.trim() || null });
+    setSavingHelper(false);
+    if (!res.ok) { setNewHelperErr(res.error ?? "Failed"); return; }
+    // Add to local list (dedupe), auto-select into the slot that opened the form
+    setHelpers((prev) => {
+      const without = prev.filter((h) => h.id !== res.helper.id);
+      return [...without, res.helper].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    if (newHelperTarget === 1) setHelper1Id(res.helper.id);
+    else if (newHelperTarget === 2) setHelper2Id(res.helper.id);
+    setNewHelperTarget(null);
+    setNewHelperName(""); setNewHelperRole("");
+  }
 
   async function saveNewVehicle() {
     setNewVehErr(null);
@@ -752,27 +780,73 @@ function CreateDispatchModal({
             )}
           </div>
 
-          {/* Two helper slots, both optional. */}
+          {/* Two helper slots, both optional. Each has a "+ New helper" link
+              that reveals a shared inline form; whichever slot opened it is
+              where the new helper lands when saved. */}
           <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 1</span>
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 1</span>
+                {newHelperTarget !== 1 && (
+                  <button type="button" onClick={() => { setNewHelperTarget(1); setNewHelperErr(null); }}
+                    className="text-2xs text-accent hover:underline inline-flex items-center gap-1">
+                    <Plus size={11} /> New
+                  </button>
+                )}
+              </div>
               <select value={helper1Id} onChange={(e) => setHelper1Id(e.target.value)}
-                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+                disabled={newHelperTarget !== null}
+                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full disabled:opacity-50">
                 <option value="">— None —</option>
                 {helpers.map((h) => (<option key={h.id} value={h.id}>{h.name}{h.role ? ` · ${h.role}` : ""}</option>))}
               </select>
-            </label>
-            <label className="block">
-              <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 2</span>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-2xs uppercase tracking-wide text-ink-muted font-medium">Helper 2</span>
+                {newHelperTarget !== 2 && (
+                  <button type="button" onClick={() => { setNewHelperTarget(2); setNewHelperErr(null); }}
+                    className="text-2xs text-accent hover:underline inline-flex items-center gap-1">
+                    <Plus size={11} /> New
+                  </button>
+                )}
+              </div>
               <select value={helper2Id} onChange={(e) => setHelper2Id(e.target.value)}
-                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full">
+                disabled={newHelperTarget !== null}
+                className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm w-full disabled:opacity-50">
                 <option value="">— None —</option>
                 {helpers.map((h) => (<option key={h.id} value={h.id}>{h.name}{h.role ? ` · ${h.role}` : ""}</option>))}
               </select>
-            </label>
+            </div>
           </div>
           {sameHelper && (
             <div className="text-2xs text-amber-700 -mt-2">Helper 1 and Helper 2 cannot be the same person.</div>
+          )}
+          {newHelperTarget !== null && (
+            <div className="p-3 border border-accent/40 bg-accent/5 rounded space-y-2">
+              <div className="text-2xs uppercase tracking-wide text-ink-muted font-medium">
+                Add new helper → Helper {newHelperTarget}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={newHelperName} onChange={(e) => setNewHelperName(e.target.value)}
+                  placeholder="Name (e.g. Rajesh Dhoke)" autoFocus
+                  className="h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
+                <input type="text" value={newHelperRole} onChange={(e) => setNewHelperRole(e.target.value)}
+                  placeholder="Role (optional, e.g. helper, loader)"
+                  className="h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
+              </div>
+              {newHelperErr && <div className="text-2xs text-danger">{newHelperErr}</div>}
+              <div className="flex items-center justify-end gap-2">
+                <button type="button" onClick={() => { setNewHelperTarget(null); setNewHelperErr(null); setNewHelperName(""); setNewHelperRole(""); }}
+                  className="h-8 px-3 rounded border border-paper-line bg-paper-card text-xs text-ink-muted hover:bg-paper-subtle">
+                  Cancel
+                </button>
+                <button type="button" onClick={saveNewHelper} disabled={savingHelper || !newHelperName.trim()}
+                  className="h-8 px-3 rounded bg-accent text-white text-xs font-medium hover:bg-accent/90 disabled:opacity-50 inline-flex items-center gap-1">
+                  <PackageCheck size={12} /> {savingHelper ? "Saving…" : "Save helper"}
+                </button>
+              </div>
+            </div>
           )}
 
           <label className="block">
@@ -785,7 +859,8 @@ function CreateDispatchModal({
         </div>
         <div className="px-5 py-3 border-t border-paper-line flex justify-end gap-2 sticky bottom-0 bg-paper">
           <button onClick={onClose} className="h-9 px-4 rounded border border-paper-line bg-paper-card text-sm text-ink-muted hover:bg-paper-subtle">Cancel</button>
-          <button onClick={submit} disabled={busy || selectedRows.length === 0 || sameHelper || showNewVehicle}
+          <button onClick={submit}
+            disabled={busy || selectedRows.length === 0 || sameHelper || showNewVehicle || newHelperTarget !== null}
             className="h-9 px-4 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 inline-flex items-center gap-1.5">
             <PackageCheck size={14} /> {busy ? "Creating…" : "Create & open load list"}
           </button>

@@ -203,13 +203,12 @@ export default async function OutForDeliveryPage({
   const uniqueParties = Array.from(new Set((partyList ?? []).map((p) => p.party_name as string))).filter(Boolean).sort();
 
   // Vehicle + helper options for the Create Dispatch modal.
-  // Helpers can be anyone on the field team (salesmen and collectors ride along
-  // on delivery trips too), so include a broader role set.
+  // Helpers come from the lightweight dispatch_helpers directory, which was
+  // seeded from the field-team app_users (admin / salesman / collector / etc.)
+  // and can be extended inline from the modal — no auth account needed.
   const [vehicleRes, helperRes] = await Promise.all([
     admin.from("vehicles").select("id, number, make, capacity_kg").eq("active", true).order("number"),
-    admin.from("app_users").select("id, full_name, role").eq("active", true)
-      .in("role", ["driver", "van_lead", "dispatch", "helper", "salesman", "collector", "admin"])
-      .order("full_name"),
+    admin.from("dispatch_helpers").select("id, name, role").eq("active", true).order("name"),
   ]);
   const vehicles: VehicleOpt[] = (vehicleRes.data ?? []).map((v) => ({
     id: v.id as string,
@@ -219,7 +218,7 @@ export default async function OutForDeliveryPage({
   }));
   const helpers: HelperOpt[] = (helperRes.data ?? []).map((h) => ({
     id: h.id as string,
-    name: (h.full_name as string) ?? "",
+    name: (h.name as string) ?? "",
     role: (h.role as string) ?? "",
   }));
 

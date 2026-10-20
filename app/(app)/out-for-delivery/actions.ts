@@ -40,6 +40,62 @@ export async function fetchInvoiceLines(invoiceId: string): Promise<LineRow[]> {
   }));
 }
 
+export async function createHelper(input: {
+  name: string;
+  role: string | null;
+}): Promise<{ ok: true; helper: { id: string; name: string; role: string } } | { ok: false; error: string }> {
+  const actor = await requireAdmin();
+  if (!actor) return { ok: false, error: "Not authorized" };
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "Name is required" };
+
+  const admin = createAdminClient();
+
+  // Reuse an existing helper with the same name (case-insensitive). Reactivate
+  // if it was soft-deleted.
+  const { data: existing } = await admin
+    .from("dispatch_helpers")
+    .select("id, name, role, active")
+    .ilike("name", name)
+    .maybeSingle();
+  if (existing) {
+    if (!existing.active) {
+      await admin.from("dispatch_helpers").update({ active: true }).eq("id", existing.id);
+    }
+    return {
+      ok: true,
+      helper: {
+        id: existing.id as string,
+        name: (existing.name as string) ?? name,
+        role: (existing.role as string) ?? "",
+      },
+    };
+  }
+
+  const { data: inserted, error } = await admin
+    .from("dispatch_helpers")
+    .insert({
+      name,
+      role: input.role?.trim() || null,
+      active: true,
+      created_by: actor.userId,
+      created_by_name: actor.fullName,
+    })
+    .select("id, name, role")
+    .single();
+  if (error || !inserted) return { ok: false, error: error?.message ?? "Failed to create helper" };
+
+  revalidatePath("/out-for-delivery");
+  return {
+    ok: true,
+    helper: {
+      id: inserted.id as string,
+      name: (inserted.name as string) ?? name,
+      role: (inserted.role as string) ?? "",
+    },
+  };
+}
+
 export async function createVehicle(input: {
   number: string;
   make: string | null;
@@ -136,8 +192,11 @@ export async function createDispatch(input: {
   }
   const helperIds = [input.helper1UserId, input.helper2UserId].filter((x): x is string => !!x);
   if (helperIds.length > 0) {
-    const { data: hs } = await admin.from("app_users").select("id, full_name").in("id", helperIds);
-    const byId = new Map((hs ?? []).map((h) => [h.id as string, (h.full_name as string) ?? null]));
+    // Helpers now live in their own directory table. The id column on
+    // tally_dispatches is called helper*_user_id for historical reasons but
+    // actually holds a dispatch_helpers.id.
+    const { data: hs } = await admin.from("dispatch_helpers").select("id, name").in("id", helperIds);
+    const byId = new Map((hs ?? []).map((h) => [h.id as string, (h.name as string) ?? null]));
     helper1Name = input.helper1UserId ? byId.get(input.helper1UserId) ?? null : null;
     helper2Name = input.helper2UserId ? byId.get(input.helper2UserId) ?? null : null;
   }
