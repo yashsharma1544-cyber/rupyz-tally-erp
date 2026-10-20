@@ -1,9 +1,11 @@
 // =============================================================================
 // /out-for-delivery — Anjali Agency OUTSTATION invoices (OCS)
 //
-// Shows one row per Tally invoice (voucher_type = 'GST INTERCITY SALES').
-// Jalna City counter sales (GST SALES, PRIYA SALES) are handled locally and
-// excluded from this screen.
+// Shows one row per Tally invoice for outstation voucher types:
+//   - 'GST INTERCITY SALES' (historical outstation bills)
+//   - 'NEW MONDHA' (bills raised from the Mondha branch for Mehkar / outstation trips)
+// Jalna City counter sales ('GST SALES', 'PRIYA SALES') are handled locally
+// and excluded from this screen.
 //
 // Admin flow:
 //   1. Filter list by status (pending/dispatched/delivered) and beat
@@ -33,7 +35,8 @@ type SearchParams = {
   status?: string; // pending | dispatched | delivered | all
 };
 
-const OUTSTATION_VOUCHER_TYPE = "GST INTERCITY SALES";
+// Outstation voucher types — see Jalna City route exclusion rules in the file header.
+const OUTSTATION_VOUCHER_TYPES = ["GST INTERCITY SALES", "NEW MONDHA"] as const;
 
 export default async function OutForDeliveryPage({
   searchParams,
@@ -104,7 +107,7 @@ export default async function OutForDeliveryPage({
     .from("tally_invoices")
     .select("id, voucher_no, voucher_date, voucher_type, party_name, party_group, total_amount, cgst, sgst, igst, inferred_beat, dispatched_at, delivered_at, dispatch_id")
     .eq("company", "Anjali Agency")
-    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
+    .in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
     .order("voucher_date", { ascending: false })
     .order("voucher_no", { ascending: false })
     .limit(500);
@@ -158,14 +161,14 @@ export default async function OutForDeliveryPage({
   // Status counts (outstation only, unfiltered beyond that)
   const [pendingResult, dispatchedResult, deliveredResult, totalResult] = await Promise.all([
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
-      .eq("company", "Anjali Agency").eq("voucher_type", OUTSTATION_VOUCHER_TYPE).is("dispatched_at", null),
+      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[]).is("dispatched_at", null),
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
-      .eq("company", "Anjali Agency").eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
+      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
       .not("dispatched_at", "is", null).is("delivered_at", null),
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
-      .eq("company", "Anjali Agency").eq("voucher_type", OUTSTATION_VOUCHER_TYPE).not("delivered_at", "is", null),
+      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[]).not("delivered_at", "is", null),
     admin.from("tally_invoices").select("id", { count: "exact", head: true })
-      .eq("company", "Anjali Agency").eq("voucher_type", OUTSTATION_VOUCHER_TYPE),
+      .eq("company", "Anjali Agency").in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[]),
   ]);
 
   const statusCounts = {
@@ -180,7 +183,7 @@ export default async function OutForDeliveryPage({
     .from("tally_invoices")
     .select("inferred_beat")
     .eq("company", "Anjali Agency")
-    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
+    .in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
     .not("inferred_beat", "is", null);
   const uniqueBeats = Array.from(new Set((beatList ?? []).map((p) => p.inferred_beat as string))).filter(Boolean).sort();
 
@@ -189,7 +192,7 @@ export default async function OutForDeliveryPage({
     .from("tally_invoices")
     .select("party_name")
     .eq("company", "Anjali Agency")
-    .eq("voucher_type", OUTSTATION_VOUCHER_TYPE)
+    .in("voucher_type", OUTSTATION_VOUCHER_TYPES as unknown as string[])
     .not("party_name", "is", null);
   if (beat) partyQuery = partyQuery.eq("inferred_beat", beat);
   const { data: partyList } = await partyQuery;
