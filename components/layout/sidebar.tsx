@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Target,
   CalendarRange,
+  PackageCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/pipeline",                     label: "Pipeline",       icon: Kanban,          roles: "all"   },
   { href: "/orders",                       label: "Orders",         icon: ShoppingBag,     roles: "all"   },
   { href: "/dispatches",                   label: "Dispatches",     icon: Truck,           roles: "all"   },
+  { href: "/out-for-delivery",             label: "Out for Delivery", icon: PackageCheck,  roles: "admin" },
   { href: "/beats",                        label: "Beats",          icon: MapPin,          roles: "all"   },
   { href: "/customers",                    label: "Customers",      icon: Users2,          roles: "all"   },
   { href: "/products",                     label: "Products",       icon: Package,         roles: "all"   },
