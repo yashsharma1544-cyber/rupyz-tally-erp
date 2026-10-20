@@ -51,10 +51,19 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
 
   const { data: dispatch } = await admin
     .from("tally_dispatches")
-    .select("id, dispatch_no, dispatch_date, vehicle_number, driver_name, notes, created_at, created_by_name, completed_at, invoice_count, total_amount, total_kg")
+    .select("id, dispatch_no, dispatch_date, vehicle_number, driver_name, helper1_name, helper2_name, notes, created_at, created_by_name, completed_at, invoice_count, total_amount, total_kg")
     .eq("id", params.id)
     .maybeSingle();
   if (!dispatch) notFound();
+
+  // Prefer helpers; fall back to legacy driver_name for dispatches created
+  // before the helper columns existed.
+  const helperDisplay = (() => {
+    const h1 = (dispatch.helper1_name as string | null) ?? (dispatch.driver_name as string | null);
+    const h2 = (dispatch.helper2_name as string | null);
+    if (h1 && h2) return `${h1}, ${h2}`;
+    return h1 ?? h2 ?? "—";
+  })();
 
   const { data: invRows } = await admin
     .from("tally_invoices")
@@ -146,7 +155,7 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-sm">
           <SummaryCell label="Date" value={fmtDate(dispatch.dispatch_date as string)} />
           <SummaryCell label="Vehicle" value={(dispatch.vehicle_number as string) ?? "—"} />
-          <SummaryCell label="Driver" value={(dispatch.driver_name as string) ?? "—"} />
+          <SummaryCell label="Helpers" value={helperDisplay} />
           <SummaryCell label="Prepared by" value={(dispatch.created_by_name as string) ?? "—"} />
           <SummaryCell label="Invoices" value={String(dispatch.invoice_count ?? invoices.length)} />
           <SummaryCell label="Total weight" value={`${fmtKg(Number(dispatch.total_kg) || 0)} kg`} />
@@ -222,10 +231,10 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
           );
         })}
 
-        {/* Driver sign-off */}
+        {/* Sign-off */}
         <div className="mt-6 pt-4 border-t-2 border-ink grid grid-cols-2 gap-6 text-xs">
           <div>
-            <div className="text-ink-muted mb-6">Driver signature &amp; date</div>
+            <div className="text-ink-muted mb-6">Vehicle in-charge signature &amp; date</div>
             <div className="border-b border-ink h-10"></div>
           </div>
           <div>
