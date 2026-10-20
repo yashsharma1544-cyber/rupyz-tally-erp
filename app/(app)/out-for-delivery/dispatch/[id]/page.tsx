@@ -39,7 +39,16 @@ function fmtKg(n: number): string {
   return (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 });
 }
 
-export default async function DispatchLoadListPage({ params }: { params: { id: string } }) {
+export default async function DispatchLoadListPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { confirm?: string };
+}) {
+  // ?confirm=load lands here right after Create Dispatch — the top-of-page
+  // banner nudges the user to confirm the loaded quantities before printing.
+  const confirmMode = searchParams.confirm === "load";
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?from=/out-for-delivery/dispatch/${params.id}`);
@@ -135,6 +144,30 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
         </div>
       </div>
 
+      {/* Just-created banner: nudges the user to confirm per-item loaded qty
+          on the vehicle before printing. Hidden on print and after the
+          first visit (banner is only shown when ?confirm=load is in the URL). */}
+      {confirmMode && (
+        <div className="print:hidden mb-4 p-4 bg-amber-50 border border-amber-300 rounded-md">
+          <div className="flex items-start gap-3">
+            <div className="text-xl leading-none">📦</div>
+            <div className="flex-1 text-sm">
+              <div className="font-semibold text-amber-900 mb-1">Dispatch created — now confirm the vehicle load</div>
+              <div className="text-amber-800">
+                Below is what&apos;s expected on the vehicle, built from the invoice line items.
+                If the physical load differs (short-loaded a case, loaded extra for a top-up),
+                click <strong>Edit</strong> on that item and adjust the <em>Loaded qty</em> / <em>Loaded kg</em>.
+                Once the numbers match what&apos;s actually on the vehicle, click <strong>Print</strong>.
+              </div>
+              <a href={`/out-for-delivery/dispatch/${params.id}`}
+                className="inline-block mt-2 text-2xs text-amber-900 underline hover:no-underline">
+                Dismiss this banner
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Printable area */}
       <div className="bg-paper print:bg-white">
         {/* Letterhead */}
@@ -171,12 +204,24 @@ export default async function DispatchLoadListPage({ params }: { params: { id: s
         )}
 
         {/* Vehicle load (loaded / delivered / returned / variance per item) */}
-        {loads.length > 0 && (
-          <div className="mb-5 break-inside-avoid">
-            <h3 className="text-sm font-bold border-b border-ink/40 pb-1 mb-2">
+        {loads.length > 0 ? (
+          <div
+            id="vehicle-load"
+            className={`mb-5 break-inside-avoid ${confirmMode ? "ring-2 ring-amber-300 rounded p-2 -m-2 print:ring-0 print:p-0 print:m-0" : ""}`}
+          >
+            <h3 className="text-sm font-bold border-b border-ink/40 pb-1 mb-2 flex items-center gap-2">
               Vehicle Load <span className="font-normal text-xs text-ink-muted">· {loads.length} items</span>
+              {confirmMode && (
+                <span className="print:hidden ml-auto text-2xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                  ← Confirm these numbers before printing
+                </span>
+              )}
             </h3>
             <VehicleLoadsClient loads={loads} />
+          </div>
+        ) : confirmMode && (
+          <div className="print:hidden mb-5 p-3 bg-paper-subtle/40 border border-dashed border-paper-line rounded text-sm text-ink-muted">
+            Vehicle Load table isn&apos;t set up yet — run <code className="font-mono text-xs bg-paper px-1 rounded">docs/anjali-vehicle-stock.sql</code> on the ERP Supabase project so you can confirm per-item loaded quantities here.
           </div>
         )}
 
