@@ -83,6 +83,7 @@ export default async function OutForDeliveryPage({
             <ol className="text-sm text-ink-muted list-decimal ml-5 space-y-1">
               <li><code className="font-mono text-xs bg-paper-subtle px-1 rounded">docs/anjali-load.sql</code> — creates tables + loads 1,735 invoices + 5,983 lines</li>
               <li><code className="font-mono text-xs bg-paper-subtle px-1 rounded">docs/anjali-dispatch-schema.sql</code> — adds dispatch/delivery status + beat inference</li>
+              <li><code className="font-mono text-xs bg-paper-subtle px-1 rounded">docs/anjali-party-beats.sql</code> — adds party→beat override table</li>
             </ol>
             <p className="text-2xs text-ink-subtle mt-3">Error: {probeErr.message}</p>
           </div>

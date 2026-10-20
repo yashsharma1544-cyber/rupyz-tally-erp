@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useMemo, Fragment } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, Printer } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, X, Truck, CheckCircle2, Clock, PackageCheck, MapPin } from "lucide-react";
 import { fetchInvoiceLines, createDispatch, markDelivered } from "./actions";
 
 export type InvoiceStatus = "pending" | "dispatched" | "delivered";
@@ -186,6 +187,10 @@ export function OutForDeliveryClient({
         <StatusChip label="In transit" count={statusCounts.dispatched} active={filters.status === "dispatched"} onClick={() => setParam("status", "dispatched")} tone="blue" />
         <StatusChip label="Delivered" count={statusCounts.delivered} active={filters.status === "delivered"} onClick={() => setParam("status", "delivered")} tone="emerald" />
         <StatusChip label="All" count={statusCounts.all} active={filters.status === "all"} onClick={() => setParam("status", "all")} tone="neutral" />
+        <Link href="/out-for-delivery/parties"
+          className="ml-auto h-8 px-3 rounded-full border border-paper-line hover:bg-paper-subtle text-xs font-medium inline-flex items-center gap-1.5">
+          <MapPin size={12} /> Parties &amp; Beats
+        </Link>
       </div>
 
       {/* KPI strip */}
