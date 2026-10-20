@@ -87,7 +87,16 @@ export function OutForDeliveryClient({
   const [loadingLines, setLoadingLines] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(filters.q ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [groupByBeat, setGroupByBeat] = useState(false);
+  // Default to grouped view — a tile per beat showing the delivery (invoice) date
+  const [groupByBeat, setGroupByBeat] = useState(true);
+  // Beat tiles are collapsed by default; the Set holds beats the user has opened
+  const [openBeats, setOpenBeats] = useState<Set<string>>(new Set());
+  function toggleBeat(beat: string) {
+    const next = new Set(openBeats);
+    if (next.has(beat)) next.delete(beat);
+    else next.add(beat);
+    setOpenBeats(next);
+  }
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
@@ -161,7 +170,9 @@ export function OutForDeliveryClient({
 
   const anyFilter = filters.from || filters.to || filters.party || filters.q || filters.beat || filters.status !== "pending";
 
-  // Beat grouping
+  // Beat grouping — each tile shows beat, invoice/delivery date(s), count, kg, value.
+  // If every invoice in a beat shares one voucher_date (common for tomorrow's trip
+  // bills) show just that date; otherwise show earliest → latest.
   const beatGroups = useMemo(() => {
     if (!groupByBeat) return null;
     const map = new Map<string, InvoiceRow[]>();
@@ -170,12 +181,18 @@ export function OutForDeliveryClient({
       map.get(r.beat)!.push(r);
     }
     return Array.from(map.entries())
-      .map(([beat, invs]) => ({
-        beat, invs,
-        count: invs.length,
-        value: invs.reduce((a, b) => a + b.total_amount, 0),
-        kg: invs.reduce((a, b) => a + b.kg, 0),
-      }))
+      .map(([beat, invs]) => {
+        const dates = Array.from(new Set(invs.map((i) => i.voucher_date))).sort();
+        const dateLabel = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])} → ${fmtDate(dates[dates.length - 1])}`;
+        return {
+          beat, invs,
+          count: invs.length,
+          value: invs.reduce((a, b) => a + b.total_amount, 0),
+          kg: invs.reduce((a, b) => a + b.kg, 0),
+          dateLabel,
+          singleDate: dates.length === 1,
+        };
+      })
       .sort((a, b) => b.count - a.count);
   }, [rows, groupByBeat]);
 
@@ -245,10 +262,24 @@ export function OutForDeliveryClient({
               className="mt-1 h-9 px-2 rounded border border-paper-line bg-paper text-sm" />
           </label>
 
-          <label className="inline-flex items-center gap-1.5 h-9 text-sm">
+          <label className="inline-flex items-center gap-1.5 h-9 text-sm" title="Off: show one flat table of invoices">
             <input type="checkbox" checked={groupByBeat} onChange={(e) => setGroupByBeat(e.target.checked)} />
             Group by beat
           </label>
+          {groupByBeat && beatGroups && beatGroups.length > 0 && (
+            <div className="inline-flex items-center gap-1 h-9 text-2xs">
+              <button
+                type="button"
+                onClick={() => setOpenBeats(new Set(beatGroups.map((g) => g.beat)))}
+                className="h-7 px-2 rounded border border-paper-line bg-paper text-ink-muted hover:bg-paper-subtle"
+              >Expand all</button>
+              <button
+                type="button"
+                onClick={() => setOpenBeats(new Set())}
+                className="h-7 px-2 rounded border border-paper-line bg-paper text-ink-muted hover:bg-paper-subtle"
+              >Collapse all</button>
+            </div>
+          )}
 
           {anyFilter && (
             <button onClick={clearFilters}
@@ -289,9 +320,11 @@ export function OutForDeliveryClient({
 
       {/* List */}
       {groupByBeat && beatGroups ? (
-        <div className="space-y-4">
+        <div className="space-y-2">
           {beatGroups.map((g) => (
-            <BeatSection key={g.beat} beat={g.beat} count={g.count} value={g.value} kg={g.kg}
+            <BeatTile key={g.beat} beat={g.beat} count={g.count} value={g.value} kg={g.kg}
+              dateLabel={g.dateLabel} singleDate={g.singleDate}
+              isOpen={openBeats.has(g.beat)} onToggle={() => toggleBeat(g.beat)}
               invoices={g.invs} selected={selected} onToggleRow={toggleRow} onToggleAll={toggleAll}
               expandedId={expandedId} onExpand={toggleExpand} linesCache={linesCache} loadingLines={loadingLines}
               onMarkDelivered={onMarkDelivered} actionBusy={actionBusy} />
@@ -340,7 +373,7 @@ function StatusChip({ label, count, active, onClick, tone }: { label: string; co
 }
 
 function InvoiceTable({
-  invoices, selected, onToggleRow, onToggleAll, expandedId, onExpand, linesCache, loadingLines, onMarkDelivered, actionBusy,
+  invoices, selected, onToggleRow, onToggleAll, expandedId, onExpand, linesCache, loadingLines, onMarkDelivered, actionBusy, embedded,
 }: {
   invoices: InvoiceRow[];
   selected: Set<string>;
@@ -352,12 +385,16 @@ function InvoiceTable({
   loadingLines: string | null;
   onMarkDelivered: (id: string) => void;
   actionBusy: string | null;
+  // When rendered inside a BeatTile, skip the outer card chrome so the two
+  // borders don't double up.
+  embedded?: boolean;
 }) {
   const allIds = invoices.map((r) => r.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
   if (invoices.length === 0) return <EmptyState />;
+  const wrapperCls = embedded ? "" : "bg-paper-card border border-paper-line rounded-md overflow-hidden";
   return (
-    <div className="bg-paper-card border border-paper-line rounded-md overflow-hidden">
+    <div className={wrapperCls}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-paper-subtle/60 border-b border-paper-line">
@@ -435,11 +472,15 @@ function InvoiceTable({
   );
 }
 
-function BeatSection(props: {
+function BeatTile(props: {
   beat: string;
   count: number;
   value: number;
   kg: number;
+  dateLabel: string;
+  singleDate: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
   invoices: InvoiceRow[];
   selected: Set<string>;
   onToggleRow: (id: string) => void;
@@ -451,13 +492,56 @@ function BeatSection(props: {
   onMarkDelivered: (id: string) => void;
   actionBusy: string | null;
 }) {
+  const anySelectedInBeat = props.invoices.some((r) => props.selected.has(r.id));
+  const allSelectedInBeat = props.invoices.length > 0 && props.invoices.every((r) => props.selected.has(r.id));
   return (
-    <div>
-      <div className="flex items-center gap-3 px-1 py-2">
-        <h3 className="text-sm font-semibold">{props.beat}</h3>
-        <span className="text-2xs text-ink-muted">{props.count} invoices · {fmtKg(props.kg)} kg · {fmtMoney(props.value)}</span>
+    <div className={`bg-paper-card border rounded-md overflow-hidden transition-colors ${anySelectedInBeat ? "border-accent/50" : "border-paper-line"}`}>
+      {/* Tile header — click toggles the beat open/closed. The checkbox sits
+          outside the toggle hit-area so selecting all invoices in a beat does
+          not also expand it. */}
+      <div className="flex items-stretch">
+        <label className="flex items-center px-3 border-r border-paper-line hover:bg-paper-subtle/50 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={allSelectedInBeat}
+            ref={(el) => { if (el) el.indeterminate = anySelectedInBeat && !allSelectedInBeat; }}
+            onChange={() => props.onToggleAll(props.invoices.map((r) => r.id))}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={props.onToggle}
+          className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-paper-subtle/40 text-left"
+        >
+          {props.isOpen ? <ChevronDown size={16} className="text-ink-subtle" /> : <ChevronRight size={16} className="text-ink-subtle" />}
+          <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-base font-semibold text-ink">{props.beat}</span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-medium ${props.singleDate ? "bg-amber-50 text-amber-800 border border-amber-200" : "bg-paper-subtle text-ink-muted border border-paper-line"}`}>
+              <Clock size={10} /> {props.dateLabel}
+            </span>
+            <span className="text-xs text-ink-muted tabular">
+              {props.count} {props.count === 1 ? "invoice" : "invoices"} · {fmtKg(props.kg)} kg · {fmtMoney(props.value)}
+            </span>
+          </div>
+        </button>
       </div>
-      <InvoiceTable {...props} invoices={props.invoices} />
+      {props.isOpen && (
+        <div className="border-t border-paper-line">
+          <InvoiceTable
+            invoices={props.invoices}
+            selected={props.selected}
+            onToggleRow={props.onToggleRow}
+            onToggleAll={props.onToggleAll}
+            expandedId={props.expandedId}
+            onExpand={props.onExpand}
+            linesCache={props.linesCache}
+            loadingLines={props.loadingLines}
+            onMarkDelivered={props.onMarkDelivered}
+            actionBusy={props.actionBusy}
+            embedded
+          />
+        </div>
+      )}
     </div>
   );
 }
