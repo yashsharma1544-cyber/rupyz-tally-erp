@@ -129,8 +129,65 @@ export async function createDispatch(input: {
     return { ok: false, error: updErr.message };
   }
 
+  // Auto-populate vehicle loads from the invoice line items
+  const { data: lineRows } = await admin
+    .from("tally_invoice_lines")
+    .select("item_name, hsn, qty, qty_kg")
+    .in("invoice_id", input.invoiceIds)
+    .not("item_name", "is", null);
+  const loadMap = new Map<string, { item_name: string; hsn: string | null; loaded_qty: number; loaded_kg: number }>();
+  for (const l of lineRows ?? []) {
+    const key = (l.item_name as string) ?? "";
+    if (!key) continue;
+    const cur = loadMap.get(key) ?? { item_name: key, hsn: (l.hsn as string) ?? null, loaded_qty: 0, loaded_kg: 0 };
+    cur.loaded_qty += Number(l.qty) || 0;
+    cur.loaded_kg += Number(l.qty_kg) || 0;
+    if (!cur.hsn && l.hsn) cur.hsn = l.hsn as string;
+    loadMap.set(key, cur);
+  }
+  if (loadMap.size > 0) {
+    const loadRows = Array.from(loadMap.values()).map((r) => ({
+      dispatch_id: dispatchId,
+      item_name: r.item_name,
+      hsn: r.hsn,
+      loaded_qty: r.loaded_qty,
+      loaded_kg: r.loaded_kg,
+    }));
+    // table may not exist yet if migration hasn't been run; ignore errors silently
+    await admin.from("tally_dispatch_loads").insert(loadRows);
+  }
+
   revalidatePath("/out-for-delivery");
   return { ok: true, dispatchId };
+}
+
+export async function updateDispatchLoad(input: {
+  loadId: string;
+  loaded_qty?: number;
+  loaded_kg?: number;
+  returned_qty?: number;
+  returned_kg?: number;
+  notes?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const actor = await requireAdmin();
+  if (!actor) return { ok: false, error: "Not authorized" };
+  const admin = createAdminClient();
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.loaded_qty !== undefined) patch.loaded_qty = input.loaded_qty;
+  if (input.loaded_kg !== undefined) patch.loaded_kg = input.loaded_kg;
+  if (input.returned_qty !== undefined) {
+    patch.returned_qty = input.returned_qty;
+    patch.returned_at = new Date().toISOString();
+    patch.returned_by = actor.userId;
+  }
+  if (input.returned_kg !== undefined) patch.returned_kg = input.returned_kg;
+  if (input.notes !== undefined) patch.notes = input.notes;
+
+  const { error } = await admin.from("tally_dispatch_loads").update(patch).eq("id", input.loadId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/out-for-delivery");
+  return { ok: true };
 }
 
 export async function markDelivered(invoiceIds: string[]): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
