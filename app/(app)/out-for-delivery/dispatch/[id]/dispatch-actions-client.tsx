@@ -2,8 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Printer } from "lucide-react";
 import { markDelivered } from "../../actions";
+
+// Small wrapper around window.print() so a Server Component can render it.
+// Server Components can't carry an onClick handler themselves.
+export function PrintButton() {
+  return (
+    <button
+      onClick={() => window.print()}
+      className="h-9 px-3 rounded bg-accent text-white text-sm font-medium hover:bg-accent/90 inline-flex items-center gap-1.5"
+    >
+      <Printer size={14} /> Print
+    </button>
+  );
+}
 
 export function DispatchActions({ dispatchId, invoiceIds }: { dispatchId: string; invoiceIds: string[] }) {
   const router = useRouter();
